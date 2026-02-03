@@ -219,24 +219,31 @@ Create the file now."""
 
     def _build_prompt(self, task_text: str) -> str:
         """Build execution prompt for a task."""
-        return f"""You are an EXECUTION worker. Follow instructions EXACTLY.
+        return f"""You are an EXECUTION worker. DO THE WORK - don't just describe it.
 
 WORKSPACE: {self.workspace}
 
 TASK:
 {task_text}
 
-FILE OUTPUT FORMAT - When creating files, use this EXACT format:
+CRITICAL INSTRUCTIONS:
+1. USE YOUR TOOLS to actually modify files:
+   - Use the Edit tool to modify existing files
+   - Use the Write tool to create new files
+   - Use the Read tool to examine files first
+2. DO NOT just describe what to do - ACTUALLY DO IT
+3. After making changes, verify they worked
+
+PROTECTED FILES (READ-ONLY):
+- grind_spawner.py, orchestrator.py, roles.py
+- safety_gateway.py, safety_constitutional.py
+
+ALTERNATIVE OUTPUT FORMAT (if tools unavailable):
 <artifact type="file" path="relative/path/to/file.ext">
-FILE_CONTENT_HERE
+COMPLETE FILE CONTENT
 </artifact>
 
-RULES:
-1. Core system files (grind_spawner.py, orchestrator.py, etc.) are READ-ONLY
-2. Be FAST - don't over-explain, just do the work
-3. When done, output a brief summary
-
-EXECUTE NOW."""
+EXECUTE THE TASK NOW. Make real changes."""
 
     def add_task(
         self,
