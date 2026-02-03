@@ -1,0 +1,6 @@
+{
+    "allowlisted_domains": ["example.com", "example.org"],
+    "allowlisted_url_patterns": ["/git", "/docs"],
+    "max_requests_per_minute": 100,
+    "log_file": "audit.log"
+}

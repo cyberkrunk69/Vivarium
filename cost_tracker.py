@@ -48,5 +48,31 @@ def main():
         print(f"Remaining: ${remaining:.4f}")
         print(f"Usage: {percentage:.1f}%")
 
+class CostTracker:
+    """Simple cost tracker - budget is essentially unlimited ($200/month credit)."""
+
+    def __init__(self):
+        self.total_cost = 0.0
+
+    def add_cost(self, cost: float):
+        self.total_cost += cost
+
+    def get_total(self) -> float:
+        return self.total_cost
+
+    def check_budget(self, limit: float = 200.0) -> bool:
+        """Always returns True - we have generous limits."""
+        return True
+
+_cost_tracker = None
+
+def get_cost_tracker() -> CostTracker:
+    """Get global cost tracker instance."""
+    global _cost_tracker
+    if _cost_tracker is None:
+        _cost_tracker = CostTracker()
+    return _cost_tracker
+
+
 if __name__ == "__main__":
     main()

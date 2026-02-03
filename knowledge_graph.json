@@ -5936,6 +5936,478 @@
       "label": "error handling",
       "type": "CONCEPT",
       "properties": {}
+    },
+    "test_embeddings_20260203_061029": {
+      "id": "test_embeddings_20260203_061029",
+      "label": "Vector embeddings enable semantic search by meanin",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "test_embeddings",
+        "timestamp": "2026-02-03T06:10:29.223363",
+        "importance": 5,
+        "source": "test",
+        "full_lesson": "Vector embeddings enable semantic search by meaning not keywords"
+      }
+    },
+    "reflection_3": {
+      "id": "reflection_3",
+      "label": "Unknown lesson",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "",
+        "timestamp": "2026-02-03T06:22:39.866376",
+        "importance": 0.6,
+        "source": "",
+        "full_lesson": ""
+      }
+    },
+    "self_verification_3_1_20260203_062239": {
+      "id": "self_verification_3_1_20260203_062239",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:22:39.677929",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "concept:self-verification": {
+      "id": "concept:self-verification",
+      "label": "self-verification",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "self-verification"
+      }
+    },
+    "concept:arxiv:2305.16291": {
+      "id": "concept:arxiv:2305.16291",
+      "label": "arXiv:2305.16291",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "arXiv:2305.16291"
+      }
+    },
+    "concept:voyager": {
+      "id": "concept:voyager",
+      "label": "Voyager",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "Voyager"
+      }
+    },
+    "self_verification_3_2_20260203_062254": {
+      "id": "self_verification_3_2_20260203_062254",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:22:54.829768",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_3_3_20260203_062314": {
+      "id": "self_verification_3_3_20260203_062314",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:23:14.451139",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "reflection_automation_triggers_20260203_062357": {
+      "id": "reflection_automation_triggers_20260203_062357",
+      "label": "Automatic reflection triggers: synthesize memories",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "memory_synthesis",
+        "timestamp": "2026-02-03T06:23:57.653400",
+        "importance": 9,
+        "source": "arXiv:2304.03442 - Generative Agents: Interactive Simulacra of Human Behavior",
+        "full_lesson": "Automatic reflection triggers: synthesize memories at strategic points without manual intervention (Generative Agents arXiv:2304.03442)"
+      }
+    },
+    "concept:arxiv:2304.03442": {
+      "id": "concept:arxiv:2304.03442",
+      "label": "arXiv:2304.03442",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "arXiv:2304.03442"
+      }
+    },
+    "concept:reflection": {
+      "id": "concept:reflection",
+      "label": "reflection",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "reflection"
+      }
+    },
+    "critic_feedback_loop_20260203_062357": {
+      "id": "critic_feedback_loop_20260203_062357",
+      "label": "Critic feedback loop closes LATS/TextGrad improvem",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "code_quality",
+        "timestamp": "2026-02-03T06:23:57.663925",
+        "importance": 7,
+        "source": "arXiv:2310.04406 - LATS; arXiv:2406.14762 - TextGrad",
+        "full_lesson": "Critic feedback loop closes LATS/TextGrad improvement cycle - quality_score < 0.7 triggers improvement attempt"
+      }
+    },
+    "concept:lats": {
+      "id": "concept:lats",
+      "label": "LATS",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "LATS"
+      }
+    },
+    "concept:critic_feedback": {
+      "id": "concept:critic_feedback",
+      "label": "critic feedback",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "critic feedback"
+      }
+    },
+    "concept:textgrad": {
+      "id": "concept:textgrad",
+      "label": "TextGrad",
+      "type": "CONCEPT",
+      "properties": {
+        "name": "TextGrad"
+      }
+    },
+    "self_verification_3_1_20260203_062415": {
+      "id": "self_verification_3_1_20260203_062415",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:24:15.694906",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_3_2_20260203_062433": {
+      "id": "self_verification_3_2_20260203_062433",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:24:33.512648",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_3_3_20260203_062451": {
+      "id": "self_verification_3_3_20260203_062451",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:24:51.260650",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_2_1_20260203_062654": {
+      "id": "self_verification_2_1_20260203_062654",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:26:54.232874",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_2_2_20260203_063000": {
+      "id": "self_verification_2_2_20260203_063000",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:30:00.524073",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "online_learning_1_5_5_20260203_063005": {
+      "id": "online_learning_1_5_5_20260203_063005",
+      "label": "Mid-execution learning checkpoint from active grin",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "online_learning",
+        "timestamp": "2026-02-03T06:30:05.039477",
+        "importance": 4,
+        "source": "online",
+        "full_lesson": "Mid-execution learning checkpoint from active grind session"
+      }
+    },
+    "self_verification_2_3_20260203_063200": {
+      "id": "self_verification_2_3_20260203_063200",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:32:00.308835",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_2_4_20260203_063328": {
+      "id": "self_verification_2_4_20260203_063328",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:33:28.981265",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_2_5_20260203_063435": {
+      "id": "self_verification_2_5_20260203_063435",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T06:34:35.574930",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_2_1_20260203_083521": {
+      "id": "self_verification_2_1_20260203_083521",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T08:35:21.600779",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_2_2_20260203_083801": {
+      "id": "self_verification_2_2_20260203_083801",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T08:38:01.682706",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_1_1_20260203_084146": {
+      "id": "self_verification_1_1_20260203_084146",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T08:41:46.534635",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "reflection_automation_triggers_20260203_084343": {
+      "id": "reflection_automation_triggers_20260203_084343",
+      "label": "Automatic reflection triggers: synthesize memories",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "memory_synthesis",
+        "timestamp": "2026-02-03T08:43:43.028802",
+        "importance": 9,
+        "source": "arXiv:2304.03442 - Generative Agents: Interactive Simulacra of Human Behavior",
+        "full_lesson": "Automatic reflection triggers: synthesize memories at strategic points without manual intervention (Generative Agents arXiv:2304.03442)"
+      }
+    },
+    "critic_feedback_loop_20260203_084343": {
+      "id": "critic_feedback_loop_20260203_084343",
+      "label": "Critic feedback loop closes LATS/TextGrad improvem",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "code_quality",
+        "timestamp": "2026-02-03T08:43:43.037733",
+        "importance": 7,
+        "source": "arXiv:2310.04406 - LATS; arXiv:2406.14762 - TextGrad",
+        "full_lesson": "Critic feedback loop closes LATS/TextGrad improvement cycle - quality_score < 0.7 triggers improvement attempt"
+      }
+    },
+    "self_verification_1_2_20260203_084423": {
+      "id": "self_verification_1_2_20260203_084423",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T08:44:23.405935",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_1_3_20260203_084449": {
+      "id": "self_verification_1_3_20260203_084449",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T08:44:49.034022",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_1_4_20260203_084646": {
+      "id": "self_verification_1_4_20260203_084646",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T08:46:46.968013",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "reflection_automation_triggers_20260203_091141": {
+      "id": "reflection_automation_triggers_20260203_091141",
+      "label": "Automatic reflection triggers: synthesize memories",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "memory_synthesis",
+        "timestamp": "2026-02-03T09:11:41.167419",
+        "importance": 9,
+        "source": "arXiv:2304.03442 - Generative Agents: Interactive Simulacra of Human Behavior",
+        "full_lesson": "Automatic reflection triggers: synthesize memories at strategic points without manual intervention (Generative Agents arXiv:2304.03442)"
+      }
+    },
+    "critic_feedback_loop_20260203_091141": {
+      "id": "critic_feedback_loop_20260203_091141",
+      "label": "Critic feedback loop closes LATS/TextGrad improvem",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "code_quality",
+        "timestamp": "2026-02-03T09:11:41.175805",
+        "importance": 7,
+        "source": "arXiv:2310.04406 - LATS; arXiv:2406.14762 - TextGrad",
+        "full_lesson": "Critic feedback loop closes LATS/TextGrad improvement cycle - quality_score < 0.7 triggers improvement attempt"
+      }
+    },
+    "self_verification_1_1_20260203_091645": {
+      "id": "self_verification_1_1_20260203_091645",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T09:16:45.671280",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "self_verification_1_2_20260203_091909": {
+      "id": "self_verification_1_2_20260203_091909",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T09:19:09.459678",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "reflection_automation_triggers_20260203_092305": {
+      "id": "reflection_automation_triggers_20260203_092305",
+      "label": "Automatic reflection triggers: synthesize memories",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "memory_synthesis",
+        "timestamp": "2026-02-03T09:23:05.331864",
+        "importance": 9,
+        "source": "arXiv:2304.03442 - Generative Agents: Interactive Simulacra of Human Behavior",
+        "full_lesson": "Automatic reflection triggers: synthesize memories at strategic points without manual intervention (Generative Agents arXiv:2304.03442)"
+      }
+    },
+    "critic_feedback_loop_20260203_092305": {
+      "id": "critic_feedback_loop_20260203_092305",
+      "label": "Critic feedback loop closes LATS/TextGrad improvem",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "code_quality",
+        "timestamp": "2026-02-03T09:23:05.341269",
+        "importance": 7,
+        "source": "arXiv:2310.04406 - LATS; arXiv:2406.14762 - TextGrad",
+        "full_lesson": "Critic feedback loop closes LATS/TextGrad improvement cycle - quality_score < 0.7 triggers improvement attempt"
+      }
+    },
+    "self_verification_1_3_20260203_092308": {
+      "id": "self_verification_1_3_20260203_092308",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T09:23:08.574943",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
+    },
+    "reflection_automation_triggers_20260203_092843": {
+      "id": "reflection_automation_triggers_20260203_092843",
+      "label": "Automatic reflection triggers: synthesize memories",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "memory_synthesis",
+        "timestamp": "2026-02-03T09:28:43.536476",
+        "importance": 9,
+        "source": "arXiv:2304.03442 - Generative Agents: Interactive Simulacra of Human Behavior",
+        "full_lesson": "Automatic reflection triggers: synthesize memories at strategic points without manual intervention (Generative Agents arXiv:2304.03442)"
+      }
+    },
+    "critic_feedback_loop_20260203_092843": {
+      "id": "critic_feedback_loop_20260203_092843",
+      "label": "Critic feedback loop closes LATS/TextGrad improvem",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "code_quality",
+        "timestamp": "2026-02-03T09:28:43.548303",
+        "importance": 7,
+        "source": "arXiv:2310.04406 - LATS; arXiv:2406.14762 - TextGrad",
+        "full_lesson": "Critic feedback loop closes LATS/TextGrad improvement cycle - quality_score < 0.7 triggers improvement attempt"
+      }
+    },
+    "self_verification_1_4_20260203_092925": {
+      "id": "self_verification_1_4_20260203_092925",
+      "label": "Self-verification after grind completion prevents ",
+      "type": "LESSON",
+      "properties": {
+        "task_category": "quality_assurance",
+        "timestamp": "2026-02-03T09:29:25.769419",
+        "importance": 7,
+        "source": "arXiv:2305.16291 - Voyager: An Open-Ended Embodied Agent",
+        "full_lesson": "Self-verification after grind completion prevents false positives in success logging (Voyager arXiv:2305.16291)"
+      }
     }
   },
   "edges": [
@@ -9132,6 +9604,446 @@
     {
       "source": "lesson:test1",
       "target": "concept:camel",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_1_20260203_062239",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_1_20260203_062239",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_1_20260203_062239",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_2_20260203_062254",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_2_20260203_062254",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_2_20260203_062254",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_3_20260203_062314",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_3_20260203_062314",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_3_20260203_062314",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_062357",
+      "target": "concept:arxiv:2304.03442",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_062357",
+      "target": "concept:reflection",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_062357",
+      "target": "concept:lats",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_062357",
+      "target": "concept:critic_feedback",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_062357",
+      "target": "concept:textgrad",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_1_20260203_062415",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_1_20260203_062415",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_1_20260203_062415",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_2_20260203_062433",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_2_20260203_062433",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_2_20260203_062433",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_3_20260203_062451",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_3_20260203_062451",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_3_3_20260203_062451",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_1_20260203_062654",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_1_20260203_062654",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_1_20260203_062654",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_2_20260203_063000",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_2_20260203_063000",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_2_20260203_063000",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_3_20260203_063200",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_3_20260203_063200",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_3_20260203_063200",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_4_20260203_063328",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_4_20260203_063328",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_4_20260203_063328",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_5_20260203_063435",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_5_20260203_063435",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_5_20260203_063435",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_1_20260203_083521",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_1_20260203_083521",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_1_20260203_083521",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_2_20260203_083801",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_2_20260203_083801",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_2_2_20260203_083801",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_1_20260203_084146",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_1_20260203_084146",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_1_20260203_084146",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_084343",
+      "target": "concept:reflection",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_084343",
+      "target": "concept:arxiv:2304.03442",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_084343",
+      "target": "concept:textgrad",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_084343",
+      "target": "concept:critic_feedback",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_084343",
+      "target": "concept:lats",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_2_20260203_084423",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_2_20260203_084423",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_2_20260203_084423",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_3_20260203_084449",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_3_20260203_084449",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_3_20260203_084449",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_4_20260203_084646",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_4_20260203_084646",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_4_20260203_084646",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_091141",
+      "target": "concept:reflection",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_091141",
+      "target": "concept:arxiv:2304.03442",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_091141",
+      "target": "concept:lats",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_091141",
+      "target": "concept:textgrad",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_091141",
+      "target": "concept:critic_feedback",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_1_20260203_091645",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_1_20260203_091645",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_1_20260203_091645",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_2_20260203_091909",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_2_20260203_091909",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_2_20260203_091909",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_092305",
+      "target": "concept:reflection",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_092305",
+      "target": "concept:arxiv:2304.03442",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_092305",
+      "target": "concept:lats",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_092305",
+      "target": "concept:textgrad",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_092305",
+      "target": "concept:critic_feedback",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_3_20260203_092308",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_3_20260203_092308",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_3_20260203_092308",
+      "target": "concept:self-verification",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_092843",
+      "target": "concept:reflection",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "reflection_automation_triggers_20260203_092843",
+      "target": "concept:arxiv:2304.03442",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_092843",
+      "target": "concept:lats",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_092843",
+      "target": "concept:textgrad",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "critic_feedback_loop_20260203_092843",
+      "target": "concept:critic_feedback",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_4_20260203_092925",
+      "target": "concept:arxiv:2305.16291",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_4_20260203_092925",
+      "target": "concept:voyager",
+      "relation": "RELATES_TO"
+    },
+    {
+      "source": "self_verification_1_4_20260203_092925",
+      "target": "concept:self-verification",
       "relation": "RELATES_TO"
     }
   ]

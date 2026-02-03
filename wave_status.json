@@ -13,23 +13,22 @@
     {"num": 11, "name": "Complete Implementations", "status": "done", "workers": 10},
     {"num": 12, "name": "Feedback Loops", "status": "done", "workers": 10},
     {"num": 13, "name": "Knowledge Infrastructure", "status": "done", "workers": 10},
-    {"num": 14, "name": "Multi-Path Exploration", "status": "planned", "workers": 0}
+    {"num": 14, "name": "Safety Wave", "status": "in_progress", "workers": 8},
+    {"num": 15, "name": "Multi-Path Exploration", "status": "planned", "workers": 0}
   ],
-  "current_wave": 13,
+  "current_wave": 14,
   "current_activity": {
-    "title": "Wave 13 Complete - Knowledge Infrastructure",
+    "title": "Wave 14 - Safety Implementation",
     "workers": [
-      {"type": "Embeddings", "task": "Vector skill retrieval - DONE 1.00"},
-      {"type": "Embeddings", "task": "Vector lesson retrieval - DONE 1.00"},
-      {"type": "KG Types", "task": "Rich node/edge types - DONE 1.00"},
-      {"type": "KG Persist", "task": "Cross-session persistence - DONE 1.00"},
-      {"type": "KG Extract", "task": "Auto concept extraction - DONE 1.00"},
-      {"type": "Context", "task": "Unified context builder - DONE 1.00"},
-      {"type": "Query", "task": "Query expansion - DONE 1.00"},
-      {"type": "Learning", "task": "Auto skill extraction - DONE 1.00"},
-      {"type": "Learning", "task": "Failure pattern detection - DONE 1.00"},
-      {"type": "Tests", "task": "Knowledge infrastructure tests - DONE 1.00"}
+      {"type": "Research", "task": "Constitutional AI & Harmlessness - 0.00"},
+      {"type": "Research", "task": "Sandboxing & Isolation - 0.00"},
+      {"type": "Research", "task": "Network Isolation - 0.00"},
+      {"type": "Research", "task": "Kill Switch & Circuit Breakers - 0.00"},
+      {"type": "Research", "task": "Audit Logging - 0.00"},
+      {"type": "Research", "task": "Input Sanitization - 0.00"},
+      {"type": "Integration", "task": "Wire Safety Modules - 0.00"},
+      {"type": "Tests", "task": "Safety Validation - 0.00"}
     ]
   },
-  "last_updated": "2026-02-03T07:15:00"
+  "last_updated": "2026-02-03T08:30:00"
 }

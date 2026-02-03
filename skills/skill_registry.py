@@ -11,7 +11,6 @@ Implements the Voyager architecture from arXiv:2305.16291:
 
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
     EMBEDDING_AVAILABLE = True
 except ImportError:
     EMBEDDING_AVAILABLE = False
@@ -19,10 +18,14 @@ except ImportError:
 import json
 import numpy as np
 from pathlib import Path
+from utils.math_utils import cosine_similarity_vectors
 
 
 def cosine_similarity(vec1, vec2):
-    """Compute cosine similarity between two vectors
+    """
+    Compute cosine similarity between two vectors.
+
+    Delegated to utils.math_utils.cosine_similarity_vectors() to avoid duplication.
 
     Args:
         vec1: First vector (sparse matrix or numpy array)
@@ -31,21 +34,7 @@ def cosine_similarity(vec1, vec2):
     Returns:
         Float cosine similarity score between -1 and 1
     """
-    if EMBEDDING_AVAILABLE:
-        return float(sklearn_cosine_similarity(vec1, vec2)[0][0])
-
-    # Fallback: Manual computation for dense arrays
-    vec1_arr = np.array(vec1).flatten()
-    vec2_arr = np.array(vec2).flatten()
-
-    dot_product = np.dot(vec1_arr, vec2_arr)
-    norm1 = np.linalg.norm(vec1_arr)
-    norm2 = np.linalg.norm(vec2_arr)
-
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-
-    return float(dot_product / (norm1 * norm2))
+    return cosine_similarity_vectors(vec1, vec2)
 
 
 class SkillRegistry:

@@ -14,6 +14,14 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+# Import sandbox for file operation validation
+try:
+    from safety_sandbox import get_sandbox
+    get_global_sandbox = get_sandbox
+except ImportError:
+    # Sandbox not available, continue without validation
+    get_global_sandbox = lambda: None
+
 
 def read_json(path: Path) -> Dict[str, Any]:
     """
@@ -49,9 +57,20 @@ def write_json(path: Path, data: Dict[str, Any]) -> None:
         path: Path where JSON file should be written.
         data: Dictionary to serialize as JSON.
 
+    Raises:
+        PermissionError: If sandbox validation fails (path outside workspace or sensitive location).
+
     Example:
         write_json(Path("queue.json"), {"tasks": [], "completed": []})
     """
+    # Validate write operation through sandbox if available
+    sandbox = get_global_sandbox()
+    if sandbox is not None:
+        if not sandbox.is_path_allowed(str(path)):
+            sandbox.log_operation("write", str(path), False, "blocked_by_sandbox")
+            raise PermissionError(f"Sandbox blocked write to: {path}")
+        sandbox.log_operation("write", str(path), True, "write_json")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)

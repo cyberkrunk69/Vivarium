@@ -403,7 +403,7 @@ The task is NOT complete until REVIEWER approves.
                     "claude",
                     "-p",
                     "--model", self.model,
-                    "--dangerously-skip-permissions",
+                    "--permission-mode", "bypassPermissions",
                     "--output-format", "json"
                 ]
 

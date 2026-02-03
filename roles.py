@@ -30,6 +30,13 @@ except ImportError:
     ReviewFeedback = None
     TaskCompletionRecord = None
 
+# Import path preference learner
+try:
+    from path_preferences import PathPreferenceLearner
+    _path_learner = PathPreferenceLearner()
+except ImportError:
+    _path_learner = None
+
 
 class RoleType(Enum):
     """Available roles in the CAMEL system."""
@@ -283,8 +290,26 @@ def decompose_task(task: str) -> Dict[str, Any]:
     }
 
 
-def get_role_chain(complexity: str) -> List[RoleType]:
-    """Return the role chain based on task complexity."""
+def get_role_chain(complexity: str, task: str = None, complexity_score: float = None, use_adaptive: bool = True) -> List[RoleType]:
+    """
+    Return the role chain based on task complexity.
+
+    Args:
+        complexity: "simple" or "complex" classification
+        task: Optional task description for adaptive path selection
+        complexity_score: Optional float 0.0-1.0 complexity score
+        use_adaptive: Whether to use adaptive path selection (default True)
+
+    Returns:
+        List of RoleType for execution chain
+    """
+    # Use adaptive selection if enabled and sufficient data available
+    if use_adaptive and task and complexity_score is not None:
+        adaptive_chain = AdaptiveRoleChain()
+        path_selection = adaptive_chain.select_optimal_path(task, complexity_score)
+        return path_selection["roles"]
+
+    # Fallback to simple logic
     if complexity == "simple":
         return [RoleType.CODER, RoleType.REVIEWER, RoleType.DOCUMENTER]
     else:
@@ -339,8 +364,20 @@ class RoleExecutor:
         return role.get_inception_prompt(subtask, next_role.value.upper() if next_role else None)
 
     def get_next_role_in_chain(self) -> RoleType:
-        """Determine next role in execution chain."""
-        role_chain = get_role_chain(self.context.get("complexity", "simple"))
+        """Determine next role in execution chain using adaptive path selection."""
+        # Use adaptive path selection if complexity score available
+        complexity_score = self.context.get("complexity_score")
+        if complexity_score is not None:
+            role_chain = get_role_chain(
+                complexity=self.context.get("complexity", "simple"),
+                task=self.task,
+                complexity_score=complexity_score,
+                use_adaptive=True
+            )
+        else:
+            # Fallback to simple logic
+            role_chain = get_role_chain(self.context.get("complexity", "simple"))
+
         try:
             current_index = role_chain.index(self.current_role)
             if current_index < len(role_chain) - 1:
@@ -371,6 +408,136 @@ class RoleExecutor:
             self.current_role = next_role
             return True
         return False
+
+
+class AdaptiveRoleChain:
+    """
+    Selects optimal role execution paths based on historical performance.
+
+    Uses learned patterns from path_preferences to route tasks through
+    the most effective role chains for similar complexity levels.
+    """
+
+    def __init__(self, path_preferences_file: str = "path_preferences.json"):
+        """Initialize with path to historical preferences data."""
+        self.path_preferences_file = path_preferences_file
+        self.path_history = self._load_path_preferences()
+
+    def _load_path_preferences(self) -> Dict[str, Any]:
+        """Load historical path performance data."""
+        import json
+        from pathlib import Path
+
+        path_file = Path(self.path_preferences_file)
+        if path_file.exists():
+            try:
+                with open(path_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                return {"paths": {}, "recommendations": {}}
+        return {"paths": {}, "recommendations": {}}
+
+    def select_optimal_path(self, task: str, complexity_score: float) -> Dict[str, Any]:
+        """
+        Select optimal role execution path based on task and historical data.
+
+        Args:
+            task: Task description
+            complexity_score: Float 0.0-1.0 from decompose_task()
+
+        Returns:
+            Dict with:
+                - path_type: "simple" | "standard" | "full"
+                - roles: List of roles for execution chain
+                - reasoning: Why this path was selected
+                - confidence: Float 0.0-1.0 confidence in selection
+        """
+        # Categorize complexity
+        if complexity_score < 0.35:
+            complexity_category = "low"
+        elif complexity_score < 0.65:
+            complexity_category = "medium"
+        else:
+            complexity_category = "high"
+
+        # Check historical data for this complexity range
+        historical_recommendation = self._get_historical_recommendation(complexity_category)
+
+        # Default path selection logic
+        if complexity_score < 0.35:
+            # Simple path: skip PLANNER
+            path_type = "simple"
+            roles = [RoleType.CODER, RoleType.REVIEWER, RoleType.DOCUMENTER]
+            reasoning = f"Low complexity ({complexity_score:.2f}) - direct to CODER"
+        elif complexity_score < 0.65:
+            # Standard path: use PLANNER for coordination
+            path_type = "standard"
+            roles = [RoleType.PLANNER, RoleType.CODER, RoleType.REVIEWER, RoleType.DOCUMENTER]
+            reasoning = f"Medium complexity ({complexity_score:.2f}) - standard planning needed"
+        else:
+            # Full path: complex task requiring all roles
+            path_type = "full"
+            roles = [RoleType.PLANNER, RoleType.CODER, RoleType.REVIEWER, RoleType.DOCUMENTER]
+            reasoning = f"High complexity ({complexity_score:.2f}) - full role chain required"
+
+        # Override with historical data if available and confident
+        if historical_recommendation and historical_recommendation.get("confidence", 0) > 0.7:
+            path_type = historical_recommendation["path_type"]
+            roles = [RoleType[r.upper()] for r in historical_recommendation["roles"]]
+            reasoning += f" | Historical: {historical_recommendation['reasoning']}"
+
+        # Log the decision
+        self._log_path_decision(task, complexity_score, path_type, reasoning)
+
+        return {
+            "path_type": path_type,
+            "roles": roles,
+            "reasoning": reasoning,
+            "confidence": historical_recommendation.get("confidence", 0.5) if historical_recommendation else 0.5,
+            "complexity_category": complexity_category
+        }
+
+    def _get_historical_recommendation(self, complexity_category: str) -> Optional[Dict[str, Any]]:
+        """Get path recommendation based on historical performance."""
+        if not self.path_history or "recommendations" not in self.path_history:
+            return None
+
+        recommendations = self.path_history.get("recommendations", {})
+        return recommendations.get(complexity_category)
+
+    def _log_path_decision(self, task: str, complexity_score: float, path_type: str, reasoning: str):
+        """Log path selection decision for future analysis."""
+        import json
+        from datetime import datetime
+        from pathlib import Path
+
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "task_preview": task[:100],
+            "complexity_score": complexity_score,
+            "path_type": path_type,
+            "reasoning": reasoning
+        }
+
+        log_file = Path("path_selection_log.json")
+        logs = []
+        if log_file.exists():
+            try:
+                with open(log_file, 'r') as f:
+                    logs = json.load(f)
+            except Exception:
+                pass
+
+        logs.append(log_entry)
+
+        # Keep last 100 entries
+        logs = logs[-100:]
+
+        try:
+            with open(log_file, 'w') as f:
+                json.dump(logs, f, indent=2)
+        except Exception:
+            pass  # Silent fail on logging errors
 
 
 # MetaGPT-style Role Subscriptions (arXiv:2308.00352)

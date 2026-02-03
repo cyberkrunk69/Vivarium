@@ -7,8 +7,9 @@ This is the Groq-specific version of grind_spawner.py that:
 - Supports adaptive model selection (8B vs 70B)
 
 Usage:
-    python grind_spawner_groq.py --delegate --model llama-3.1-8b-instant --budget 0.20
-    python grind_spawner_groq.py --task "Fix bug in X" --budget 0.10
+    python grind_spawner_groq.py --delegate --budget 0.50  # Uses 70B model by default
+    python grind_spawner_groq.py --delegate --model llama-3.1-8b-instant --budget 0.10  # Cheap 8B
+    python grind_spawner_groq.py --task "Fix bug in X" --budget 0.25
 """
 
 import argparse
@@ -37,10 +38,20 @@ from safety_killswitch import get_kill_switch, get_circuit_breaker
 from safety_network import scan_for_network_access
 from safety_constitutional import ConstitutionalChecker
 
+# Import experiment sandbox
+from experiments_sandbox import (
+    ExperimentSandbox,
+    create_experiment,
+    get_safe_workspace,
+    is_core_protected
+)
+
 # Import core modules
 from roles import RoleType, decompose_task, get_role, get_role_chain
 from knowledge_graph import KnowledgeGraph
 from utils import read_json, write_json
+from groq_code_extractor import GroqArtifactExtractor
+from git_automation import auto_commit, get_pending_changes, get_git_status
 
 # Configuration
 WORKSPACE = Path(os.environ.get("WORKSPACE", Path(__file__).parent))
@@ -48,7 +59,7 @@ LOGS_DIR = WORKSPACE / "grind_logs"
 TASKS_FILE = WORKSPACE / "grind_tasks.json"
 LEARNED_LESSONS_FILE = WORKSPACE / "learned_lessons.json"
 
-# Simplified prompt template for Groq
+# Enhanced prompt template for Groq with artifact support
 GRIND_PROMPT_TEMPLATE = """You are an EXECUTION worker. Follow instructions EXACTLY.
 
 WORKSPACE: {workspace}
@@ -59,7 +70,7 @@ TASK (execute step by step):
 RULES:
 1. Follow the steps EXACTLY as written - no improvisation
 2. Be FAST - don't over-explain, just do the work
-3. Output your work in a structured format
+3. When creating files, use the artifact format provided above
 4. When done, output a 2-3 sentence summary
 
 EXECUTE NOW.
@@ -83,6 +94,15 @@ class GroqGrindSession:
         self.budget = budget
         self.workspace = workspace
         self.max_total_cost = max_total_cost
+
+        # Initialize experiment sandbox for this session
+        self.sandbox = ExperimentSandbox()
+
+        # Create experiment for this session if not exists
+        self.experiment_id = create_experiment(
+            name=f"session_{session_id}",
+            description=f"Automated grind session {session_id}: {task[:100]}"
+        )
 
         # Sanitize task
         task_dict = {"task": task}
@@ -113,6 +133,9 @@ class GroqGrindSession:
         # Initialize safety gateway
         self.safety_gateway = SafetyGateway(workspace=self.workspace)
 
+        # Initialize code extractor
+        self.code_extractor = GroqArtifactExtractor(workspace_root=str(self.workspace))
+
         # Knowledge graph (lightweight load)
         self.kg = KnowledgeGraph()
         kg_file = self.workspace / "knowledge_graph.json"
@@ -129,6 +152,51 @@ class GroqGrindSession:
             workspace=self.workspace,
             task=self.task
         )
+
+        # Add enhanced file output instructions with sandbox
+        experiment_workspace = self.workspace / "experiments" / self.experiment_id
+        artifact_instructions = f"""
+CRITICAL: You are working in EXPERIMENT SANDBOX mode.
+
+Your experiment ID: {self.experiment_id}
+Your experiment workspace: {experiment_workspace}
+
+When creating or modifying files, you MUST use this EXACT format:
+
+<artifact type="file" path="relative/path/to/file.ext" encoding="utf-8">
+FILE_CONTENT_HERE
+</artifact>
+
+SANDBOX RULES:
+1. New files go to experiments/{self.experiment_id}/
+2. Core system files (*.py, grind_spawner*.py) are READ-ONLY
+3. You can freely experiment in your workspace
+4. Files will be extracted and saved automatically to your experiment
+
+EXAMPLES:
+1. Experimental Python file:
+<artifact type="file" path="new_feature.py">
+#!/usr/bin/env python3
+
+def experimental_function():
+    return "This is safe to create"
+</artifact>
+
+2. Configuration experiment:
+<artifact type="file" path="config/test_settings.json">
+{{
+    "experimental": true,
+    "safe_mode": true
+}}
+</artifact>
+
+REQUIREMENTS:
+- ALWAYS use artifact tags when creating files
+- Files are automatically saved to your experiment workspace
+- Use relative paths (they'll be placed in experiments/{self.experiment_id}/)
+- Core files are protected - experiment safely!
+"""
+        base_prompt = artifact_instructions + base_prompt
 
         # Add role context
         role_chain = get_role_chain(self.task_decomposition["complexity"])
@@ -240,6 +308,52 @@ ROLE: {current_role.value.upper()}
             cost = result.get("cost", 0.0)
             self.total_cost += cost
 
+            # Extract files from response to experiment sandbox
+            response_text = result.get("result", "")
+            if response_text:
+                try:
+                    # Extract files using existing extractor
+                    extracted_files = self.code_extractor.extract_and_save(response_text)
+
+                    # Move extracted files to experiment workspace if they're not protected
+                    safe_extracted = []
+                    for file_path in extracted_files:
+                        rel_path = Path(file_path).relative_to(self.workspace)
+
+                        # Check if this would modify a protected file
+                        if is_core_protected(str(rel_path)):
+                            print(f"[Session {self.session_id}] BLOCKED: Attempted to modify protected file: {rel_path}")
+                            continue
+
+                        # If file is safe, move it to experiment directory
+                        try:
+                            exp_dir = self.workspace / "experiments" / self.experiment_id
+                            exp_dir.mkdir(parents=True, exist_ok=True)
+
+                            target_path = exp_dir / rel_path
+                            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                            # Copy to experiment directory
+                            import shutil
+                            shutil.copy2(file_path, target_path)
+
+                            safe_extracted.append(str(rel_path))
+                            print(f"[Session {self.session_id}] Added to experiment: {rel_path}")
+
+                        except Exception as e:
+                            print(f"[Session {self.session_id}] Failed to add {rel_path} to experiment: {e}")
+
+                    log_data_extracted_files = safe_extracted
+
+                    if safe_extracted:
+                        print(f"[Session {self.session_id}] Extracted {len(safe_extracted)} file(s) to experiment {self.experiment_id}")
+
+                except Exception as e:
+                    print(f"[Session {self.session_id}] File extraction error: {e}")
+                    log_data_extracted_files = []
+            else:
+                log_data_extracted_files = []
+
             # Log result
             log_data = {
                 "session_id": self.session_id,
@@ -254,6 +368,7 @@ ROLE: {current_role.value.upper()}
                 "elapsed": elapsed,
                 "returncode": result.get("returncode", 0),
                 "error": result.get("error"),
+                "extracted_files": log_data_extracted_files,
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -264,6 +379,21 @@ ROLE: {current_role.value.upper()}
             if returncode == 0:
                 print(f"[Session {self.session_id}] Run #{self.runs} completed in {elapsed:.1f}s (cost: ${cost:.6f})")
                 circuit_breaker.record_success()
+
+                # Auto-commit successful changes to swarm-changes branch
+                if safe_extracted:
+                    try:
+                        commit_result = auto_commit_swarm(
+                            f"Session {self.session_id} run {self.runs}: {self.task[:50]}",
+                            safe_extracted
+                        )
+                        if commit_result.get("success"):
+                            print(f"[Session {self.session_id}] Auto-committed {len(safe_extracted)} files to swarm-changes")
+                        else:
+                            print(f"[Session {self.session_id}] Auto-commit failed: {commit_result.get('error')}")
+                    except Exception as e:
+                        print(f"[Session {self.session_id}] Auto-commit error: {e}")
+
             else:
                 error = result.get("error", "Unknown")
                 print(f"[Session {self.session_id}] Run #{self.runs} failed: {error}")
@@ -350,7 +480,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Groq-based Grind Spawner")
     parser.add_argument("-n", "--sessions", type=int, default=1, help="Number of parallel sessions")
-    parser.add_argument("-m", "--model", default="llama-3.1-8b-instant", help="Groq model ID or alias")
+    parser.add_argument("-m", "--model", default="llama-3.3-70b-versatile", help="Groq model ID or alias (default: 70B for reliability)")
     parser.add_argument("-b", "--budget", type=float, default=0.20, help="Budget per session in USD")
     parser.add_argument("-w", "--workspace", default=str(WORKSPACE), help="Workspace directory")
     parser.add_argument("-t", "--task", default=None, help="Task for all sessions")

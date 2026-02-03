@@ -11,6 +11,7 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple
 from collections import Counter
+from utils.math_utils import cosine_similarity_dicts
 
 
 class MemorySynthesis:
@@ -236,22 +237,10 @@ class MemorySynthesis:
         """
         Compute cosine similarity between two embedding vectors.
         Vectors are dicts mapping terms to TF scores.
+
+        Delegated to utils.math_utils.cosine_similarity_dicts() to avoid duplication.
         """
-        if not vec1 or not vec2:
-            return 0.0
-
-        # Dot product of vectors
-        dot_product = sum(vec1.get(term, 0.0) * vec2.get(term, 0.0)
-                         for term in set(vec1.keys()) & set(vec2.keys()))
-
-        # Magnitudes
-        mag1 = math.sqrt(sum(v ** 2 for v in vec1.values()))
-        mag2 = math.sqrt(sum(v ** 2 for v in vec2.values()))
-
-        if mag1 == 0 or mag2 == 0:
-            return 0.0
-
-        return dot_product / (mag1 * mag2)
+        return cosine_similarity_dicts(vec1, vec2)
 
     def compute_importance(self, lesson: Dict[str, Any]) -> float:
         """
@@ -436,6 +425,208 @@ class MemorySynthesis:
 
         return []
 
+    def synthesize_path_comparisons(self, comparison_logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Generate higher-level insights from path comparison data.
+        Analyzes COMPREHENSIVE vs ADAPTIVE vs QUICK path outcomes to extract patterns.
+
+        Args:
+            comparison_logs: List of path comparison entries with task_type, path_chosen, quality, cost
+
+        Returns:
+            List of insights with confidence scores based on sample size
+        """
+        if not comparison_logs:
+            return []
+
+        insights = []
+
+        # Group by task type
+        task_type_groups = {}
+        for log in comparison_logs:
+            task_type = log.get('task_type', 'unknown')
+            if task_type not in task_type_groups:
+                task_type_groups[task_type] = []
+            task_type_groups[task_type].append(log)
+
+        # Analyze path preferences by task type
+        for task_type, logs in task_type_groups.items():
+            if len(logs) < 3:  # Skip low-sample groups
+                continue
+
+            path_counts = Counter(log.get('path_chosen', 'unknown') for log in logs)
+            total = len(logs)
+
+            # Find dominant path
+            if path_counts:
+                dominant_path, count = path_counts.most_common(1)[0]
+                preference_pct = (count / total) * 100
+
+                # Calculate confidence based on sample size
+                # Confidence formula: min(1.0, sqrt(sample_size / 30))
+                confidence = min(1.0, math.sqrt(total / 30.0))
+
+                if preference_pct >= 60:  # Strong preference threshold
+                    insights.append({
+                        "type": "path_preference",
+                        "task_type": task_type,
+                        "insight": f"{task_type.capitalize()} tasks prefer {dominant_path} {preference_pct:.0f}%",
+                        "dominant_path": dominant_path,
+                        "preference_percentage": preference_pct,
+                        "sample_size": total,
+                        "confidence": round(confidence, 2),
+                        "timestamp": datetime.now().isoformat()
+                    })
+
+        # Analyze quality outcomes by path
+        path_quality = {}
+        for log in comparison_logs:
+            path = log.get('path_chosen', 'unknown')
+            quality = log.get('quality', 0)
+            if path not in path_quality:
+                path_quality[path] = []
+            path_quality[path].append(quality)
+
+        for path, qualities in path_quality.items():
+            if len(qualities) >= 3:
+                avg_quality = sum(qualities) / len(qualities)
+                confidence = min(1.0, math.sqrt(len(qualities) / 30.0))
+
+                insights.append({
+                    "type": "path_quality",
+                    "path": path,
+                    "insight": f"{path} path achieves {avg_quality:.2f} average quality",
+                    "average_quality": round(avg_quality, 2),
+                    "sample_size": len(qualities),
+                    "confidence": round(confidence, 2),
+                    "timestamp": datetime.now().isoformat()
+                })
+
+        return insights
+
+    def extract_cost_quality_tradeoffs(self, comparison_logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Extract Pareto frontier insights: optimal cost/quality tradeoffs by path.
+        Identifies which paths dominate in different cost/quality regions.
+
+        Args:
+            comparison_logs: List of path comparison entries with cost and quality metrics
+
+        Returns:
+            List of Pareto-optimal insights showing best tradeoff strategies
+        """
+        if not comparison_logs:
+            return []
+
+        # Group by path
+        path_metrics = {}
+        for log in comparison_logs:
+            path = log.get('path_chosen', 'unknown')
+            cost = log.get('cost', 0)
+            quality = log.get('quality', 0)
+
+            if path not in path_metrics:
+                path_metrics[path] = {'costs': [], 'qualities': []}
+
+            path_metrics[path]['costs'].append(cost)
+            path_metrics[path]['qualities'].append(quality)
+
+        # Compute average cost and quality per path
+        pareto_points = []
+        for path, metrics in path_metrics.items():
+            if len(metrics['costs']) < 3:  # Skip low-sample paths
+                continue
+
+            avg_cost = sum(metrics['costs']) / len(metrics['costs'])
+            avg_quality = sum(metrics['qualities']) / len(metrics['qualities'])
+            sample_size = len(metrics['costs'])
+            confidence = min(1.0, math.sqrt(sample_size / 30.0))
+
+            pareto_points.append({
+                'path': path,
+                'avg_cost': avg_cost,
+                'avg_quality': avg_quality,
+                'sample_size': sample_size,
+                'confidence': confidence
+            })
+
+        if not pareto_points:
+            return []
+
+        # Identify Pareto frontier: non-dominated points
+        # A point dominates if it has lower cost AND higher quality
+        pareto_frontier = []
+        for point in pareto_points:
+            is_dominated = False
+            for other in pareto_points:
+                if other['path'] != point['path']:
+                    # Check if other dominates point
+                    if (other['avg_cost'] <= point['avg_cost'] and
+                        other['avg_quality'] >= point['avg_quality'] and
+                        (other['avg_cost'] < point['avg_cost'] or other['avg_quality'] > point['avg_quality'])):
+                        is_dominated = True
+                        break
+
+            if not is_dominated:
+                pareto_frontier.append(point)
+
+        # Generate insights from Pareto frontier
+        insights = []
+        for point in pareto_frontier:
+            # Classify tradeoff region
+            if point['avg_quality'] >= 0.95 and point['avg_cost'] <= 50:
+                region = "optimal_high_quality_low_cost"
+            elif point['avg_quality'] >= 0.9:
+                region = "high_quality"
+            elif point['avg_cost'] <= 30:
+                region = "low_cost"
+            else:
+                region = "balanced"
+
+            insights.append({
+                "type": "pareto_tradeoff",
+                "path": point['path'],
+                "insight": f"{point['path']} is Pareto-optimal: {point['avg_quality']:.2f} quality at {point['avg_cost']:.1f} cost ({region})",
+                "average_cost": round(point['avg_cost'], 2),
+                "average_quality": round(point['avg_quality'], 2),
+                "tradeoff_region": region,
+                "sample_size": point['sample_size'],
+                "confidence": round(point['confidence'], 2),
+                "timestamp": datetime.now().isoformat()
+            })
+
+        return insights
+
+    def save_path_insights(self, insights: List[Dict[str, Any]], output_file: str = "path_comparison_insights.json"):
+        """
+        Save path comparison insights to JSON file.
+
+        Args:
+            insights: List of insight dictionaries
+            output_file: Output file path (default: path_comparison_insights.json)
+        """
+        try:
+            # Load existing insights if file exists
+            existing_insights = []
+            if os.path.exists(output_file):
+                try:
+                    with open(output_file, 'r', encoding='utf-8') as f:
+                        existing_insights = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+            # Append new insights
+            all_insights = existing_insights + insights
+
+            # Write to file
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(all_insights, f, indent=2, ensure_ascii=False)
+
+            return True
+        except IOError as e:
+            print(f"Warning: Failed to save path insights: {e}")
+            return False
+
     def archive_unused(self) -> int:
         """Archive rarely-used lessons (retrieval_count < 1, older than 30 days)."""
         lessons = self.load_all_lessons()
@@ -487,8 +678,28 @@ def main():
     else:
         print("No new reflections generated (insufficient lessons)")
 
+    # Demo: Path comparison synthesis
+    # Example comparison logs (in production, these would come from path_selector.py)
+    example_comparisons = [
+        {"task_type": "refactor", "path_chosen": "COMPREHENSIVE", "quality": 0.95, "cost": 45},
+        {"task_type": "refactor", "path_chosen": "COMPREHENSIVE", "quality": 0.92, "cost": 48},
+        {"task_type": "refactor", "path_chosen": "ADAPTIVE", "quality": 0.85, "cost": 30},
+        {"task_type": "bugfix", "path_chosen": "QUICK", "quality": 0.88, "cost": 15},
+        {"task_type": "bugfix", "path_chosen": "QUICK", "quality": 0.90, "cost": 12},
+    ]
+
+    path_insights = synth.synthesize_path_comparisons(example_comparisons)
+    tradeoff_insights = synth.extract_cost_quality_tradeoffs(example_comparisons)
+
+    all_insights = path_insights + tradeoff_insights
+    if all_insights:
+        print(f"\nGenerated {len(all_insights)} path comparison insights")
+        synth.save_path_insights(all_insights)
+        for insight in all_insights:
+            print(f"  - {insight.get('insight', 'Unknown')} (confidence: {insight.get('confidence', 0)})")
+
     archived = synth.archive_unused()
-    print(f"Archived {archived} unused lessons")
+    print(f"\nArchived {archived} unused lessons")
 
 
 if __name__ == "__main__":

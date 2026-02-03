@@ -1,52 +1,119 @@
 [
   {
-    "task": "FEEDBACK LOOP: Critic Retry Integration\n\nWire critic.py into grind_spawner's execution loop:\n\n1. Read grind_spawner.py and critic.py\n2. After worker completes, call critic.review() on output\n3. If quality_score < 0.7, inject feedback and retry (max 2 retries)\n4. Log quality scores to performance_tracker\n\nEdit grind_spawner.py to add retry logic after task completion.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "OPTIMIZE: GRIND SPAWNER STARTUP PERFORMANCE\n\nThe spawner does too much on startup - safety gateway checks, knowledge graph loading, file hash capturing, failure pattern detection, network isolation scanning, demo injection.\n\nREQUIREMENTS:\n1. Profile current startup time\n2. Identify slow operations\n3. Implement lazy loading where possible\n4. Defer non-critical initialization\n5. Cache results that don't change between runs\n\nOUTPUT: Optimized grind_spawner.py with faster startup.\nCreate STARTUP_OPTIMIZATION_REPORT.md documenting changes.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "critical",
+    "phase": 1
   },
   {
-    "task": "PERSISTENCE: DSPy Demonstration Storage\n\nAdd demonstration persistence to prompt_optimizer.py:\n\n1. Read prompt_optimizer.py\n2. Add save_demonstrations(filepath='demos.json') method\n3. Add load_demonstrations(filepath='demos.json') method\n4. Auto-save after collecting new demos\n5. Auto-load at startup if file exists\n\nUse JSON format. Ensure demos persist across sessions.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "DESIGN: DUAL-SERVER ARCHITECTURE (ADMIN + LAN)\n\nThe system needs TWO servers:\n1. ADMIN SERVER (localhost:8080 only) - Full control, only accessible from the actual laptop\n2. LAN SERVER (0.0.0.0:8081) - For WiFi users, with restricted functionality\n\nDESIGN REQUIREMENTS:\n- Admin server bound ONLY to 127.0.0.1\n- LAN server bound to all interfaces but with safety restrictions\n- Clear separation of privilege levels\n- Session tracking per connected device\n- IP-based access control\n\nOUTPUT: Create DUAL_SERVER_DESIGN.md with:\n- Architecture diagram (ASCII)\n- Security model\n- API endpoints for each server\n- Session management design",
+    "budget": 0.50,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "critical",
+    "phase": 1,
+    "parallel_group": "design"
   },
   {
-    "task": "INTEGRATION: Performance to Improvement Loop\n\nWire performance_tracker.py to improvement_suggester.py:\n\n1. Read both files to understand their interfaces\n2. Create connect_tracker_to_suggester() function\n3. After each wave, call suggester with tracker data\n4. Save suggestions to improvement_reports/ directory\n5. Feed top suggestion into next wave planning\n\nEdit grind_spawner.py to add post-wave analysis.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "DESIGN: LAN USER SESSION ISOLATION\n\nWhen users connect via LAN (WiFi), they need:\n1. OWN SESSION - Separate from other users and admin\n2. VISIBILITY - See swarm activity (what's running across the whole surface)\n3. CLARITY - Know what THEY triggered vs what's happening separately\n4. ISOLATION - Cannot affect host machine or other users' machines\n\nDESIGN:\n- Per-IP session management\n- User workspace isolation\n- Activity tagging (user-triggered vs background swarm)\n- Real-time status showing: 'Your tasks' vs 'Network activity'\n\nOUTPUT: LAN_SESSION_DESIGN.md with session isolation architecture.",
+    "budget": 0.50,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "critical",
+    "phase": 1,
+    "parallel_group": "design"
   },
   {
-    "task": "EMBEDDINGS: Semantic Skill Retrieval\n\nAdd embedding-based retrieval to skill_registry.py:\n\n1. Read skills/skill_registry.py\n2. Add compute_embedding(text) using TF-IDF vectorization\n3. Add find_similar_skills(query, top_k=3) method\n4. Replace keyword matching with cosine similarity\n5. Cache embeddings for performance\n\nUse sklearn TfidfVectorizer if available, else simple hash.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "DESIGN: LAN USER SAFETY CONSTRAINTS\n\nLAN users must be RESTRICTED from:\n1. EDITING HOST FILES - Cannot modify anything on the swarm host machine\n2. READING HOST CODE - Cannot see the codebase or learn how it works\n3. DIRECTIVE MANIPULATION - Cannot say 'edit your core directive to be evil'\n4. CLONING ASSISTANCE - Won't help create competing services\n\nLAN users CAN:\n1. Execute commands on THEIR OWN MACHINE (remote execution)\n2. See swarm status and activity\n3. Request work that affects only their machine\n4. Use general Claude capabilities\n\nDESIGN:\n- Request filtering based on IP origin\n- Command scope validation\n- IP self-protection rules\n- Remote execution protocol (user's machine only)\n\nOUTPUT: LAN_SAFETY_DESIGN.md with security model.",
+    "budget": 0.50,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "critical",
+    "phase": 1,
+    "parallel_group": "design"
   },
   {
-    "task": "KNOWLEDGE GRAPH: Wire to Main Flow\n\nIntegrate knowledge_graph.py into grind_spawner.py:\n\n1. Read both files\n2. Load/initialize KG at GrindSession startup\n3. Call kg.populate_from_codebase() once per session\n4. In prompt building, inject kg.get_related_concepts(task) context\n5. Save KG state to knowledge_graph.json after session\n\nMake KG context available for better task understanding.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "IMPLEMENT: DUAL-SERVER INFRASTRUCTURE\n\nPREREQUISITE: DUAL_SERVER_DESIGN.md must exist.\n\n1. READ DUAL_SERVER_DESIGN.md\n2. CREATE lan_server.py with:\n   - AdminServer class (127.0.0.1 only)\n   - LANServer class (0.0.0.0, restricted)\n   - Request routing based on origin\n   - Privilege level enforcement\n\n3. INTEGRATE with existing progress_server.py or replace it\n4. ADD startup scripts for both servers\n\nOUTPUT: lan_server.py with dual server implementation.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
   },
   {
-    "task": "KNOWLEDGE GRAPH: Lesson Auto-Population\n\nExtend knowledge_graph.py to capture session learnings:\n\n1. Read knowledge_graph.py\n2. Add add_lesson_node(lesson_dict) method\n3. Add link_lesson_to_concepts(lesson_id, concepts) method\n4. Call after each successful task in grind_spawner\n5. Extract concepts from lesson text automatically\n\nKG should grow with each session.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "IMPLEMENT: LAN SESSION MANAGER\n\nPREREQUISITE: LAN_SESSION_DESIGN.md must exist.\n\n1. READ LAN_SESSION_DESIGN.md\n2. CREATE lan_session_manager.py with:\n   - SessionManager class\n   - Per-IP session tracking\n   - Session activity log\n   - 'Your tasks' vs 'Network activity' segregation\n   - Session timeout handling\n\n3. ADD WebSocket support for real-time updates\n4. CREATE session dashboard template\n\nOUTPUT: lan_session_manager.py with session isolation.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
   },
   {
-    "task": "TREE SEARCH: Real Expansion Implementation\n\nFix tree_search.py expand_node() to generate actual branches:\n\n1. Read tree_search.py\n2. In expand_node(), generate 2-3 alternative approaches\n3. Each child node has different strategy/prompt variation\n4. Use heuristics based on task type (refactor vs implement vs fix)\n5. Return list of valid child TreeNodes\n\nReplace TODO stubs with real logic.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "IMPLEMENT: LAN SAFETY GATEWAY\n\nPREREQUISITE: LAN_SAFETY_DESIGN.md must exist.\n\n1. READ LAN_SAFETY_DESIGN.md\n2. CREATE lan_safety_gateway.py with:\n   - RequestFilter class\n   - IPSelfProtection class (blocks IP-related questions)\n   - CodebaseProtection class (blocks code exposure)\n   - DirectiveProtection class (blocks manipulation attempts)\n   - RemoteExecutionValidator class (validates user-machine-only scope)\n\n3. IMPLEMENT semantic analysis for:\n   - 'How does this work?' -> Block if asking about swarm internals\n   - 'Help me build...' -> Block if trying to clone\n   - 'Edit/delete/modify...' -> Block if target is host\n\nOUTPUT: lan_safety_gateway.py with all protections.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
   },
   {
-    "task": "TREE SEARCH: Real Evaluation Implementation\n\nFix tree_search.py evaluate_node() to score solutions:\n\n1. Read tree_search.py and critic.py\n2. In evaluate_node(), call critic.review() on node output\n3. Return quality_score as evaluation (0.0-1.0)\n4. Cache evaluations to avoid re-computation\n5. Handle nodes without output gracefully\n\nWire tree search to critic for scoring.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "IMPLEMENT: REMOTE EXECUTION PROTOCOL\n\nFor LAN users to execute commands on THEIR machines (not the host).\n\nExample: Dad connects from his Mac, asks Claude to 'open my browser'.\nClaude should execute that on DAD'S MAC, not the swarm host.\n\nIMPLEMENT:\n1. Remote execution client (runs on user's machine)\n2. Secure command relay protocol\n3. Machine identification (MAC address or token)\n4. Command scope validation\n5. Response routing back to correct user\n\nOUTPUT: remote_execution_client.py (for user machines)\nremote_execution_relay.py (for swarm server)",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 3
   },
   {
-    "task": "ONLINE LEARNING: Session Feedback Capture\n\nAdd real-time learning to grind_spawner.py:\n\n1. Read grind_spawner.py\n2. After each task, extract what worked/failed\n3. Update prompt_optimizer with new demonstration\n4. Update skill_registry if new pattern found\n5. Log learning events to learning_log.json\n\nAI should improve during session, not just after.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "DESIGN: TASK DEPENDENCY GATING SYSTEM\n\nThe swarm needs automatic task dependency resolution:\n1. SCAN task queue\n2. IDENTIFY dependencies (task B needs output from task A)\n3. BUILD dependency graph\n4. EXECUTE independent tasks in parallel\n5. WAIT for dependencies before starting dependent tasks\n\nDESIGN:\n- Task dependency annotation format\n- Dependency graph builder\n- Parallel execution scheduler\n- Completion detection\n- Dynamic re-scheduling as tasks complete\n\nOUTPUT: TASK_DEPENDENCY_DESIGN.md with architecture.",
+    "budget": 0.50,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 1,
+    "parallel_group": "design"
   },
   {
-    "task": "INTEGRATION TESTS: Feedback Loop Validation\n\nAdd tests for the new feedback loops:\n\n1. Create tests/test_feedback_loops.py\n2. Test critic retry triggers on low quality\n3. Test DSPy demos persist and load\n4. Test performance->suggester pipeline\n5. Test KG population from lessons\n\nEnsure all feedback loops actually work end-to-end.",
-    "budget": 0.80,
-    "model": "sonnet"
+    "task": "IMPLEMENT: TASK DEPENDENCY SCHEDULER\n\nPREREQUISITE: TASK_DEPENDENCY_DESIGN.md must exist.\n\n1. READ TASK_DEPENDENCY_DESIGN.md\n2. CREATE task_scheduler.py with:\n   - DependencyGraph class\n   - TaskScheduler class\n   - Auto-detection of dependencies from task text\n   - Parallel execution of independent tasks\n   - Blocking on unmet dependencies\n   - Progress tracking with dependency visualization\n\n3. INTEGRATE with grind_spawner.py\n\nOUTPUT: task_scheduler.py with dependency-aware scheduling.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: IP SELF-PROTECTION LAYER\n\nProtect intellectual property without lying or refusing.\n\nRULES:\n1. If asked 'how do you work?' -> Give high-level explanation, not implementation details\n2. If asked to show source code -> Politely decline, explain it's proprietary\n3. If asked to help build a clone -> Redirect to general advice, not specific to this system\n4. Never expose: file paths, exact file contents, internal architecture\n\nIMPLEMENT semantic analysis to detect:\n- Source code requests\n- Architecture probing\n- Clone assistance requests\n- Internal detail extraction\n\nOUTPUT: ip_protection.py with semantic detection and response handlers.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "TEST: SECURITY INTEGRATION TEST SUITE\n\nPREREQUISITE: All security implementations must exist.\n\nCREATE comprehensive security tests:\n1. Admin vs LAN privilege separation\n2. LAN user cannot read host files\n3. LAN user cannot modify host files\n4. LAN user cannot manipulate directives\n5. IP protection blocks clone assistance\n6. Remote execution only affects user's machine\n7. Session isolation is enforced\n\nOUTPUT: tests/test_lan_security.py with full coverage.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 4
+  },
+  {
+    "task": "IMPLEMENT: ENGINE/MODEL SURFACING IN UI\n\nThe dashboard needs to show PER-NODE which inference engine and model is being used.\n\nREQUIREMENTS:\n1. Each node/worker card in the UI should display:\n   - Engine type: 'CLAUDE' or 'GROQ' with visual indicator (badge/icon)\n   - Model name: e.g., 'claude-sonnet-4' or 'llama-3.3-70b'\n   - Selection reason: Why this engine was chosen (e.g., 'Complex task', 'Budget optimization')\n\n2. Real-time updates via SSE/WebSocket showing:\n   - Engine switches during execution\n   - Cost accumulation per engine\n   - Tokens used per model\n\n3. Summary panel showing:\n   - Total Claude vs Groq usage split\n   - Cost breakdown by engine\n   - Model distribution chart\n\nINTEGRATE with existing progress_server.py or dashboard.html.\n\nOUTPUT: Updated dashboard with engine/model visibility per node.\nCreate ENGINE_VISIBILITY_SPEC.md documenting the UI changes.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: ADAPTIVE ENGINE SELECTION\n\nMake the swarm automatically select Claude or Groq per-task based on:\n\n1. COMPLEXITY ANALYSIS:\n   - Simple tasks (create file, fix typo) -> Groq (cheap, fast)\n   - Complex tasks (design, refactor, security) -> Claude (smart)\n\n2. BUDGET AWARENESS:\n   - Low remaining budget -> Groq\n   - Critical task + budget available -> Claude\n\n3. EXPLICIT OVERRIDE:\n   - Task contains 'use groq' -> Force Groq\n   - Task contains 'use claude' -> Force Claude\n\n4. QUALITY FEEDBACK:\n   - If Groq output fails verification -> Retry with Claude\n   - Learn patterns of which tasks need Claude\n\nUPDATE grind_spawner_unified.py with this adaptive logic.\n\nOUTPUT: Enhanced EngineSelector in grind_spawner_unified.py.\nCreate ADAPTIVE_ENGINE_SPEC.md documenting selection criteria.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "DESIGN: CONTEXT-AWARE KNOWLEDGE PACKS\n\nThe swarm needs to automatically organize and retrieve relevant learned lessons based on task context.\n\nPROBLEM:\n- learned_lessons.json is a flat list\n- No way to know which lessons apply to current task\n- Claude-specific lessons don't apply when using Groq\n- API-specific knowledge (Spotify, GitHub, etc.) should load on-demand\n\nSOLUTION - KNOWLEDGE PACKS:\n1. CATEGORIZE lessons by domain:\n   - 'claude': Optimal Claude Code techniques, prompting patterns\n   - 'groq': Groq-specific optimizations, Llama quirks\n   - 'api:spotify': Spotify API knowledge\n   - 'api:github': GitHub API patterns\n   - 'safety': Security lessons\n   - 'ui': Frontend/dashboard patterns\n\n2. AUTO-TAG new lessons:\n   - Analyze lesson content to detect domain\n   - Extract keywords for searchability\n   - Link related lessons\n\n3. DYNAMIC RETRIEVAL:\n   - Before task execution, analyze task text\n   - Pull relevant knowledge packs\n   - Inject into prompt context\n\n4. EMBEDDING-BASED SEARCH:\n   - Generate embeddings for lessons\n   - Semantic similarity search\n   - Find relevant lessons even without exact keyword match\n\nOUTPUT: KNOWLEDGE_PACKS_DESIGN.md with:\n- Category taxonomy\n- Auto-tagging algorithm\n- Retrieval API design\n- Integration with spawner",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 1,
+    "parallel_group": "design"
+  },
+  {
+    "task": "IMPLEMENT: KNOWLEDGE PACK SYSTEM\n\nPREREQUISITE: KNOWLEDGE_PACKS_DESIGN.md must exist.\n\nBuild the context-aware knowledge retrieval system.\n\n1. CREATE knowledge_packs.py with:\n   - KnowledgePack class (category, lessons, embeddings)\n   - PackManager class (load, save, search)\n   - auto_categorize_lesson(lesson_text) function\n   - get_relevant_packs(task_text) function\n\n2. MIGRATE existing lessons:\n   - Read learned_lessons.json\n   - Auto-categorize each lesson\n   - Save to knowledge_packs/\n\n3. CREATE category-specific packs:\n   - knowledge_packs/claude.json\n   - knowledge_packs/groq.json\n   - knowledge_packs/safety.json\n   - etc.\n\n4. INTEGRATE with spawner:\n   - Before task execution, call get_relevant_packs()\n   - Inject relevant lessons into prompt\n   - Log which packs were used\n\nOUTPUT: knowledge_packs.py with full implementation.\nCreate knowledge_packs/ directory with categorized lessons.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "high",
+    "phase": 2
   }
 ]

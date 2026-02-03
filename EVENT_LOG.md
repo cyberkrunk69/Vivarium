@@ -154,10 +154,10 @@ This is a chronological record of the self-improving AI experiment for posterity
 | Auto Skill Extraction | Custom |
 
 ### Metrics
-- **Total Workers Spawned:** 77+
-- **Total Time:** ~75 minutes
-- **Lines of Code:** 14,000+
-- **Lessons Learned:** 180+
+- **Total Workers Spawned:** 89+ (77 + 10 Wave 13 + 2 Opus)
+- **Total Time:** ~135 minutes
+- **Lines of Code:** 15,000+
+- **Lessons Learned:** 190+
 - **Success Rate:** 100%
 - **Git Commits:** 3
 

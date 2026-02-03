@@ -261,6 +261,76 @@ class CriticAgent:
                 "message": "json.load() used without JSONDecodeError handling"
             })
 
+        # Pattern 4: File modification claims - check for verification patterns
+        if any(phrase in code.lower() for phrase in ["files modified", "file created", "file updated", "wrote to"]):
+            if context and context.get("task") and "modify" in context.get("task", "").lower():
+                # This claims to modify files - check if it has verification logic
+                has_verification = any(pattern in code.lower() for pattern in [
+                    "file.exists()", "path.exists()", "stat()", "os.path.exists",
+                    "verify", "check", "validate", "confirm"
+                ])
+
+                if not has_verification:
+                    self.issues.append({
+                        "type": "unverified_file_operations",
+                        "severity": "critical",
+                        "line": None,
+                        "message": "Claims to modify files but lacks verification that changes were actually written to disk"
+                    })
+
+        # Pattern 5: CRITICAL - Check if session claims file modifications without actual verification
+        # This detects the hallucination bug where workers claim success without doing work
+        session_data = context or {}
+        if session_data.get("session_id") and session_data.get("run"):
+            try:
+                # Look for verification results in context
+                if "file_verification_passed" in str(session_data):
+                    file_verification = session_data.get("file_verification_passed", False)
+                    claimed_files = session_data.get("files_claimed", [])
+                    verified_files = session_data.get("files_actually_modified", [])
+
+                    if claimed_files and not file_verification:
+                        # ENHANCED: More detailed hallucination detection
+                        verification_ratio = len(verified_files) / max(1, len(claimed_files))
+
+                        self.issues.append({
+                            "type": "hallucination_file_claims",
+                            "severity": "critical",
+                            "line": None,
+                            "message": f"HALLUCINATION DETECTED: Session claimed to modify {len(claimed_files)} files but verification failed ({verification_ratio:.1%} verified) - this indicates the critical hallucination bug"
+                        })
+                        # Add multiple penalties for hallucination
+                        self.issues.append({
+                            "type": "false_success_reporting",
+                            "severity": "critical",
+                            "line": None,
+                            "message": "Worker reported success without actually performing work"
+                        })
+                        self.issues.append({
+                            "type": "file_verification_failure",
+                            "severity": "critical",
+                            "line": None,
+                            "message": f"File modifications claimed but not verified on disk. Claimed: {claimed_files}, Verified: {verified_files}"
+                        })
+
+                        # ADDITIONAL: Zero tolerance for complete hallucination
+                        if len(verified_files) == 0:
+                            self.issues.append({
+                                "type": "complete_hallucination",
+                                "severity": "critical",
+                                "line": None,
+                                "message": "ZERO FILES ACTUALLY MODIFIED despite claims - complete hallucination detected"
+                            })
+                    elif len(claimed_files) > len(verified_files):
+                        self.issues.append({
+                            "type": "partial_file_verification",
+                            "severity": "warning",
+                            "line": None,
+                            "message": f"Only {len(verified_files)} of {len(claimed_files)} claimed files were actually modified"
+                        })
+            except Exception:
+                pass  # Skip verification check if data unavailable
+
     def _check_logic(self, code: str) -> None:
         """Check for obvious logical issues."""
         # Check for empty functions

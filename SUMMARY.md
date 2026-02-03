@@ -7,20 +7,18 @@ An AI is teaching itself to become smarter by reading research papers and implem
 
 ## RIGHT NOW
 
-### Wave 13 Complete - Knowledge Infrastructure
-1. **Embeddings** - Vector skill retrieval - DONE 1.00
-2. **Embeddings** - Vector lesson retrieval - DONE 1.00
-3. **KG Types** - Rich node/edge types - DONE 1.00
-4. **KG Persist** - Cross-session persistence - DONE 1.00
-5. **KG Extract** - Auto concept extraction - DONE 1.00
-6. **Context** - Unified context builder - DONE 1.00
-7. **Query** - Query expansion - DONE 1.00
-8. **Learning** - Auto skill extraction - DONE 1.00
-9. **Learning** - Failure pattern detection - DONE 1.00
-10. **Tests** - Knowledge infrastructure tests - DONE 1.00
+### Wave 14 - Safety Implementation
+1. **Research** - Constitutional AI & Harmlessness - 0.00
+2. **Research** - Sandboxing & Isolation - 0.00
+3. **Research** - Network Isolation - 0.00
+4. **Research** - Kill Switch & Circuit Breakers - 0.00
+5. **Research** - Audit Logging - 0.00
+6. **Research** - Input Sanitization - 0.00
+7. **Integration** - Wire Safety Modules - 0.00
+8. **Tests** - Safety Validation - 0.00
 
-### Up Next: Wave 14 - Multi-Path Exploration
-AI learns how to learn better
+### Up Next: Wave 15 - Multi-Path Exploration
+AI works on multiple improvements simultaneously
 
 ---
 
@@ -110,10 +108,10 @@ Watch the numbers tick up at **http://10.0.4.114:8080/dad**
 
 | Metric | Value |
 |--------|-------|
-| Sessions | 10 |
-| Lessons | 223 |
-| Files | 52 |
-| Lines | 15,794 |
+| Sessions | 14 |
+| Lessons | 37 |
+| Files | 56 |
+| Lines | 17,664 |
 
 ---
 
@@ -134,7 +132,8 @@ Watch the numbers tick up at **http://10.0.4.114:8080/dad**
 | Wave 11 | 10 | Done |
 | Wave 12 | 10 | Done |
 | Wave 13 | 10 | Done |
-| Wave 14 | 0 | Planned |
+| Wave 14 | 8 | Planned |
+| Wave 15 | 0 | Planned |
 
 **Total workers spawned: 77+**
-**Last updated: 2026-02-03 06:15**
+**Last updated: 2026-02-03 06:25**

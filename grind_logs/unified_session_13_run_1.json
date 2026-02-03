@@ -1,0 +1,15 @@
+{
+  "session_id": 13,
+  "run": 1,
+  "engine": "claude",
+  "model": "claude-sonnet-4-20250514",
+  "task": "IMPLEMENT: ENGINE/MODEL SURFACING IN UI\n\nThe dashboard needs to show PER-NODE which inference engine and model is being used.\n\nREQUIREMENTS:\n1. Each node/worker card in the UI should display:\n   - Engine type: 'CLAUDE' or 'GROQ' with visual indicator (badge/icon)\n   - Model name: e.g., 'claude-sonnet-4' or 'llama-3.3-70b'\n   - Selection reason: Why this engine was chosen (e.g., 'Complex task', 'Budget optimization')\n\n2. Real-time updates via SSE/WebSocket showing:\n   - Engine switches during exe",
+  "success": true,
+  "duration_seconds": 451.303702,
+  "cost_usd": 0.445344,
+  "tokens_input": 93,
+  "tokens_output": 29671,
+  "files_created": [],
+  "error": null,
+  "timestamp": "2026-02-03T10:42:53.852421"
+}

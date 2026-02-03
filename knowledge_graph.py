@@ -15,6 +15,7 @@ class NodeType(Enum):
     LESSON = "LESSON"
     FILE = "FILE"
     FUNCTION = "FUNCTION"
+    SOLUTION_PATH = "SOLUTION_PATH"
 
 
 class EdgeType(Enum):
@@ -24,6 +25,8 @@ class EdgeType(Enum):
     USES = "USES"
     DEPENDS_ON = "DEPENDS_ON"
     CONTAINS = "CONTAINS"
+    EXPLORED_BY = "EXPLORED_BY"
+    RECOMMENDED_FOR = "RECOMMENDED_FOR"
 
 
 @dataclass
@@ -565,3 +568,104 @@ class KnowledgeGraph:
                 linked_concept_ids.append(concept_id)
 
         return linked_concept_ids
+
+    def link_path_to_outcomes(self, path_id: str, quality: float, task_type: str) -> None:
+        """
+        Link a solution path to its outcomes (quality score and task type).
+        Creates EXPLORED_BY edges to concepts and stores quality/task metadata.
+
+        Args:
+            path_id: The SOLUTION_PATH node ID
+            quality: Quality score of the path (0.0-1.0)
+            task_type: Type of task this path solved
+        """
+        if path_id not in self.nodes:
+            raise ValueError(f"Path node {path_id} not found in graph")
+
+        # Update path properties with outcome data
+        path_node = self.nodes[path_id]
+        path_node.properties['quality'] = quality
+        path_node.properties['task_type'] = task_type
+
+        # Find concepts explored by this path (via RELATES_TO edges)
+        for edge in self.edges:
+            if edge.source == path_id and edge.relation == EdgeType.RELATES_TO:
+                concept_id = edge.target
+                # Create EXPLORED_BY edge from concept to path
+                explored_edge = KnowledgeEdge(
+                    source=concept_id,
+                    target=path_id,
+                    relation=EdgeType.EXPLORED_BY
+                )
+                # Check if edge already exists
+                if not any(e.source == concept_id and e.target == path_id and e.relation == EdgeType.EXPLORED_BY for e in self.edges):
+                    self.add_edge(explored_edge)
+
+        self._auto_save()
+
+    def get_paths_for_concept(self, concept: str) -> List[Dict]:
+        """
+        Get all solution paths that explored a given concept.
+
+        Args:
+            concept: Concept name or ID to query
+
+        Returns:
+            List of path dictionaries with id, quality, and task_type
+        """
+        # Normalize concept to ID format
+        if not concept.startswith("concept:"):
+            concept_id = f"concept:{concept.lower().replace(' ', '_').replace('.', '_').replace('/', '_')}"
+        else:
+            concept_id = concept
+
+        if concept_id not in self.nodes:
+            return []
+
+        paths = []
+        # Find all paths connected via EXPLORED_BY edges
+        for edge in self.edges:
+            if edge.source == concept_id and edge.relation == EdgeType.EXPLORED_BY:
+                path_id = edge.target
+                path_node = self.nodes.get(path_id)
+                if path_node and path_node.type == NodeType.SOLUTION_PATH:
+                    paths.append({
+                        'id': path_id,
+                        'quality': path_node.properties.get('quality', 0.0),
+                        'task_type': path_node.properties.get('task_type', 'unknown'),
+                        'label': path_node.label
+                    })
+
+        # Sort by quality descending
+        paths.sort(key=lambda p: p['quality'], reverse=True)
+        return paths
+
+    def get_recommended_path_for_task_type(self, task_type: str) -> Optional[Dict]:
+        """
+        Get the highest quality path for a given task type.
+
+        Args:
+            task_type: Type of task to find recommended path for
+
+        Returns:
+            Dictionary with path info or None if no paths found
+        """
+        # Find all SOLUTION_PATH nodes matching this task type
+        matching_paths = []
+        for node_id, node in self.nodes.items():
+            if node.type == NodeType.SOLUTION_PATH:
+                if node.properties.get('task_type') == task_type:
+                    matching_paths.append({
+                        'id': node_id,
+                        'quality': node.properties.get('quality', 0.0),
+                        'task_type': task_type,
+                        'label': node.label,
+                        'properties': node.properties
+                    })
+
+        if not matching_paths:
+            return None
+
+        # Return highest quality path
+        best_path = max(matching_paths, key=lambda p: p['quality'])
+        return best_path

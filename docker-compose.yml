@@ -1,0 +1,30 @@
+services:
+  swarm:
+    build: .
+    container_name: black-swarm
+    # Use unified spawner - engine selected by INFERENCE_ENGINE env var
+    command: python grind_spawner_unified.py --delegate --budget 1.00 --once
+    environment:
+      # Switch between engines: "claude" or "groq"
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-claude}
+      # API keys (only the relevant one needs to be set)
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - WORKSPACE=/app
+    volumes:
+      - .:/app
+      - ../stripper/knowledge:/app/knowledge:ro
+      - ./grind_logs:/app/grind_logs
+    networks:
+      - swarm-net
+    cap_add:
+      - NET_ADMIN
+    restart: "no"
+
+networks:
+  swarm-net:
+    driver: bridge
+    # Network isolation - only allow specific outbound
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

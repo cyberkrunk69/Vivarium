@@ -8,10 +8,14 @@ Provides a single parameterized interface: record_lesson(category, lesson_text, 
 import json
 from pathlib import Path
 from datetime import datetime
+from memory_synthesis import MemorySynthesis
 
 # Configuration
 WORKSPACE = Path(__file__).parent
 LEARNED_LESSONS_FILE = WORKSPACE / "learned_lessons.json"
+
+# Initialize MemorySynthesis for embedding computation
+_memory_synth = MemorySynthesis()
 
 
 def record_lesson(category: str, lesson_text: str, key_insights: list, source: str,
@@ -43,6 +47,11 @@ def record_lesson(category: str, lesson_text: str, key_insights: list, source: s
             "key_insights": key_insights,
             "source": source
         }
+
+        # Compute and store embedding for semantic retrieval
+        embedding = _memory_synth.compute_lesson_embedding(lesson_text)
+        if embedding:
+            new_lesson["embedding"] = embedding
 
         # Merge additional fields if provided
         if additional_fields:

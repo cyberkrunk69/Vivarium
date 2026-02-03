@@ -1,0 +1,15 @@
+{
+  "session_id": 14,
+  "run": 1,
+  "engine": "groq",
+  "model": "llama-3.3-70b-versatile",
+  "task": "IMPLEMENT: ADAPTIVE ENGINE SELECTION\n\nMake the swarm automatically select Claude or Groq per-task based on:\n\n1. COMPLEXITY ANALYSIS:\n   - Simple tasks (create file, fix typo) -> Groq (cheap, fast)\n   - Complex tasks (design, refactor, security) -> Claude (smart)\n\n2. BUDGET AWARENESS:\n   - Low remaining budget -> Groq\n   - Critical task + budget available -> Claude\n\n3. EXPLICIT OVERRIDE:\n   - Task contains 'use groq' -> Force Groq\n   - Task contains 'use claude' -> Force Claude\n\n4. QUALITY FEEDBA",
+  "success": false,
+  "duration_seconds": 1.488776,
+  "cost_usd": 0.0,
+  "tokens_input": 397,
+  "tokens_output": 516,
+  "files_created": [],
+  "error": null,
+  "timestamp": "2026-02-03T16:12:35.717305"
+}

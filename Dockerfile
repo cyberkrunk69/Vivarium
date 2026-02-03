@@ -1,48 +1,49 @@
-# Dockerfile for Black Swarm - Network-Isolated AI Execution Environment
-#
-# This container locks down all network access except:
-# - Groq API (api.groq.com)
-# - Localhost (127.0.0.1)
-#
-# Build: docker build -t black-swarm .
-# Run:   docker run --env-file .env -v $(pwd)/workspace:/app/workspace black-swarm
-
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# =============================================================================
+# BLACK SWARM - Network Isolated Self-Improving AI Runtime
+# Supports both Claude Code CLI and Groq API backends
+# =============================================================================
+
+# Install system dependencies including Node.js for Claude Code
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     iptables \
+    dnsutils \
+    iproute2 \
+    procps \
+    git \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN useradd -m -s /bin/bash swarm && \
-    mkdir -p /app/workspace /app/grind_logs && \
-    chown -R swarm:swarm /app
+# Install Node.js (required for Claude Code CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for caching
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install Python dependencies
 COPY requirements-groq.txt .
 RUN pip install --no-cache-dir -r requirements-groq.txt
 
 # Copy application code
-COPY --chown=swarm:swarm . /app/
+COPY . .
 
-# Network isolation script (run as root before dropping privileges)
-COPY --chown=root:root network_lockdown.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/network_lockdown.sh
+# Fix line endings and make entrypoint executable
+RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
-# Environment variables
+# Create directories
+RUN mkdir -p /app/grind_logs /app/knowledge /app/experiments
+
+# Environment
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV WORKSPACE=/app/workspace
+ENV WORKSPACE=/app
+# Default to auto engine selection
+ENV INFERENCE_ENGINE=auto
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "from groq_client import get_groq_engine; print('OK')" || exit 1
-
-# Default command
-ENTRYPOINT ["/usr/local/bin/network_lockdown.sh"]
-CMD ["python", "grind_spawner_groq.py", "--delegate", "--model", "llama-3.1-8b-instant", "--budget", "0.20"]
+ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["python", "grind_spawner_unified.py", "--delegate", "--budget", "1.00", "--once"]

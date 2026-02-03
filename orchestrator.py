@@ -26,6 +26,8 @@ from typing import Dict, List, Optional, Tuple
 from utils import read_json, write_json
 from config import SWARM_API_URL, validate_config
 from logger import json_log
+from safety_killswitch import KillSwitch, CircuitBreaker
+from safety_sandbox import init_sandbox
 
 WORKSPACE = Path(__file__).parent
 QUEUE_FILE = WORKSPACE / "queue.json"
@@ -96,6 +98,39 @@ def start_orchestrator(num_workers: int = 4, dry_run: bool = False) -> None:
     if num_workers < 1 or num_workers > 32:
         raise ValueError(f"num_workers must be between 1 and 32, got {num_workers}")
 
+    # Initialize safety systems
+    kill_switch = KillSwitch(workspace=str(WORKSPACE))
+    circuit_breaker = CircuitBreaker(
+        cost_threshold=100.0,
+        failure_threshold=5,
+        time_window=300
+    )
+
+    # Initialize sandbox for file operation validation
+    init_sandbox(str(WORKSPACE))
+    print("[SAFETY] Workspace sandbox initialized")
+
+    # Check halt flag before starting
+    halt_status = kill_switch.check_halt_flag()
+    if halt_status["should_stop"] or halt_status["halted"]:
+        print(f"[SAFETY] Cannot start: System is halted")
+        print(f"[SAFETY] Reason: {halt_status['reason']}")
+        print(f"[SAFETY] Clear HALT file or use KillSwitch.clear_halt()")
+        return
+
+    if halt_status["paused"]:
+        print(f"[SAFETY] System is paused: {halt_status['reason']}")
+        print(f"[SAFETY] Resume with KillSwitch.resume() or remove PAUSE file")
+        return
+
+    # Check circuit breaker
+    cb_status = circuit_breaker.status()
+    if cb_status['tripped']:
+        print(f"[SAFETY] Cannot start: Circuit breaker is tripped")
+        print(f"[SAFETY] Reason: {cb_status['reason']}")
+        print(f"[SAFETY] Reset with CircuitBreaker.reset()")
+        return
+
     print(f"Starting Black Swarm Orchestrator with {num_workers} workers...")
     print(f"Target API: {SWARM_API_URL}")
 
@@ -151,8 +186,29 @@ def start_orchestrator(num_workers: int = 4, dry_run: bool = False) -> None:
         futures = [executor.submit(spawn_worker, i) for i in range(num_workers)]
 
         for future in as_completed(futures):
+            # Check halt flag during execution
+            halt_status = kill_switch.check_halt_flag()
+            if halt_status["should_stop"] or halt_status["halted"]:
+                print(f"\n[SAFETY] HALT detected - stopping orchestrator")
+                print(f"[SAFETY] Reason: {halt_status['reason']}")
+                executor.shutdown(wait=False, cancel_futures=True)
+                break
+
             result = future.result()
             print(f"\nWorker {result['worker_id']} finished (exit code: {result['returncode']})")
+
+            # Record failures in circuit breaker
+            if result['returncode'] != 0:
+                error_msg = result.get('stderr', 'Unknown error')[:200]
+                circuit_breaker.record_failure(error_msg)
+                if circuit_breaker.tripped:
+                    print(f"\n[CIRCUIT BREAKER] TRIPPED: {circuit_breaker.trip_reason}")
+                    kill_switch.global_halt(f"Circuit breaker tripped: {circuit_breaker.trip_reason}")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+            else:
+                circuit_breaker.record_success()
+
             if result['stdout']:
                 for line in result['stdout'].strip().split('\n')[-5:]:
                     print(f"  {line}")

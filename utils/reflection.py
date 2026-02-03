@@ -62,18 +62,28 @@ def add_reflection(
     return reflection
 
 
-def retrieve_relevant_lessons(task_description: str) -> List[Dict[str, Any]]:
+def retrieve_relevant_lessons(task_description: str, log_expansion: bool = False) -> List[Dict[str, Any]]:
     """
-    Retrieve lessons matching task description via retrieval cues.
+    Retrieve lessons matching task description via retrieval cues with query expansion.
 
     Args:
         task_description: Description of current task/problem
+        log_expansion: Whether to log query expansion details
 
     Returns:
         List of lessons with matching retrieval_cues, sorted by verification score
     """
+    # Import query expander
+    from query_expander import expand_query, get_expansion_log
+
     lessons = _load_lessons()
-    task_words = set(task_description.lower().split())
+
+    # Expand query for better matching
+    expanded_terms = expand_query(task_description)
+    task_words = set(expanded_terms)
+
+    if log_expansion:
+        print(get_expansion_log(task_description, expanded_terms))
 
     relevant = []
     for lesson in lessons:

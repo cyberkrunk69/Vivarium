@@ -50,8 +50,8 @@ class UIUXKnowledgeLoader:
     - Relevance scoring
     """
 
-    # Default path to scraped knowledge
-    DEFAULT_KNOWLEDGE_PATH = Path("D:/codingProjects/stripper/knowledge/uiux")
+    # Default path to scraped knowledge (use container path when in Docker)
+    DEFAULT_KNOWLEDGE_PATH = Path(os.environ.get("UIUX_KNOWLEDGE_PATH", "/app/knowledge/uiux"))
 
     # Category priorities for different task types
     CATEGORY_PRIORITIES = {
