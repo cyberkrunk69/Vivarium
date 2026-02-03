@@ -63,15 +63,51 @@ class KnowledgeEdge:
 class KnowledgeGraph:
     """A knowledge graph for storing and querying relationships between concepts."""
 
-    def __init__(self):
-        """Initialize an empty knowledge graph."""
+    def __init__(self, filepath: str = 'knowledge_graph.json'):
+        """Initialize knowledge graph, loading from file if it exists."""
         self.nodes: Dict[str, KnowledgeNode] = {}
         self.edges: List[KnowledgeEdge] = []
         self.adjacency: Dict[str, List[Tuple[str, EdgeType]]] = defaultdict(list)
+        self.filepath = filepath
+
+        # Auto-load from file if it exists
+        if os.path.exists(self.filepath):
+            try:
+                self.load_from_file(self.filepath)
+            except Exception as e:
+                print(f"Warning: Could not load knowledge graph from {self.filepath}: {e}")
 
     def add_node(self, node: KnowledgeNode) -> None:
         """Add a node to the graph."""
         self.nodes[node.id] = node
+        self._auto_save()
+
+    def add_typed_node(self, name: str, node_type: NodeType, metadata: Dict = None) -> str:
+        """
+        Add a typed node to the graph with metadata.
+
+        Args:
+            name: Name/label of the node
+            node_type: NodeType enum value (CONCEPT, FILE, FUNCTION, LESSON, SKILL)
+            metadata: Optional dictionary of properties
+
+        Returns:
+            The generated node ID
+        """
+        if metadata is None:
+            metadata = {}
+
+        # Generate ID based on type and name
+        node_id = f"{node_type.value.lower()}:{name.lower().replace(' ', '_')}"
+
+        node = KnowledgeNode(
+            id=node_id,
+            label=name,
+            type=node_type,
+            properties=metadata
+        )
+        self.add_node(node)
+        return node_id
 
     def add_edge(self, edge: KnowledgeEdge) -> None:
         """Add an edge to the graph."""
@@ -79,6 +115,23 @@ class KnowledgeGraph:
             raise ValueError(f"Source or target node not found in graph")
         self.edges.append(edge)
         self.adjacency[edge.source].append((edge.target, edge.relation))
+        self._auto_save()
+
+    def add_typed_edge(self, from_id: str, to_id: str, edge_type: EdgeType) -> None:
+        """
+        Add a typed edge between two nodes.
+
+        Args:
+            from_id: Source node ID
+            to_id: Target node ID
+            edge_type: EdgeType enum value (IMPLEMENTS, USES, RELATES_TO, LEARNED_FROM)
+        """
+        edge = KnowledgeEdge(
+            source=from_id,
+            target=to_id,
+            relation=edge_type
+        )
+        self.add_edge(edge)
 
     def query(self, node_id: str) -> Optional[KnowledgeNode]:
         """Query a node by its ID."""
@@ -238,15 +291,27 @@ class KnowledgeGraph:
             "edges": [edge.to_dict() for edge in self.edges]
         }
 
-    def save_json(self, filepath: str) -> None:
+    def _auto_save(self) -> None:
+        """Internal method to auto-save after modifications."""
+        try:
+            self.save_to_file(self.filepath)
+        except Exception as e:
+            print(f"Warning: Could not auto-save knowledge graph: {e}")
+
+    def save_to_file(self, filepath: str = 'knowledge_graph.json') -> None:
         """Save the knowledge graph to a JSON file."""
         with open(filepath, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
 
-    def load_json(self, filepath: str) -> None:
+    def load_from_file(self, filepath: str = 'knowledge_graph.json') -> None:
         """Load the knowledge graph from a JSON file."""
         with open(filepath, "r") as f:
             data = json.load(f)
+
+        # Clear existing graph
+        self.nodes.clear()
+        self.edges.clear()
+        self.adjacency.clear()
 
         # Load nodes
         for node_data in data.get("nodes", {}).values():
@@ -256,7 +321,8 @@ class KnowledgeGraph:
                 type=NodeType[node_data["type"]],
                 properties=node_data.get("properties", {})
             )
-            self.add_node(node)
+            # Add without triggering auto-save during load
+            self.nodes[node.id] = node
 
         # Load edges
         for edge_data in data.get("edges", []):
@@ -265,7 +331,19 @@ class KnowledgeGraph:
                 target=edge_data["target"],
                 relation=EdgeType[edge_data["relation"]]
             )
-            self.add_edge(edge)
+            # Add without triggering auto-save during load
+            if edge.source in self.nodes and edge.target in self.nodes:
+                self.edges.append(edge)
+                self.adjacency[edge.source].append((edge.target, edge.relation))
+
+    # Keep legacy method names for backward compatibility
+    def save_json(self, filepath: str) -> None:
+        """Save the knowledge graph to a JSON file (legacy method)."""
+        self.save_to_file(filepath)
+
+    def load_json(self, filepath: str) -> None:
+        """Load the knowledge graph from a JSON file (legacy method)."""
+        self.load_from_file(filepath)
 
     def add_lesson_node(self, lesson_dict: Dict) -> str:
         """
@@ -365,3 +443,125 @@ class KnowledgeGraph:
             concepts.extend(arxiv_matches)
 
         return list(set(concepts))  # Remove duplicates
+
+    def extract_concepts(self, text: str) -> List[str]:
+        """
+        Auto-extract concepts from task descriptions or any text using:
+        - Noun phrase extraction (simple regex)
+        - Technical term detection
+        - Code pattern recognition (function names, class names, etc.)
+
+        Args:
+            text: Text to extract concepts from (task description, etc.)
+
+        Returns:
+            List of concept strings extracted from the text
+        """
+        import re
+
+        concepts = []
+
+        # 1. Extract noun phrases (capitalized words and multi-word technical terms)
+        # Pattern: Capitalized words or sequences like "knowledge graph", "API endpoint"
+        noun_phrases = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z]?[a-z]+)*\b', text)
+        concepts.extend(noun_phrases)
+
+        # 2. Technical term detection - common programming/AI concepts
+        technical_terms = [
+            'API', 'database', 'function', 'class', 'method', 'endpoint',
+            'query', 'node', 'edge', 'graph', 'algorithm', 'optimization',
+            'model', 'agent', 'task', 'prompt', 'context', 'embeddings',
+            'vector', 'semantic', 'retrieval', 'search', 'index',
+            'config', 'logging', 'error', 'exception', 'validation',
+            'authentication', 'authorization', 'token', 'session',
+            'cache', 'performance', 'metrics', 'monitoring',
+            'deployment', 'testing', 'debugging', 'refactor'
+        ]
+
+        text_lower = text.lower()
+        for term in technical_terms:
+            if term.lower() in text_lower:
+                concepts.append(term)
+
+        # 3. Code pattern recognition
+        # Extract function/method names (snake_case or camelCase)
+        function_patterns = re.findall(r'\b[a-z_][a-z0-9_]*\(\)', text)
+        concepts.extend([p.replace('()', '') for p in function_patterns])
+
+        # Extract class names (PascalCase)
+        class_patterns = re.findall(r'\b[A-Z][a-zA-Z0-9]*(?:\.[A-Z][a-zA-Z0-9]*)*\b', text)
+        concepts.extend(class_patterns)
+
+        # Extract Python identifiers (variables, modules)
+        identifier_patterns = re.findall(r'\b[a-z_][a-z0-9_]{2,}\b', text)
+        # Filter out common stop words
+        stop_words = {'the', 'and', 'for', 'with', 'from', 'that', 'this', 'have', 'has', 'was', 'are', 'been'}
+        concepts.extend([p for p in identifier_patterns if p not in stop_words])
+
+        # 4. Extract quoted strings (often contain important concepts)
+        quoted_strings = re.findall(r'"([^"]+)"', text) + re.findall(r"'([^']+)'", text)
+        concepts.extend(quoted_strings)
+
+        # 5. Extract file paths/extensions
+        file_patterns = re.findall(r'\b[\w/]+\.(py|json|js|ts|md|txt|yaml|yml)\b', text)
+        concepts.extend(file_patterns)
+
+        # 6. Extract arXiv references
+        arxiv_patterns = re.findall(r'arXiv:\d+\.\d+', text)
+        concepts.extend(arxiv_patterns)
+
+        # Deduplicate and filter out very short or common words
+        concepts = list(set(concepts))
+        concepts = [c for c in concepts if len(c) > 2 and c.lower() not in stop_words]
+
+        return concepts
+
+    def auto_link_concepts_to_task(self, task_id: str, task_description: str) -> List[str]:
+        """
+        Auto-extract concepts from a task description and link them to the task node.
+        Creates concept nodes if they don't exist and establishes RELATES_TO edges.
+
+        Args:
+            task_id: The task node ID to link concepts to
+            task_description: The task description text to extract concepts from
+
+        Returns:
+            List of concept IDs that were linked
+        """
+        if task_id not in self.nodes:
+            raise ValueError(f"Task node {task_id} not found in graph")
+
+        # Extract concepts from task description
+        extracted_concepts = self.extract_concepts(task_description)
+
+        linked_concept_ids = []
+
+        for concept in extracted_concepts:
+            # Create or find concept node
+            concept_id = f"concept:{concept.lower().replace(' ', '_').replace('.', '_').replace('/', '_')}"
+
+            if concept_id not in self.nodes:
+                concept_node = KnowledgeNode(
+                    id=concept_id,
+                    label=concept,
+                    type=NodeType.CONCEPT,
+                    properties={"name": concept, "auto_extracted": True}
+                )
+                self.add_node(concept_node)
+
+            # Create edge from task to concept (if not already exists)
+            edge_exists = any(
+                e.source == task_id and e.target == concept_id
+                for e in self.edges
+            )
+
+            if not edge_exists:
+                edge = KnowledgeEdge(
+                    source=task_id,
+                    target=concept_id,
+                    relation=EdgeType.RELATES_TO
+                )
+                self.add_edge(edge)
+                linked_concept_ids.append(concept_id)
+
+        return linked_concept_ids

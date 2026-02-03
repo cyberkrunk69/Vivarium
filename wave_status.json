@@ -12,23 +12,24 @@
     {"num": 10, "name": "Structural Cleanup", "status": "done", "workers": 6},
     {"num": 11, "name": "Complete Implementations", "status": "done", "workers": 10},
     {"num": 12, "name": "Feedback Loops", "status": "done", "workers": 10},
-    {"num": 13, "name": "Knowledge Infrastructure", "status": "planned", "workers": 0}
+    {"num": 13, "name": "Knowledge Infrastructure", "status": "done", "workers": 10},
+    {"num": 14, "name": "Multi-Path Exploration", "status": "planned", "workers": 0}
   ],
-  "current_wave": 12,
+  "current_wave": 13,
   "current_activity": {
-    "title": "Wave 12 Complete!",
+    "title": "Wave 13 Complete - Knowledge Infrastructure",
     "workers": [
-      {"type": "Completed", "task": "Critic retry integration - quality-driven retries"},
-      {"type": "Completed", "task": "DSPy persistence - demos survive sessions"},
-      {"type": "Completed", "task": "Performance->Improvement loop - auto-suggestions"},
-      {"type": "Completed", "task": "Semantic skill retrieval - TF-IDF matching"},
-      {"type": "Completed", "task": "Knowledge graph wired to main flow"},
-      {"type": "Completed", "task": "KG auto-population from lessons"},
-      {"type": "Completed", "task": "Tree search expansion - real branching"},
-      {"type": "Completed", "task": "Tree search evaluation - critic scoring"},
-      {"type": "Completed", "task": "Online learning - session feedback capture"},
-      {"type": "Completed", "task": "Integration tests - feedback loop validation"}
+      {"type": "Embeddings", "task": "Vector skill retrieval - DONE 1.00"},
+      {"type": "Embeddings", "task": "Vector lesson retrieval - DONE 1.00"},
+      {"type": "KG Types", "task": "Rich node/edge types - DONE 1.00"},
+      {"type": "KG Persist", "task": "Cross-session persistence - DONE 1.00"},
+      {"type": "KG Extract", "task": "Auto concept extraction - DONE 1.00"},
+      {"type": "Context", "task": "Unified context builder - DONE 1.00"},
+      {"type": "Query", "task": "Query expansion - DONE 1.00"},
+      {"type": "Learning", "task": "Auto skill extraction - DONE 1.00"},
+      {"type": "Learning", "task": "Failure pattern detection - DONE 1.00"},
+      {"type": "Tests", "task": "Knowledge infrastructure tests - DONE 1.00"}
     ]
   },
-  "last_updated": "2026-02-03T06:57:00"
+  "last_updated": "2026-02-03T07:15:00"
 }

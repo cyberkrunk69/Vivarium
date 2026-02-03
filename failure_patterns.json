@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "timestamp": "2026-02-03T06:14:05.259042",
+    "task_description": "Test task for verification",
+    "error_type": "TestError",
+    "error_message": "This is a test error",
+    "task_characteristics": {
+      "test": true
+    },
+    "attempted_approaches": [
+      "Test approach"
+    ],
+    "context": {}
+  }
+]

@@ -136,14 +136,34 @@ class MemorySynthesis:
 
         return embedding
 
+    def find_similar_lessons(
+        self,
+        query: str,
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Find similar lessons by meaning using semantic vector search.
+        Alias for retrieve_relevant_lessons() that loads lessons automatically.
+
+        Args:
+            query: Query text to search for
+            top_k: Number of top lessons to return (default: 5)
+
+        Returns:
+            List of top-k lessons ranked by relevance
+        """
+        lessons = self.load_all_lessons()
+        return self.retrieve_relevant_lessons(query, lessons, top_k)
+
     def retrieve_relevant_lessons(
         self,
         query: str,
         lessons: List[Dict[str, Any]],
-        top_k: int = 5
+        top_k: int = 5,
+        log_expansion: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve top-k lessons most relevant to query using semantic similarity.
+        Retrieve top-k lessons most relevant to query using semantic similarity with query expansion.
         Implements HippoRAG's retrieval pattern:
         score = importance_weight * 0.4 + embedding_similarity * 0.6
 
@@ -151,6 +171,7 @@ class MemorySynthesis:
             query: Query text to search for
             lessons: List of lesson dictionaries
             top_k: Number of top lessons to return
+            log_expansion: Whether to log query expansion details
 
         Returns:
             List of top-k lessons ranked by relevance
@@ -158,8 +179,18 @@ class MemorySynthesis:
         if not query or not lessons:
             return []
 
-        # Compute query embedding
-        query_embedding = self.compute_lesson_embedding(query)
+        # Import query expander
+        from query_expander import expand_query, get_expansion_log
+
+        # Expand query for better matching
+        expanded_terms = expand_query(query)
+        expanded_query = " ".join(expanded_terms)
+
+        if log_expansion:
+            print(get_expansion_log(query, expanded_terms))
+
+        # Compute query embedding using expanded query
+        query_embedding = self.compute_lesson_embedding(expanded_query)
         if not query_embedding:
             return []
 
