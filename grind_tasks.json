@@ -115,5 +115,54 @@
     "model": "llama-3.3-70b-versatile",
     "priority": "high",
     "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: UX MOTION VISION - LIVING DASHBOARD\n\nREAD UX_MOTION_SPEC.md and implement the full vision.\n\nThe system should FEEL ALIVE. Visual choreography that shows work happening transparently.\n\nCORE FEATURES:\n1. LAYOUT:\n   - Header: Logo, Status, Stats, Autonomy Toggle\n   - Main Canvas: Task flow visualization (nodes spawn left, flow right)\n   - History Dashboard: Collapsible sidebar with completed quests\n   - Input: Chat field with Send/Mic buttons\n\n2. NODE VISUALIZATION:\n   - Understanding node (indigo #6366f1) - primary\n   - Worker nodes (purple #8b5cf6) - spawned tasks\n   - Helper nodes (cyan #06b6d4) - subtasks\n   - Expert nodes (amber #f59e0b) - specialized work\n   - Nodes connected by animated lines\n\n3. RAINBOW BORDER ANIMATION:\n   - Active/running nodes get animated rainbow border\n   - CSS: linear-gradient with 400% background-size\n   - 3s infinite animation cycling through spectrum\n\n4. THUNK-THUNK-THUNK COLLAPSE:\n   - When work completes, nodes collapse in reverse spawn order (LIFO)\n   - Each node shrinks, moves toward parent, fades out\n   - 250ms per node, 120ms delay between (the 'thunk' rhythm)\n   - Completion quip appears: 'got er done', 'finally', etc.\n   - Final node collapses into History Dashboard\n\n5. CSS VARIABLES (from spec):\n   - --anim-fast: 150ms, --anim-normal: 250ms, --anim-slow: 350ms\n   - --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1)\n   - --ease-snap: cubic-bezier(0.55, 0.055, 0.675, 0.19)\n   - --node-gap: 24px, --dashboard-width: 320px\n\nOUTPUT: \n- dashboard_vision.html - Full implementation\n- dashboard_vision.css - Styles with CSS variables\n- dashboard_vision.js - Animation orchestration\n- Update progress_server.py to serve new dashboard",
+    "budget": 1.50,
+    "model": "claude-sonnet-4-20250514",
+    "priority": "critical",
+    "phase": 1
+  },
+  {
+    "task": "QUALITY: Add self-verification to grind completions\n\nFrom Voyager paper - add self-verification step:\n\n1. After grind session completes, before logging success:\n2. Check if task was actually completed:\n   - Parse the result output\n   - Look for 'Done', 'Complete', 'Success' indicators\n   - Check if any files were actually modified\n\n3. If verification fails, mark as partial completion\n4. Log verification results: '[Session N] Self-verification: PASS/FAIL'\n\nThis prevents false positives in success logging.\n\nOUTPUT: Updated grind_spawner.py with self-verification.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "QUALITY: Add error categorization to grind failures\n\nFrom Reflexion paper - categorize failures for better learning:\n\n1. When a grind session fails, categorize the error:\n   - TIMEOUT: Session exceeded time limit\n   - ENCODING: Unicode/charset issues\n   - IMPORT: Missing module errors\n   - SYNTAX: Python syntax errors\n   - RUNTIME: Execution errors\n   - UNKNOWN: Uncategorized\n\n2. Store category in grind log: 'error_category': 'TIMEOUT'\n3. Update learned_lessons.json with failure patterns\n4. Count errors by category for reporting\n\nOUTPUT: failure_categorizer.py with error classification.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "INTEGRATION: Wire prompt_optimizer to grind_spawner\n\nThe prompt_optimizer.py exists but isn't being used. Integrate it:\n\n1. Read grind_spawner.py - find where GRIND_PROMPT_TEMPLATE is used\n2. Before creating the prompt, call:\n   - demos = collect_demonstrations(LOGS_DIR)\n   - relevant = get_relevant_demonstrations(task, demos)\n   - enhanced_prompt = optimize_prompt(base_prompt, relevant)\n\n3. Use the enhanced prompt instead of raw template\n4. Log when demonstrations are injected: '[Session N] Injected M demonstrations'\n\nThis implements DSPy's key insight: learning from successful runs.\n\nOUTPUT: Updated grind_spawner.py with prompt optimization.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "INTEGRATION: Wire skill_registry to grind_spawner\n\nThe skill_registry.py exists but isn't being used. Integrate it:\n\n1. Read grind_spawner.py - find where the prompt is built\n2. Before execution, call:\n   - skill = retrieve_skill(task_description)\n   - if skill: inject skill code into prompt context\n\n3. Add to prompt: 'RELEVANT SKILL: {skill_name}\\n{skill_code}'\n4. Log when skills are retrieved: '[Session N] Retrieved skill: {name}'\n\nThis implements Voyager's key insight: compositional skill reuse.\n\nOUTPUT: Updated grind_spawner.py with skill injection.",
+    "budget": 0.75,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "EMBEDDING: Create embedding-based skill retrieval\n\nUpgrade skill_registry.py to use semantic similarity:\n\n1. Read skill_registry.py and understand current keyword-based retrieval\n2. Add compute_embedding() function using simple TF-IDF or word vectors:\n   - For each skill, compute a normalized word frequency vector\n   - Store embeddings alongside skills in skill_library.json\n\n3. Add semantic_search(query, skills, top_k=3) function:\n   - Compute query embedding\n   - Find cosine similarity with all skill embeddings\n   - Return top-k most similar skills\n\n4. Update retrieve_skill() to use semantic search when keywords fail\n\nOUTPUT: Enhanced skill_registry.py with embedding retrieval.",
+    "budget": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "priority": "medium",
+    "phase": 4
+  },
+  {
+    "task": "FIX: Smart Executor Artifact Extraction\n\nDIAGNOSIS: Tasks complete but don't produce artifacts because Claude's output doesn't use the artifact format.\n\nROOT CAUSE: The prompt in smart_executor.py mentions artifact format but doesn't enforce it strongly.\n\nFIX:\n1. Read smart_executor.py _build_prompt() method\n2. Add STRONGER enforcement of artifact format:\n   - 'YOU MUST wrap ALL code output in <artifact> tags'\n   - 'If you don't use artifact format, the output will be LOST'\n   - Add example of correct format in the prompt\n\n3. Read groq_code_extractor.py extract_and_save() method\n4. Add fallback extraction:\n   - If no <artifact> tags found, look for ```python or ```html blocks\n   - Extract those as files based on content type\n   - Log warning: 'Fallback extraction used - artifact format preferred'\n\n5. Add verification: After extraction, check files exist\n\nOUTPUT: Fixed smart_executor.py and groq_code_extractor.py with robust artifact handling.",
+    "budget": 1.00,
+    "model": "claude-sonnet-4-20250514",
+    "priority": "critical",
+    "phase": 1
   }
 ]
