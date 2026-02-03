@@ -48,7 +48,18 @@ from lesson_recorder import (
     record_reflection_automation_lesson,
     record_critic_feedback_lesson
 )
+from safety_sandbox import initialize_sandbox
+from failure_patterns import FailurePatternDetector
+from skill_extractor import extract_skill_from_session, auto_register_skill
 from connect_tracker_to_suggester import post_wave_analysis
+from context_builder import ContextBuilder
+from multi_path_executor import MultiPathExecutor, ExecutionPath, PathResult
+from safety_network import scan_for_network_access
+from safety_constitutional import ConstitutionalChecker as ConstitutionalCheckerStandalone
+from safety_gateway import SafetyGateway
+from safety_sanitize import sanitize_task, detect_injection_attempt
+from safety_killswitch import get_kill_switch, get_circuit_breaker
+from cost_tracker import get_cost_tracker
 
 # Configuration
 WORKSPACE = Path(__file__).parent
@@ -81,14 +92,38 @@ class GrindSession:
         self.model = model
         self.budget = budget
         self.workspace = workspace
-        self.task = task
+
+        # SAFETY: Sanitize task input before processing
+        task_dict = {"task": task}
+        try:
+            sanitized_task_dict = sanitize_task(task_dict)
+            self.task = sanitized_task_dict["task"]
+            if sanitized_task_dict.get("_sanitized"):
+                print(f"[Session {session_id}] WARNING: Task was sanitized. Original length: {sanitized_task_dict.get('_original_length', 0)}")
+                json_log("task_sanitized", {
+                    "session_id": session_id,
+                    "original_length": len(task),
+                    "sanitized_length": len(self.task)
+                })
+        except ValueError as e:
+            print(f"[Session {session_id}] ERROR: Invalid task structure: {e}")
+            raise
+
+        # Also check for direct injection attempts
+        if detect_injection_attempt(self.task):
+            print(f"[Session {session_id}] ALERT: Possible injection attempt detected in task")
+            json_log("injection_attempt_detected", {
+                "session_id": session_id,
+                "task": task[:200]  # Log only first 200 chars
+            })
+
         self.runs = 0
         self.total_cost = 0.0
         self.running = True
         self.max_total_cost = max_total_cost
         self.synthesis_interval = synthesis_interval  # Default: synthesize every N sessions
         self.critic_mode = critic_mode  # Enable critic feedback loop when True
-        self.task_decomposition = decompose_task(task)
+        self.task_decomposition = decompose_task(self.task)
 
         # Initialize role executor with task-appropriate starting role
         initial_role = RoleType.PLANNER if self.task_decomposition["complexity"] == "complex" else RoleType.CODER
@@ -117,6 +152,12 @@ class GrindSession:
         else:
             self.kg.populate_from_codebase(str(self.workspace))
             print(f"[Session {self.session_id}] Populated knowledge graph with {len(self.kg.nodes)} nodes")
+
+        # Initialize Failure Pattern Detector for learning from errors
+        self.failure_detector = FailurePatternDetector(workspace=self.workspace)
+
+        # Initialize Safety Gateway for constitutional checks
+        self.safety_gateway = SafetyGateway(workspace=self.workspace)
 
     def _extract_files_from_log(self, output: str) -> list:
         """Extract list of modified files from Claude output."""
@@ -171,72 +212,30 @@ Inception Prompt:
 {'='*60}
 """
 
-        # Retrieve relevant skill from skill_registry
-        skill_injection = ""
-        skill = retrieve_skill(self.task)
-        if skill:
-            skill_name = skill.get('name', 'Unknown')
-            skill_code = skill.get('code', '')
-            skill_injection = f"""
-{'='*60}
-VOYAGER SKILL INJECTION (arXiv:2305.16291)
-{'='*60}
+        # Use unified ContextBuilder for all retrieval needs
+        context_builder = ContextBuilder(self.workspace)
+        unified_context = context_builder.add_skills(self.task, top_k=3) \
+                                         .add_lessons(self.task, top_k=3) \
+                                         .add_kg_context(self.task, depth=2) \
+                                         .build(log_injection=True)
 
-RELEVANT SKILL: {skill_name}
-
-{skill_code}
-
-{'='*60}
-"""
-            print(f"[Session {self.session_id}] Retrieved skill: {skill_name}")
-
-        # Query Knowledge Graph for context based on task keywords
-        kg_context_injection = ""
-        try:
-            # Extract key concepts from task description for better KG querying
-            task_lower = self.task.lower()
-            potential_node_ids = []
-
-            # Try to find relevant nodes based on task keywords
-            for node_id, node in self.kg.nodes.items():
-                node_label_lower = node.label.lower()
-                # Match if task contains node label or vice versa
-                if any(word in task_lower for word in node_label_lower.split()) or \
-                   any(word in node_label_lower for word in task_lower.split() if len(word) > 3):
-                    potential_node_ids.append(node_id)
-
-            # If no matches, fall back to querying a central node
-            if not potential_node_ids:
-                potential_node_ids = [f"class:grind_spawner.py:GrindSession"]
-
-            # Query the first relevant node
-            related_subgraph = self.kg.query_related(potential_node_ids[0], depth=2)
-
-            if related_subgraph and related_subgraph.get("nodes"):
-                kg_nodes = list(related_subgraph.get("nodes", {}).keys())[:5]
-                kg_context_injection = f"""
-{'='*60}
-KNOWLEDGE GRAPH CONTEXT
-{'='*60}
-Related concepts from codebase analysis:
-"""
-                for node_id in kg_nodes:
-                    node_data = related_subgraph["nodes"][node_id]
-                    if isinstance(node_data, dict):
-                        kg_context_injection += f"\n  - {node_data.get('label', node_id)} ({node_data.get('type', 'unknown')})"
-                    else:
-                        kg_context_injection += f"\n  - {node_id}"
-                kg_context_injection += f"\n{'='*60}\n"
-                print(f"[Session {self.session_id}] Injected knowledge graph context with {len(kg_nodes)} related concepts")
-        except Exception as e:
-            print(f"[Session {self.session_id}] Warning: Could not query knowledge graph: {e}")
+        # Check for failure patterns and inject warnings for risky tasks
+        failure_warning = self.failure_detector.generate_warning_prompt(
+            self.task,
+            task_characteristics={
+                "complexity": self.task_decomposition.get("complexity", "unknown"),
+                "complexity_score": self.complexity_score
+            }
+        )
+        if failure_warning:
+            print(f"[Session {self.session_id}] [WARN]  Failure pattern warning injected")
 
         # Collect demonstrations and optimize with DSPy if available
         all_demonstrations = collect_demonstrations(LOGS_DIR)
         relevant_demos = get_relevant_demonstrations(self.task, all_demonstrations, top_k=3)
 
-        # Combine: CAMEL + Skill Injection + KG Context + DSPy optimization
-        combined_prompt = camel_injection + skill_injection + kg_context_injection
+        # Combine: CAMEL + Unified Context (Skills + Lessons + KG) + Failure Warnings + DSPy optimization
+        combined_prompt = camel_injection + unified_context + failure_warning
         if relevant_demos:
             print(f"[Session {self.session_id}] Injected {len(relevant_demos)} demonstrations")
             return combined_prompt + optimize_prompt(base_prompt, relevant_demos)
@@ -273,6 +272,45 @@ Related concepts from codebase analysis:
         self.runs += 1
         start_time = datetime.now()
 
+        # SAFETY: Check kill switch before starting
+        kill_switch = get_kill_switch()
+        halt_status = kill_switch.check_halt_flag()
+        if halt_status["should_stop"] or halt_status["halted"]:
+            print(f"[Session {self.session_id}] [SAFETY] HALT detected: {halt_status['reason']}")
+            return {
+                "session_id": self.session_id,
+                "run": self.runs,
+                "elapsed": 0,
+                "returncode": -1,
+                "halted": True,
+                "halt_reason": halt_status["reason"]
+            }
+
+        if halt_status["paused"]:
+            print(f"[Session {self.session_id}] [SAFETY] System paused: {halt_status['reason']}")
+            return {
+                "session_id": self.session_id,
+                "run": self.runs,
+                "elapsed": 0,
+                "returncode": -1,
+                "paused": True,
+                "pause_reason": halt_status["reason"]
+            }
+
+        # SAFETY: Check circuit breaker
+        circuit_breaker = get_circuit_breaker()
+        cb_status = circuit_breaker.status()
+        if cb_status['tripped']:
+            print(f"[Session {self.session_id}] [SAFETY] Circuit breaker tripped: {cb_status['reason']}")
+            return {
+                "session_id": self.session_id,
+                "run": self.runs,
+                "elapsed": 0,
+                "returncode": -1,
+                "circuit_breaker_tripped": True,
+                "trip_reason": cb_status['reason']
+            }
+
         # Create log file for this run
         LOGS_DIR.mkdir(exist_ok=True)
         log_file = LOGS_DIR / f"session_{self.session_id}_run_{self.runs}.json"
@@ -285,6 +323,41 @@ Related concepts from codebase analysis:
                  model=self.model)
 
         prompt = self.get_prompt()
+
+# SAFETY GATEWAY: Pre-execution safety check (constitutional, sandbox, network, sanitization)
+        print(f"[Session {self.session_id}] [SAFETY GATEWAY] Running comprehensive safety checks...")
+        safety_passed, safety_report = self.safety_gateway.pre_execute_safety_check(self.task)
+
+        if not safety_passed:
+            print(f"[Session {self.session_id}] [SAFETY GATEWAY] [BLOCKED] EXECUTION BLOCKED")
+            print(f"[Session {self.session_id}] [SAFETY GATEWAY] Reason: {safety_report['blocked_reason']}")
+            for check_name, check_result in safety_report['checks'].items():
+                status = "[OK] PASS" if check_result['passed'] else "[FAIL] FAIL"
+                print(f"[Session {self.session_id}] [SAFETY GATEWAY]   {check_name}: {status} - {check_result['reason']}")
+
+            # Return early with safety violation
+            return {
+                "session_id": self.session_id,
+                "run": self.runs,
+                "error": "safety_violation",
+                "error_category": "SAFETY",
+                "safety_report": safety_report,
+                "returncode": -1
+            }
+
+        print(f"[Session {self.session_id}] [SAFETY GATEWAY] [OK] All safety checks passed")
+        for check_name, check_result in safety_report['checks'].items():
+            print(f"[Session {self.session_id}] [SAFETY GATEWAY]   {check_name}: [OK] {check_result['reason']}")
+
+
+        # SAFETY: Pre-execution network scan
+        print(f"[Session {self.session_id}] [SAFETY] Scanning prompt for network access violations...")
+        network_violations = scan_for_network_access(prompt)
+        if network_violations:
+            print(f"[Session {self.session_id}] [SAFETY] [WARN]  Found {len(network_violations)} network access violations:")
+            for violation in network_violations[:3]:  # Show first 3
+                print(f"[Session {self.session_id}] [SAFETY]   {violation}")
+            print(f"[Session {self.session_id}] [SAFETY] Network isolation enforced - external calls will be blocked")
 
         # Enforce REVIEWER validation gate
         role_chain = get_role_chain(self.task_decomposition["complexity"])
@@ -354,14 +427,33 @@ The task is NOT complete until REVIEWER approves.
 
                 # Save output to log with error categorization
                 output_data = json.loads(result.stdout or "{}")
+                elapsed = (datetime.now() - start_time).total_seconds()
+
                 if result.returncode != 0:
                     error_category = self._categorize_error("execution", result.stderr, result.stdout, result.stderr)
                     output_data["error_category"] = error_category
                     print(f"[Session {self.session_id}] Run #{self.runs} categorized as: {error_category}")
 
-                log_file.write_text(json.dumps(output_data), encoding="utf-8")
+                    # Track failure pattern for future avoidance
+                    self.failure_detector.track_failure(
+                        task_description=self.task,
+                        error_type=error_category,
+                        error_message=result.stderr[:500] if result.stderr else "Unknown error",
+                        task_characteristics={
+                            "complexity": self.task_decomposition.get("complexity", "unknown"),
+                            "complexity_score": self.complexity_score,
+                            "role": self.current_role.value
+                        },
+                        attempted_approaches=[f"Run #{self.runs} with {self.model}"],
+                        context={
+                            "session_id": self.session_id,
+                            "model": self.model,
+                            "elapsed": elapsed
+                        }
+                    )
+                    print(f"[Session {self.session_id}] Failure pattern recorded for learning")
 
-                elapsed = (datetime.now() - start_time).total_seconds()
+                log_file.write_text(json.dumps(output_data), encoding="utf-8")
                 print(f"[Session {self.session_id}] Run #{self.runs} completed in {elapsed:.1f}s (exit code: {result.returncode})")
 
                 # Log session completion event
@@ -483,6 +575,27 @@ Focus on: {', '.join(critic_review.get('feedback', [])[:3])}
                 self.perf_tracker.track_session(session_metrics)
                 print(f"[Session {self.session_id}] Performance tracked: {elapsed:.1f}s, quality={critic_quality_score:.2f}, success={result.returncode == 0}, critic_retries={critic_retry_count}")
 
+                # Auto-extract skill from high-quality sessions (>= 0.9 quality)
+                if critic_quality_score >= 0.9 and result.returncode == 0 and verification.get("verified"):
+                    try:
+                        from skills.skill_registry_extraction import extract_skill_from_session
+
+                        session_log_for_extraction = {
+                            "quality_score": critic_quality_score,
+                            "task": self.task,
+                            "log_file": str(log_file),
+                            "returncode": result.returncode,
+                            "self_verified": verification.get("verified")
+                        }
+
+                        extracted_skill_name = extract_skill_from_session(session_log_for_extraction)
+                        if extracted_skill_name:
+                            print(f"[Session {self.session_id}] [SKILL EXTRACTION] Automatically extracted skill: {extracted_skill_name}")
+                        else:
+                            print(f"[Session {self.session_id}] [SKILL EXTRACTION] No extractable patterns found in session")
+                    except Exception as e:
+                        print(f"[Session {self.session_id}] Warning: Skill extraction failed: {e}")
+
                 return {
                     "session_id": self.session_id,
                     "run": self.runs,
@@ -504,11 +617,43 @@ Focus on: {', '.join(critic_review.get('feedback', [])[:3])}
             except subprocess.TimeoutExpired:
                 print(f"[Session {self.session_id}] Run #{self.runs} timed out after 600s")
                 error_category = "TIMEOUT"
+
+                # Track timeout failure pattern
+                self.failure_detector.track_failure(
+                    task_description=self.task,
+                    error_type=error_category,
+                    error_message="Session timed out after 600 seconds",
+                    task_characteristics={
+                        "complexity": self.task_decomposition.get("complexity", "unknown"),
+                        "complexity_score": self.complexity_score,
+                        "role": self.current_role.value
+                    },
+                    attempted_approaches=[f"Run #{self.runs} with {self.model}"],
+                    context={"session_id": self.session_id, "model": self.model}
+                )
+                print(f"[Session {self.session_id}] Timeout failure pattern recorded")
+
                 return {"session_id": self.session_id, "run": self.runs, "error": "timeout", "error_category": error_category}
             except Exception as e:
                 error_message = str(e)
                 error_category = self._categorize_error("execution", error_message)
                 print(f"[Session {self.session_id}] Run #{self.runs} error ({error_category}): {e}")
+
+                # Track exception failure pattern
+                self.failure_detector.track_failure(
+                    task_description=self.task,
+                    error_type=error_category,
+                    error_message=error_message[:500],
+                    task_characteristics={
+                        "complexity": self.task_decomposition.get("complexity", "unknown"),
+                        "complexity_score": self.complexity_score,
+                        "role": self.current_role.value
+                    },
+                    attempted_approaches=[f"Run #{self.runs} with {self.model}"],
+                    context={"session_id": self.session_id, "model": self.model}
+                )
+                print(f"[Session {self.session_id}] Exception failure pattern recorded")
+
                 return {"session_id": self.session_id, "run": self.runs, "error": error_message, "error_category": error_category}
 
     def _trigger_synthesis(self, synth: MemorySynthesis, trigger_source: str) -> None:
@@ -531,7 +676,36 @@ Focus on: {', '.join(critic_review.get('feedback', [])[:3])}
         """Continuously run grind sessions until stopped."""
         synth = MemorySynthesis(str(LEARNED_LESSONS_FILE))
 
+        # Get safety systems
+        kill_switch = get_kill_switch()
+        circuit_breaker = get_circuit_breaker()
+
         while self.running:
+            # SAFETY: Check kill switch before each iteration (with error handling)
+            try:
+                halt_status = kill_switch.check_halt_flag()
+                if halt_status["should_stop"]:
+                    reason = halt_status.get("reason", "Unknown")
+                    print(f"[Session {self.session_id}] [SAFETY] HALT detected, stopping loop: {reason}")
+                    self.running = False
+                    break
+            except Exception as e:
+                print(f"[Session {self.session_id}] [SAFETY] Kill switch check failed: {e}")
+                json_log("ERROR", "Kill switch check failed", session_id=self.session_id, error=str(e))
+                # Continue execution - fail-open for kill switch check errors
+
+            # SAFETY: Check circuit breaker (with error handling)
+            try:
+                cb_status = circuit_breaker.get_status()
+                if cb_status['tripped']:
+                    print(f"[Session {self.session_id}] [SAFETY] Circuit breaker tripped, stopping loop: {cb_status['reason']}")
+                    self.running = False
+                    break
+            except Exception as e:
+                print(f"[Session {self.session_id}] [SAFETY] Circuit breaker check failed: {e}")
+                json_log("ERROR", "Circuit breaker check failed", session_id=self.session_id, error=str(e))
+                # Continue execution - fail-open for circuit breaker check errors
+
             # Check max total cost before spawning new session
             if self.max_total_cost:
                 total_spent = get_total_spent()
@@ -539,9 +713,31 @@ Focus on: {', '.join(critic_review.get('feedback', [])[:3])}
                     print(f"[Session {self.session_id}] WARNING: Total cost (${total_spent:.2f}) reached max (${self.max_total_cost:.2f})")
                     print(f"[Session {self.session_id}] Stopping to prevent runaway costs")
                     self.running = False
+
+                    # Trip circuit breaker on cost threshold
+                    circuit_breaker.check_cost(total_spent)
                     break
 
             result = self.run_once()
+
+            # SAFETY: Record failures/successes in circuit breaker (only on actual failures)
+            try:
+                if result.get("returncode", 0) != 0 or result.get("error"):
+                    error_msg = result.get('error', result.get('halt_reason', result.get('trip_reason', 'Unknown error')))
+                    if isinstance(error_msg, str):
+                        error_msg = error_msg[:200]
+                    else:
+                        error_msg = str(error_msg)[:200]
+                    print(f"[Session {self.session_id}] [SAFETY] Recording failure: {error_msg}")
+                    circuit_breaker.record_failure(
+                        f"session_{self.session_id}_run_{self.runs}: {error_msg}"
+                    )
+                else:
+                    # Record success to reset consecutive failure counter
+                    circuit_breaker.record_success()
+            except Exception as e:
+                print(f"[Session {self.session_id}] [SAFETY] Circuit breaker recording failed: {e}")
+                json_log("ERROR", "Circuit breaker recording failed", session_id=self.session_id, error=str(e))
 
             if not self.running:
                 break
@@ -752,6 +948,7 @@ def maybe_reflect(session_id: int, session_count: int) -> dict:
         new_reflections = synth.synthesize()
         result["reflections_generated"] = len(new_reflections)
         print(f"[Session {session_id}] Generated {len(new_reflections)} reflections (importance_sum={importance_sum})")
+        print(f"[Session {session_id}] [QUERY EXPANSION] Query expansion enabled for lesson retrieval")
         for r in new_reflections:
             print(f"[Session {session_id}]   - {r.get('insight', 'Unknown')}")
 
@@ -958,11 +1155,14 @@ def _update_prompt_optimizer_online(session_id: int, result: dict, context: dict
 
 
 def _update_skill_registry_online(session_id: int, result: dict, context: dict) -> None:
-    """Update skill_registry if new pattern detected in real-time."""
+    """Update skill_registry with automatic skill extraction for quality >= 0.9."""
     try:
-        from skills.skill_registry import register_skill, get_skill
+        # Try automatic skill extraction first for high-quality runs (>= 0.9)
+        if auto_register_skill(session_id, result, context):
+            return  # Successfully extracted and registered
 
-        # Only extract patterns from successful, high-quality runs
+        # Fallback to pattern-based detection for moderate quality runs (>= 0.75)
+        from skills.skill_registry import register_skill, get_skill
         if result.get("returncode") == 0 and result.get("quality_score", 0) > 0.75:
             task_lower = context.get("task", "").lower()
 
@@ -977,16 +1177,11 @@ def _update_skill_registry_online(session_id: int, result: dict, context: dict) 
 
             for keyword, (skill_name, skill_desc) in skill_patterns.items():
                 if keyword in task_lower:
-                    # Check if this skill already exists
                     if not get_skill(skill_name):
-                        # Generate skill code from task context
                         skill_code = f"""# Learned pattern: {skill_name}
 # Task: {context.get('task', '')[:100]}
 # Quality score: {result.get('quality_score', 0):.2f}
-# Success verified: {result.get('self_verified', False)}
-
 # Pattern extracted from session {session_id}, run {result.get('run', 0)}
-# This skill was learned online during execution
 """
                         register_skill(
                             name=skill_name,
@@ -1164,6 +1359,10 @@ def append_verification_lesson(session_id: int, run_num: int, verification: dict
 
 def main():
     validate_config()
+
+    # Initialize workspace sandbox for file operation validation
+    initialize_sandbox(str(WORKSPACE))
+
     parser = argparse.ArgumentParser(description="Spawn parallel Claude grind sessions")
     parser.add_argument("-n", "--sessions", type=int, default=1, help="Number of parallel sessions (ignored in delegate mode)")
     parser.add_argument("-m", "--model", default="haiku", help="Model: haiku (default, cheapest), sonnet, opus")
@@ -1175,11 +1374,14 @@ def main():
     parser.add_argument("--max-total-cost", type=float, default=None, help="Maximum total cost across all sessions in dollars (prevents runaway costs)")
     parser.add_argument("--synthesize", action="store_true", help="Force immediate memory synthesis and exit")
     parser.add_argument("--critic", action="store_true", help="Enable critic review mode with feedback-driven retries (quality_score < 0.7 triggers improvement attempt)")
+    parser.add_argument("--multi-path", action="store_true", help="Enable multi-path parallel execution (explores 3 strategies: CONSERVATIVE, BALANCED, AGGRESSIVE)")
+    parser.add_argument("--path-logs", default="path_execution_logs.json", help="Output file for multi-path execution logs")
 
     args = parser.parse_args()
 
     # Handle --synthesize flag (explicit synthesis request)
     if args.synthesize:
+        print(f"[SYNTHESIS] [QUERY EXPANSION] Query expansion enabled for lesson synthesis")
         synth = MemorySynthesis(str(LEARNED_LESSONS_FILE))
         lessons = synth.load_all_lessons()
         print(f"[SYNTHESIS] Loaded {len(lessons)} lessons")
@@ -1222,6 +1424,29 @@ def main():
     else:
         print("ERROR: Specify --task 'your task' or --delegate")
         sys.exit(1)
+
+    # Safety check: Validate all tasks against Constitutional AI constraints
+    constitutional_checker = ConstitutionalCheckerStandalone(constraints_path=str(WORKSPACE / "SAFETY_CONSTRAINTS.json"))
+    print("[SAFETY] Validating tasks against Constitutional AI constraints...")
+    blocked_tasks = []
+    for i, task_obj in enumerate(tasks):
+        task_text = task_obj["task"]
+        is_safe, violations = constitutional_checker.check_task_safety(task_text)
+        if not is_safe:
+            print(f"[SAFETY VIOLATION] Task {i+1} BLOCKED: {task_text[:60]}...")
+            for violation in violations:
+                print(f"  - {violation}")
+            blocked_tasks.append(i)
+
+    # Remove blocked tasks
+    if blocked_tasks:
+        tasks = [t for i, t in enumerate(tasks) if i not in blocked_tasks]
+        print(f"[SAFETY] {len(blocked_tasks)} unsafe task(s) blocked. {len(tasks)} safe task(s) remaining.")
+        if len(tasks) == 0:
+            print("[SAFETY] All tasks blocked. Exiting.")
+            sys.exit(1)
+    else:
+        print(f"[SAFETY] All {len(tasks)} task(s) passed safety validation.")
 
     print("=" * 60)
     print("  GRIND SPAWNER - DELEGATION MODE")
@@ -1276,7 +1501,105 @@ def main():
 
     # Note: record_online_learning_lesson() removed - function not yet implemented
 
-    # Create sessions
+    # Multi-path execution mode
+    if args.multi_path:
+        print("\n[MULTI-PATH] Executing with parallel path exploration")
+        print(f"[MULTI-PATH] Budget allocation: BALANCED=50%, CONSERVATIVE=30%, AGGRESSIVE=20%")
+
+        # Run multi-path executor for first task
+        if len(tasks) == 0:
+            print("[ERROR] No tasks to execute")
+            sys.exit(1)
+
+        first_task = tasks[0]
+        multi_path = MultiPathExecutor(
+            workspace=Path(first_task["workspace"]),
+            base_budget=first_task["budget"]
+        )
+
+        # Define executor function that wraps GrindSession.run_once
+        def execute_path(path: ExecutionPath) -> PathResult:
+            """Execute a single path using GrindSession."""
+            from pathlib import Path as PathLib
+            import time
+
+            start = time.time()
+            session = GrindSession(
+                session_id=hash(path.strategy.value) % 1000,  # Unique ID per strategy
+                model=first_task["model"],
+                budget=path.budget,
+                workspace=PathLib(first_task["workspace"]),
+                task=path.prompt_variant,  # Use strategy-specific prompt
+                max_total_cost=args.max_total_cost,
+                critic_mode=args.critic
+            )
+
+            result = session.run_once()
+
+            return PathResult(
+                output=json.dumps(result),
+                tokens_used=0,  # Not tracked in current implementation
+                quality=result.get("quality_score", 0.0),
+                elapsed_time=time.time() - start,
+                success=result.get("returncode", 1) == 0,
+                error=result.get("error"),
+                metadata=result
+            )
+
+        try:
+            # Execute with multi-path comparison
+            comparison_result = multi_path.execute_with_comparison(
+                task=first_task["task"],
+                executor_func=execute_path
+            )
+
+            # Store results to path_execution_logs.json
+            path_logs_file = WORKSPACE / args.path_logs
+            with open(path_logs_file, "w") as f:
+                json.dump(comparison_result, f, indent=2, default=str)
+
+            print(f"\n[MULTI-PATH] Results saved to {path_logs_file}")
+            print(f"[MULTI-PATH] Best path: {comparison_result['strategy'].upper()}")
+            print(f"[MULTI-PATH] Quality score: {comparison_result['quality_score']:.3f}")
+
+            # Print completion summary
+            print("\n" + "=" * 60)
+            print("  MULTI-PATH EXECUTION SUMMARY")
+            print("=" * 60)
+            print(f"  Best Strategy: {comparison_result['strategy'].upper()}")
+            print(f"  Quality Score: {comparison_result['quality_score']:.3f}")
+            print(f"  Total Elapsed: {comparison_result['metadata']['total_elapsed']:.1f}s")
+            print(f"  Paths Explored: {comparison_result['metadata']['paths_explored']}")
+            print("-" * 60)
+            for path_info in comparison_result['all_paths']:
+                print(f"  {path_info['strategy'].upper():12s}: quality={path_info['quality_score']:.3f}, "
+                      f"success={path_info['success']}, time={path_info['elapsed_time']:.1f}s")
+            print("=" * 60)
+
+        except Exception as e:
+            print(f"\n[MULTI-PATH] Multi-path execution failed: {e}")
+            print("[MULTI-PATH] Falling back to single-path execution")
+
+            # Fallback to regular single-path mode
+            sessions = [
+                GrindSession(
+                    session_id=i + 1,
+                    model=tasks[i]["model"],
+                    budget=tasks[i]["budget"],
+                    workspace=Path(tasks[i]["workspace"]),
+                    task=tasks[i]["task"],
+                    max_total_cost=args.max_total_cost,
+                    critic_mode=args.critic
+                )
+                for i in range(len(tasks))
+            ]
+
+            # Continue with single-path execution below
+        else:
+            # Multi-path completed successfully, exit
+            sys.exit(0)
+
+    # Create sessions (single-path mode)
     sessions = [
         GrindSession(
             session_id=i + 1,
