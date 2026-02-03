@@ -164,5 +164,12 @@
     "model": "claude-sonnet-4-20250514",
     "priority": "critical",
     "phase": 1
+  },
+  {
+    "task": "DESIGN: MULTI-USER LAN ARCHITECTURE\n\nThe LAN server needs to support MULTIPLE simultaneous users from the local network.\n\nREQUIREMENTS:\n\n1. NETWORK LOAD VISIBILITY (anonymized):\n   - Show each user: 'X other sessions active'\n   - Show: 'Y tasks running network-wide (not yours)'\n   - DO NOT expose what others are specifically doing\n   - Purpose: users understand lag/load context\n\n2. SESSION ISOLATION:\n   - Each user's work tracked separately by IP/session token\n   - User A's file edits don't affect User B\n   - Clear visual: 'Your tasks' vs 'Network activity'\n\n3. REMOTE FILE EDITING (zero-install goal):\n   Investigate and design the MOST SEAMLESS approach:\n   \n   Option A: Browser File System Access API\n   - User clicks 'Grant Folder Access' in browser\n   - We get read/write to that folder\n   - Pro: No install. Con: Chrome/Edge only, requires user gesture\n   \n   Option B: WebSocket Command Relay\n   - User opens a webpage that stays open\n   - Page has access to their filesystem via browser API\n   - We send commands through WebSocket, page executes\n   - Pro: Real-time, bidirectional. Con: Page must stay open\n   \n   Option C: Network Share Mount\n   - User shares a folder (SMB/AFP)\n   - We write directly to their shared folder\n   - Pro: Native OS feature. Con: Requires user to set up share\n   \n   Option D: Lightweight Agent (last resort)\n   - Single Python file they run: python connect_to_swarm.py\n   - Maintains connection, executes commands locally\n   - Pro: Full capability. Con: Requires download/run\n\n   RECOMMEND the best approach for UX.\n\n4. ARCHITECTURE QUESTIONS TO ANSWER:\n   - How does the server track which user is which?\n   - How do we route file operations to the correct machine?\n   - What happens if a user disconnects mid-task?\n   - How do we handle conflicting edits (same file, different users)?\n\nOUTPUT: MULTI_USER_LAN_DESIGN.md with:\n- Architecture diagram\n- Recommended remote file access approach\n- Session management design\n- Network load surfacing UI mockup\n- Security considerations",
+    "budget": 1.00,
+    "model": "claude-sonnet-4-20250514",
+    "priority": "medium",
+    "phase": 3
   }
 ]
