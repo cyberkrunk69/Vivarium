@@ -1,0 +1,25 @@
+{
+  "waves": [
+    {"num": 1, "name": "Analysis", "status": "done", "workers": 1},
+    {"num": 2, "name": "Consolidation", "status": "done", "workers": 3},
+    {"num": 3, "name": "Testing", "status": "done", "workers": 5},
+    {"num": 4, "name": "Research Implementation", "status": "done", "workers": 6},
+    {"num": 5, "name": "Deep Research", "status": "done", "workers": 2},
+    {"num": 6, "name": "Advanced Integration", "status": "done", "workers": 6},
+    {"num": 7, "name": "Wire Everything", "status": "done", "workers": 6},
+    {"num": 8, "name": "Advanced Intelligence", "status": "done", "workers": 6},
+    {"num": 9, "name": "Continuous Learning", "status": "done", "workers": 6},
+    {"num": 10, "name": "Structural Cleanup", "status": "done", "workers": 6},
+    {"num": 11, "name": "Complete Implementations", "status": "done", "workers": 10},
+    {"num": 12, "name": "Production Hardening", "status": "planned", "workers": 0}
+  ],
+  "current_wave": 11.5,
+  "current_activity": {
+    "title": "Opus Strategic Review",
+    "workers": [
+      {"type": "Opus Architect", "task": "Architecture review and code audit"},
+      {"type": "Opus Strategist", "task": "Wave 12-16 roadmap planning"}
+    ]
+  },
+  "last_updated": "2026-02-03T06:20:00"
+}

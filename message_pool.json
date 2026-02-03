@@ -1,0 +1,642 @@
+{
+  "messages": [
+    {
+      "id": "msg_001",
+      "timestamp": "2026-02-03T05:18:42.158219Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_3_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 8 success indicators",
+        "elapsed_seconds": 26.85682,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_002",
+      "timestamp": "2026-02-03T05:18:50.906621Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_5_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 3 success indicators",
+        "elapsed_seconds": 35.603007,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_003",
+      "timestamp": "2026-02-03T05:18:51.580076Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_2_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 36.282088,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_004",
+      "timestamp": "2026-02-03T05:18:54.747782Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_1_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 39.450661,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_005",
+      "timestamp": "2026-02-03T05:18:56.400374Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_4_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 11 success indicators",
+        "elapsed_seconds": 41.097706,
+        "model": "haiku",
+        "complexity": "simple"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_006",
+      "timestamp": "2026-02-03T05:19:34.362598Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_6_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 6 success indicators",
+        "elapsed_seconds": 79.05659,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_007",
+      "timestamp": "2026-02-03T05:20:56.114154Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_6_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 5 success indicators",
+        "elapsed_seconds": 46.12959,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_008",
+      "timestamp": "2026-02-03T05:21:12.912944Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_4_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 6 success indicators",
+        "elapsed_seconds": 62.932629,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_009",
+      "timestamp": "2026-02-03T05:21:16.268249Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_1_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 7 success indicators",
+        "elapsed_seconds": 66.291133,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_010",
+      "timestamp": "2026-02-03T05:22:32.579279Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_2_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 5 success indicators",
+        "elapsed_seconds": 142.60072,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_011",
+      "timestamp": "2026-02-03T05:22:39.680179Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_5_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 149.697307,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_012",
+      "timestamp": "2026-02-03T05:22:45.099090Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_3_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 6 success indicators",
+        "elapsed_seconds": 155.119669,
+        "model": "haiku",
+        "complexity": "complex"
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_013",
+      "timestamp": "2026-02-03T05:29:18.394059Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_1_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": false,
+        "verification_details": "FAIL: no success indicators found, no files modified",
+        "elapsed_seconds": 269.487756,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.42,
+        "complexity_analysis": {
+          "word_count": 77,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.0,
+          "low_complexity_signals": 0.08,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.2,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_014",
+      "timestamp": "2026-02-03T05:34:18.692649Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_5_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": false,
+        "verification_details": "FAIL: no success indicators found, no files modified",
+        "elapsed_seconds": 62.292891,
+        "model": "haiku",
+        "complexity": "simple",
+        "complexity_score": 0.32,
+        "complexity_analysis": {
+          "word_count": 65,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.0,
+          "low_complexity_signals": 0.08,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.1,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_015",
+      "timestamp": "2026-02-03T05:39:26.308463Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_1_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 23.170543,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.8,
+        "complexity_analysis": {
+          "word_count": 74,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.3,
+          "low_complexity_signals": 0.0,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.1,
+          "paper_reference_signals": 0.1
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_016",
+      "timestamp": "2026-02-03T05:39:32.051579Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_10_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 3 success indicators",
+        "elapsed_seconds": 28.90118,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.74,
+        "complexity_analysis": {
+          "word_count": 57,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.3,
+          "low_complexity_signals": 0.16,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.2,
+          "paper_reference_signals": 0.1
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_017",
+      "timestamp": "2026-02-03T05:39:32.788757Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_3_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 5 success indicators",
+        "elapsed_seconds": 29.647295,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.552,
+        "complexity_analysis": {
+          "word_count": 47,
+          "word_count_signal": 0.282,
+          "high_complexity_signals": 0.15,
+          "low_complexity_signals": 0.08,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.2,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_018",
+      "timestamp": "2026-02-03T05:39:43.707994Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_4_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 3 success indicators",
+        "elapsed_seconds": 40.567529,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.39,
+        "complexity_analysis": {
+          "word_count": 54,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.15,
+          "low_complexity_signals": 0.16,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.1,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_019",
+      "timestamp": "2026-02-03T05:40:07.460220Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_7_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 3 success indicators",
+        "elapsed_seconds": 64.317253,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.59,
+        "complexity_analysis": {
+          "word_count": 57,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.3,
+          "low_complexity_signals": 0.16,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.15,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_020",
+      "timestamp": "2026-02-03T05:40:22.058801Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_2_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 78.910965,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.64,
+        "complexity_analysis": {
+          "word_count": 65,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.15,
+          "low_complexity_signals": 0.08,
+          "phrase_signals": 0.12,
+          "file_reference_signals": 0.15,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_021",
+      "timestamp": "2026-02-03T05:40:30.614014Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_8_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 3 success indicators",
+        "elapsed_seconds": 87.466694,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.44,
+        "complexity_analysis": {
+          "word_count": 52,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.0,
+          "low_complexity_signals": 0.16,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.2,
+          "paper_reference_signals": 0.1
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_022",
+      "timestamp": "2026-02-03T05:40:36.693385Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_6_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 5 success indicators",
+        "elapsed_seconds": 93.549653,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.42,
+        "complexity_analysis": {
+          "word_count": 61,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.15,
+          "low_complexity_signals": 0.08,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.05,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_023",
+      "timestamp": "2026-02-03T05:40:45.662067Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_9_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 102.514652,
+        "model": "haiku",
+        "complexity": "simple",
+        "complexity_score": 0.27,
+        "complexity_analysis": {
+          "word_count": 56,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.0,
+          "low_complexity_signals": 0.08,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.05,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_024",
+      "timestamp": "2026-02-03T05:41:12.356529Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_5_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 129.213661,
+        "model": "haiku",
+        "complexity": "complex",
+        "complexity_score": 0.5,
+        "complexity_analysis": {
+          "word_count": 64,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.15,
+          "low_complexity_signals": 0.0,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.05,
+          "paper_reference_signals": 0.0
+        }
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_025",
+      "timestamp": "2026-02-03T05:45:43.082224Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_2_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 4 success indicators",
+        "elapsed_seconds": 99.807641,
+        "model": "opus",
+        "complexity": "complex",
+        "complexity_score": 0.4,
+        "complexity_analysis": {
+          "word_count": 73,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.0,
+          "low_complexity_signals": 0.0,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.1,
+          "paper_reference_signals": 0.0
+        },
+        "quality_score": 1.0,
+        "critic_retry_count": 0
+      },
+      "subscribers": [
+        "worker"
+      ]
+    },
+    {
+      "id": "msg_026",
+      "timestamp": "2026-02-03T05:45:50.687587Z",
+      "from_role": "worker",
+      "type": "TASK_COMPLETE",
+      "content": {
+        "task_id": "session_1_run_1",
+        "files_modified": [],
+        "success": true,
+        "self_verified": true,
+        "verification_details": "PASS: Exit code 0, found 5 success indicators",
+        "elapsed_seconds": 107.414286,
+        "model": "opus",
+        "complexity": "complex",
+        "complexity_score": 0.59,
+        "complexity_analysis": {
+          "word_count": 87,
+          "word_count_signal": 0.3,
+          "high_complexity_signals": 0.15,
+          "low_complexity_signals": 0.16,
+          "phrase_signals": 0.0,
+          "file_reference_signals": 0.2,
+          "paper_reference_signals": 0.1
+        },
+        "quality_score": 1.0,
+        "critic_retry_count": 0
+      },
+      "subscribers": [
+        "worker"
+      ]
+    }
+  ]
+}

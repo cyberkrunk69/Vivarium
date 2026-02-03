@@ -1,0 +1,52 @@
+[
+  {
+    "task": "PRODUCTION: Retry with Exponential Backoff\n\nAdd robust retry logic to all API calls:\n\n1. Read worker.py and grind_spawner.py\n2. Find all httpx/requests calls\n3. Implement retry decorator with:\n   - Exponential backoff (1s, 2s, 4s, 8s, max 30s)\n   - Jitter to prevent thundering herd\n   - Configurable max retries (default 3)\n   - Specific exception handling (timeout, connection, 5xx)\n\n4. Write retry_utils.py or add to utils.py\n5. Apply decorator to all external API calls\n\nTest with mock failures to verify retry behavior.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Metrics Export Endpoint\n\nAdd Prometheus-compatible metrics export:\n\n1. Read swarm.py to understand current endpoints\n2. Add /metrics endpoint that returns:\n   - grind_tasks_total (counter)\n   - grind_task_duration_seconds (histogram)\n   - grind_quality_score (gauge)\n   - active_workers (gauge)\n   - lessons_learned_total (counter)\n   - skills_in_library (gauge)\n\n3. Use prometheus_client or implement simple text format\n4. Update performance_tracker.py to feed metrics\n\nEnsure metrics are thread-safe for concurrent access.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Graceful Shutdown Handler\n\nImplement clean shutdown for all components:\n\n1. Read grind_spawner.py, swarm.py, worker.py\n2. Add signal handlers (SIGINT, SIGTERM)\n3. Implement shutdown sequence:\n   - Stop accepting new tasks\n   - Wait for in-progress tasks (with timeout)\n   - Persist state to disk\n   - Release locks\n   - Log final metrics\n\n4. Add --graceful-timeout flag to CLI\n5. Ensure ThreadPoolExecutor is shutdown cleanly\n\nTest with ctrl+c during active execution.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Health Check Endpoints\n\nAdd comprehensive health check system:\n\n1. Read swarm.py\n2. Add endpoints:\n   - GET /health - Basic liveness (200 OK)\n   - GET /ready - Readiness check (dependencies OK)\n   - GET /health/detailed - Full status JSON\n\n3. Check these in /health/detailed:\n   - Database/file access working\n   - Claude API reachable (optional ping)\n   - Memory usage below threshold\n   - Disk space available\n   - Worker threads alive\n\n4. Return proper HTTP status codes (200/503)\n\nDocument health check usage for deployment.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Rate Limiting\n\nAdd rate limiting to prevent API abuse:\n\n1. Read swarm.py and worker.py\n2. Implement rate limiter class:\n   - Token bucket or sliding window algorithm\n   - Configurable requests per minute\n   - Per-endpoint limits\n   - Burst allowance\n\n3. Add to swarm.py endpoints:\n   - /grind: 10 req/min default\n   - /plan: 5 req/min default\n   - /status: 60 req/min default\n\n4. Return 429 Too Many Requests with Retry-After header\n5. Add config options for limits\n\nTest with concurrent request burst.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Input Validation Hardening\n\nHarden all input validation:\n\n1. Read swarm.py, orchestrator.py, grind_spawner.py\n2. Add Pydantic models for ALL API inputs\n3. Validate:\n   - Task descriptions: max length, no injection chars\n   - Budget values: positive, max limit\n   - File paths: sanitize, no traversal\n   - Model names: whitelist only\n\n4. Add input sanitization utilities\n5. Return proper 400 errors with details\n\nEnsure no command injection possible via task strings.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Error Recovery Improvements\n\nEnhance error handling across all modules:\n\n1. Read all .py files for error handling patterns\n2. Create error hierarchy:\n   - GrindError (base)\n   - ConfigError, APIError, TaskError, etc.\n\n3. Add context to exceptions:\n   - Task ID, session ID\n   - Timestamp, attempt number\n   - Partial results if any\n\n4. Implement error recovery strategies:\n   - Automatic retry for transient errors\n   - State preservation for resumption\n   - Notification hooks for critical errors\n\nWrite to errors/ directory with full context.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Resource Limits\n\nAdd resource consumption limits:\n\n1. Read grind_spawner.py, worker.py\n2. Add configurable limits:\n   - Max concurrent workers (CPU-based default)\n   - Max memory per worker (500MB default)\n   - Max task duration (5 min default)\n   - Max output size (1MB default)\n   - Max log file size with rotation\n\n3. Implement enforcement:\n   - Memory monitoring with psutil\n   - Task timeout enforcement\n   - Output truncation\n\n4. Add limits to config.py with env var overrides\n\nLog warnings at 80% of limits.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Deployment Documentation\n\nCreate comprehensive deployment guide:\n\n1. Read all entry points and config options\n2. Write DEPLOYMENT.md with:\n   - Prerequisites (Python 3.9+, Claude API key)\n   - Installation steps\n   - Configuration options (env vars, config.py)\n   - Running in production (systemd, Docker)\n   - Monitoring setup (metrics, logs)\n   - Troubleshooting guide\n   - Security considerations\n\n3. Add example docker-compose.yml\n4. Add example systemd service file\n\nInclude health check and restart policies.",
+    "budget": 0.60,
+    "model": "sonnet"
+  },
+  {
+    "task": "PRODUCTION: Security Audit\n\nAudit and fix security issues:\n\n1. Read all .py files for security issues\n2. Check for:\n   - Hardcoded secrets (API keys, passwords)\n   - SQL/command injection vectors\n   - Path traversal vulnerabilities\n   - Insecure deserialization\n   - Information leakage in logs/errors\n\n3. Fix any issues found\n4. Add .env.example with required vars\n5. Update .gitignore for secrets\n6. Write SECURITY.md with:\n   - Security model overview\n   - Credential handling\n   - Report vulnerabilities\n\nEnsure no secrets in git history.",
+    "budget": 0.60,
+    "model": "sonnet"
+  }
+]

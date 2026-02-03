@@ -1,0 +1,412 @@
+"""
+Parallel Worker for Black Swarm Orchestrator
+
+Uses file-based lock protocol for coordination between multiple workers.
+Lock Protocol from: claude-code-orchestrator EXECUTION_SWARM_SYSTEM.md
+
+Target API: http://127.0.0.1:8420 (Black Swarm)
+"""
+
+import json
+import os
+import sys
+import time
+import uuid
+import httpx
+from pathlib import Path
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, List
+from utils import read_json, write_json, get_timestamp, ensure_dir, format_error
+from config import LOCK_TIMEOUT_SECONDS, API_TIMEOUT_SECONDS, DEFAULT_MIN_BUDGET, DEFAULT_MAX_BUDGET
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+WORKSPACE: Path = Path(__file__).parent
+QUEUE_FILE: Path = WORKSPACE / "queue.json"
+LOCKS_DIR: Path = WORKSPACE / "task_locks"
+EXECUTION_LOG: Path = WORKSPACE / "execution_log.json"
+
+API_REQUEST_TIMEOUT: float = API_TIMEOUT_SECONDS
+WORKER_CHECK_INTERVAL: float = 2.0  # Delay between queue checks in seconds
+MAX_IDLE_CYCLES: int = 10  # Exit after N consecutive idle checks
+DEFAULT_INTENSITY: str = "medium"
+DEFAULT_TASK_TYPE: str = "grind"
+
+# Generate unique worker ID
+WORKER_ID: str = f"worker_{uuid.uuid4().hex[:8]}"
+
+
+# ============================================================================
+# LOGGING HELPERS
+# ============================================================================
+def _log(level: str, message: str) -> None:
+    """
+    Log a message with timestamp and level.
+
+    Args:
+        level: Log level (INFO, ERROR, WARN, DEBUG)
+        message: Message to log
+    """
+    timestamp = get_timestamp()
+    print(f"[{timestamp}] [{level}] [{WORKER_ID}] {message}")
+
+
+
+
+def ensure_directories() -> None:
+    """Create required directories if they don't exist."""
+    try:
+        ensure_dir(LOCKS_DIR)
+    except OSError as e:
+        _log("ERROR", f"Failed to create locks directory: {e}")
+        raise
+
+
+def read_queue() -> Dict[str, Any]:
+    """Read the shared queue file (never write to it from workers)."""
+    try:
+        data = read_json(QUEUE_FILE)
+        if not data:
+            return {"tasks": [], "completed": [], "failed": []}
+        return data
+    except (json.JSONDecodeError, IOError) as e:
+        _log("ERROR", f"Failed to read queue file: {e}")
+        return {"tasks": [], "completed": [], "failed": []}
+
+
+def read_execution_log() -> Dict[str, Any]:
+    """Read the execution log to check task statuses."""
+    try:
+        data = read_json(EXECUTION_LOG)
+        if not data:
+            return {"version": "1.0", "tasks": {}, "swarm_summary": {}}
+        return data
+    except (json.JSONDecodeError, IOError) as e:
+        _log("ERROR", f"Failed to read execution log: {e}")
+        return {"version": "1.0", "tasks": {}, "swarm_summary": {}}
+
+
+def write_execution_log(log: Dict[str, Any]) -> None:
+    """Update the execution log with task progress and recalculate summary."""
+    try:
+        tasks = log.get("tasks", {})
+        completed = sum(1 for t in tasks.values() if t.get("status") == "completed")
+        in_progress = sum(1 for t in tasks.values() if t.get("status") == "in_progress")
+        pending = sum(1 for t in tasks.values() if t.get("status") == "pending")
+        failed = sum(1 for t in tasks.values() if t.get("status") == "failed")
+
+        log["swarm_summary"] = {
+            "total_tasks": len(tasks),
+            "completed": completed,
+            "in_progress": in_progress,
+            "pending": pending,
+            "failed": failed
+        }
+
+        write_json(EXECUTION_LOG, log)
+    except (IOError, TypeError) as e:
+        _log("ERROR", f"Failed to write execution log: {e}")
+        raise
+
+
+def get_lock_path(task_id: str) -> Path:
+    """Get the lock file path for a task."""
+    return LOCKS_DIR / f"{task_id}.lock"
+
+
+def is_lock_stale(lock_path: Path) -> bool:
+    """Check if a lock file is stale (older than LOCK_TIMEOUT_SECONDS)."""
+    if not lock_path.exists():
+        return False
+
+    try:
+        lock_data = read_json(lock_path)
+
+        started_at = datetime.fromisoformat(lock_data["started_at"].replace("Z", "+00:00"))
+        age_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+        return age_seconds > LOCK_TIMEOUT_SECONDS
+    except (json.JSONDecodeError, KeyError, ValueError, IOError) as e:
+        _log("DEBUG", f"Lock file corrupted ({lock_path}): {e}")
+        return True
+
+
+def try_acquire_lock(task_id: str) -> bool:
+    """Attempt to acquire lock for a task using atomic file creation."""
+    lock_path = get_lock_path(task_id)
+
+    if lock_path.exists():
+        if is_lock_stale(lock_path):
+            try:
+                lock_path.unlink()
+                _log("INFO", f"Removed stale lock for {task_id}")
+            except OSError as e:
+                _log("ERROR", f"Failed to remove stale lock ({task_id}): {e}")
+                return False
+        else:
+            return False
+
+    lock_data = {
+        "worker_id": WORKER_ID,
+        "started_at": get_timestamp(),
+        "task_id": task_id
+    }
+
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w") as f:
+            json.dump(lock_data, f, indent=2)  # Atomic operation, can't use write_json
+        return True
+    except FileExistsError:
+        return False
+    except (OSError, IOError) as e:
+        _log("ERROR", f"Failed to acquire lock ({task_id}): {e}")
+        return False
+
+
+def release_lock(task_id: str) -> None:
+    """Release the lock for a task."""
+    lock_path = get_lock_path(task_id)
+    try:
+        if lock_path.exists():
+            lock_path.unlink()
+    except OSError as e:
+        _log("ERROR", f"Failed to release lock ({task_id}): {e}")
+
+
+def check_dependencies_complete(task: Dict[str, Any], execution_log: Dict[str, Any]) -> bool:
+    """Check if all dependencies for a task are completed."""
+    depends_on = task.get("depends_on", [])
+    if not depends_on:
+        return True
+
+    tasks_log = execution_log.get("tasks", {})
+    for dep_id in depends_on:
+        dep_status = tasks_log.get(dep_id, {}).get("status")
+        if dep_status != "completed":
+            return False
+    return True
+
+
+def is_task_done(task_id: str, execution_log: Dict[str, Any]) -> bool:
+    """Check if a task is already completed or failed."""
+    task_status = execution_log.get("tasks", {}).get(task_id, {}).get("status")
+    return task_status in ("completed", "failed")
+
+
+def execute_task(task: Dict[str, Any], api_endpoint: str) -> Dict[str, Any]:
+    """Execute a task by sending it to the Black Swarm API."""
+    task_id = task.get("id", "unknown")
+    min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
+    max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)
+    intensity = task.get("intensity", DEFAULT_INTENSITY)
+
+    _log("INFO", f"Executing task {task_id} (budget: ${min_budget}-${max_budget}, intensity: {intensity})")
+
+    try:
+        with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
+            response = client.post(
+                f"{api_endpoint}/grind",
+                json={
+                    "min_budget": min_budget,
+                    "max_budget": max_budget,
+                    "intensity": intensity
+                }
+            )
+
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    return {
+                        "status": "completed",
+                        "result_summary": result.get("result", "Task completed"),
+                        "errors": None
+                    }
+                except json.JSONDecodeError as e:
+                    _log("ERROR", f"Failed to decode API response: {e}")
+                    return {
+                        "status": "failed",
+                        "result_summary": None,
+                        "errors": f"Invalid API response: {e}"
+                    }
+            else:
+                error_msg = f"API returned {response.status_code}: {response.text}"
+                _log("WARN", error_msg)
+                return {
+                    "status": "failed",
+                    "result_summary": None,
+                    "errors": error_msg
+                }
+    except httpx.ConnectError as e:
+        error_msg = f"Cannot connect to API at {api_endpoint}: {e}"
+        _log("ERROR", error_msg)
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": error_msg
+        }
+    except httpx.TimeoutException as e:
+        error_msg = f"API request timeout: {e}"
+        _log("ERROR", error_msg)
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": error_msg
+        }
+    except Exception as e:
+        error_msg = f"Unexpected error executing task: {type(e).__name__}: {e}"
+        _log("ERROR", error_msg)
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": error_msg
+        }
+
+
+def find_and_execute_task(queue: Dict[str, Any]) -> bool:
+    """Find an available task, lock it, execute it, and report results."""
+    try:
+        execution_log = read_execution_log()
+        api_endpoint = queue.get("api_endpoint", "http://127.0.0.1:8420")
+
+        for task in queue.get("tasks", []):
+            task_id = task.get("id")
+            if not task_id:
+                continue
+
+            if is_task_done(task_id, execution_log):
+                continue
+
+            if not check_dependencies_complete(task, execution_log):
+                continue
+
+            if not try_acquire_lock(task_id):
+                continue
+
+            _log("INFO", f"Acquired lock for {task_id}")
+
+            if task_id not in execution_log.get("tasks", {}):
+                execution_log.setdefault("tasks", {})[task_id] = {}
+
+            execution_log["tasks"][task_id].update({
+                "worker_id": WORKER_ID,
+                "status": "in_progress",
+                "started_at": get_timestamp(),
+                "completed_at": None,
+                "result_summary": None,
+                "errors": None
+            })
+            write_execution_log(execution_log)
+
+            result = execute_task(task, api_endpoint)
+
+            execution_log["tasks"][task_id].update({
+                "status": result["status"],
+                "completed_at": get_timestamp(),
+                "result_summary": result["result_summary"],
+                "errors": result["errors"]
+            })
+            write_execution_log(execution_log)
+
+            release_lock(task_id)
+            _log("INFO", f"Released lock for {task_id} - {result['status']}")
+
+            return True
+
+        return False
+    except Exception as e:
+        _log("ERROR", f"Unexpected error in find_and_execute_task: {type(e).__name__}: {e}")
+        return False
+
+
+def worker_loop(max_iterations: Optional[int] = None) -> None:
+    """Main worker loop. Continuously looks for and executes tasks."""
+    try:
+        ensure_directories()
+        _log("INFO", "Starting worker loop")
+
+        iterations = 0
+        idle_count = 0
+
+        while True:
+            if max_iterations and iterations >= max_iterations:
+                _log("INFO", f"Reached max iterations ({max_iterations})")
+                break
+
+            try:
+                queue = read_queue()
+
+                if find_and_execute_task(queue):
+                    iterations += 1
+                    idle_count = 0
+                else:
+                    idle_count += 1
+                    if idle_count >= MAX_IDLE_CYCLES:
+                        _log("INFO", f"No tasks available after {MAX_IDLE_CYCLES} checks. Exiting.")
+                        break
+                    _log("INFO", f"No tasks available, waiting... ({idle_count}/{MAX_IDLE_CYCLES})")
+                    time.sleep(WORKER_CHECK_INTERVAL)
+            except KeyboardInterrupt:
+                _log("INFO", "Interrupted by user")
+                break
+            except Exception as e:
+                _log("ERROR", f"Unexpected error in worker loop: {type(e).__name__}: {e}")
+                idle_count += 1
+                if idle_count >= MAX_IDLE_CYCLES:
+                    break
+                time.sleep(WORKER_CHECK_INTERVAL)
+
+        _log("INFO", f"Worker finished. Executed {iterations} tasks.")
+    except Exception as e:
+        _log("ERROR", f"Fatal error in worker_loop: {type(e).__name__}: {e}")
+        sys.exit(1)
+
+
+def add_task(task_id: str, instruction: str, depends_on: Optional[List[str]] = None) -> None:
+    """Helper to add a task to the queue."""
+    try:
+        queue = read_queue()
+
+        task: Dict[str, Any] = {
+            "id": task_id,
+            "atomic_instruction": instruction,
+            "depends_on": depends_on or [],
+            "parallel_safe": True
+        }
+
+        queue["tasks"].append(task)
+
+        write_json(QUEUE_FILE, queue)
+
+        _log("INFO", f"Added task: {task_id}")
+    except (IOError, TypeError) as e:
+        _log("ERROR", f"Failed to add task {task_id}: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) > 1:
+            if sys.argv[1] == "add" and len(sys.argv) >= 4:
+                deps = sys.argv[4].split(",") if len(sys.argv) > 4 else None
+                add_task(sys.argv[2], sys.argv[3], deps)
+            elif sys.argv[1] == "run":
+                try:
+                    max_iter = int(sys.argv[2]) if len(sys.argv) > 2 else None
+                    worker_loop(max_iter)
+                except ValueError:
+                    _log("ERROR", f"Invalid max_iterations: {sys.argv[2]}")
+                    sys.exit(1)
+            else:
+                print("Usage:")
+                print("  python worker.py run [max_iterations]  - Start worker")
+                print("  python worker.py add <id> <instruction> [deps]  - Add task")
+                sys.exit(1)
+        else:
+            worker_loop()
+    except KeyboardInterrupt:
+        _log("INFO", "Program interrupted")
+        sys.exit(0)
+    except Exception as e:
+        _log("ERROR", f"Fatal error: {type(e).__name__}: {e}")
+        sys.exit(1)
