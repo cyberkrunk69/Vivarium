@@ -37,13 +37,21 @@ COPY . .
 RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
 # Create directories
-RUN mkdir -p /app/grind_logs /app/knowledge /app/experiments
+RUN mkdir -p /app/grind_logs /app/knowledge /app/experiments /app/data
+
+# Create non-root user for security (UID 1000 matches most host users)
+RUN useradd -m -u 1000 swarm && \
+    chown -R swarm:swarm /app/grind_logs /app/experiments /app/data && \
+    chmod +x docker-entrypoint.sh
 
 # Environment
 ENV PYTHONUNBUFFERED=1
 ENV WORKSPACE=/app
 # Default to auto engine selection
 ENV INFERENCE_ENGINE=auto
+
+# Switch to non-root user (critical security hardening)
+USER swarm
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["python", "grind_spawner_unified.py", "--delegate", "--budget", "1.00", "--once"]
