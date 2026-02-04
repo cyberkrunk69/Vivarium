@@ -27,6 +27,7 @@ import re
 import os
 import signal
 import atexit
+import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
@@ -61,6 +62,14 @@ from roles import decompose_task
 from knowledge_graph import KnowledgeGraph
 from utils import read_json, write_json
 from groq_code_extractor import GroqArtifactExtractor
+from surgical_edit_extractor import SurgicalEditExtractor, get_surgical_prompt_instructions
+
+# Optional: Together AI for verification (critic node)
+try:
+    from together_client import TogetherInferenceEngine
+    TOGETHER_AVAILABLE = True
+except ImportError:
+    TOGETHER_AVAILABLE = False
 
 # Configuration
 WORKSPACE = Path(os.environ.get("WORKSPACE", Path(__file__).parent))
@@ -259,18 +268,55 @@ class UnifiedGrindSession:
         )
         self.safety_gateway = SafetyGateway(workspace=self.workspace)
 
-        # Code extractor for file output
+        # Code extractors for file output
         self.code_extractor = GroqArtifactExtractor(workspace_root=str(self.workspace))
+        self.surgical_extractor = SurgicalEditExtractor(workspace_root=str(self.workspace))
+
+        # Critic node for verification (uses Together AI if available)
+        self.verifier = None
+        if TOGETHER_AVAILABLE and os.environ.get("TOGETHER_API_KEY"):
+            try:
+                self.verifier = TogetherInferenceEngine()
+            except Exception:
+                pass  # Verification optional
 
         # Task analysis
         self.task_decomposition = decompose_task(self.task)
         self.complexity_score = self.task_decomposition.get("complexity_score", 0.0)
 
     def get_prompt(self) -> str:
-        """Generate execution prompt with artifact format."""
+        """Generate execution prompt - surgical edits for mods, full files for new."""
         experiment_workspace = self.workspace / "experiments" / self.experiment_id
 
-        prompt = f"""You are an EXECUTION worker. Follow instructions EXACTLY.
+        # Detect if this is a modification task vs new file creation
+        is_modification = any(keyword in self.task.upper() for keyword in [
+            'FIX', 'UPDATE', 'MODIFY', 'REFACTOR', 'EDIT', 'CHANGE', 'WIRE',
+            'IMPROVE', 'REPAIR', 'CORRECT', 'PATCH', 'ADJUST'
+        ])
+
+        if is_modification:
+            # Use surgical edit format for modifications
+            surgical_instructions = get_surgical_prompt_instructions()
+            prompt = f"""You are an EXECUTION worker. MODIFY code surgically.
+
+WORKSPACE: {self.workspace}
+
+TASK:
+{self.task}
+
+{surgical_instructions}
+
+PROTECTED FILES (NEVER modify):
+- grind_spawner*.py, orchestrator.py, roles.py
+- safety_*.py, groq_code_extractor.py, surgical_edit_extractor.py
+
+CRITICAL: Output ONLY the specific changes needed, NOT entire files.
+Use SEARCH/REPLACE blocks. Be minimal and precise.
+
+EXECUTE NOW."""
+        else:
+            # Use full file format for new file creation
+            prompt = f"""You are an EXECUTION worker. CREATE the requested file(s).
 
 WORKSPACE: {self.workspace}
 EXPERIMENT: {self.experiment_id}
@@ -278,20 +324,19 @@ EXPERIMENT: {self.experiment_id}
 TASK:
 {self.task}
 
-FILE OUTPUT FORMAT - When creating files, use this EXACT format:
+FILE OUTPUT FORMAT - When creating NEW files:
 
 <artifact type="file" path="relative/path/to/file.ext">
 FILE_CONTENT_HERE
 </artifact>
 
 RULES:
-1. Core system files (grind_spawner.py, orchestrator.py, etc.) are READ-ONLY
+1. Core system files are READ-ONLY (grind_spawner*.py, safety_*.py)
 2. New files go to experiments/{self.experiment_id}/ by default
-3. Be FAST - don't over-explain, just do the work
-4. When done, output a brief summary
+3. Be FAST - don't over-explain, just create the file
 
-EXECUTE NOW.
-"""
+EXECUTE NOW."""
+
         return prompt
 
     def run_once(self) -> Dict[str, Any]:
@@ -336,18 +381,47 @@ EXECUTE NOW.
 
         duration = (datetime.now() - start_time).total_seconds()
 
-        # Extract and save files from response
+        # Extract and apply changes - try surgical edits first (more efficient)
         saved_files = []
         if result.success and result.output:
             try:
-                saved_files = self.code_extractor.extract_and_save(result.output)
-                if saved_files:
-                    print(f"[{self.session_id}] CREATED: {', '.join([f.split('/')[-1] for f in saved_files])}")
+                # First, try surgical edits (preferred for modifications)
+                edit_results = self.surgical_extractor.extract_and_apply(result.output)
+                if edit_results:
+                    successes = [r for r in edit_results if r.success]
+                    if successes:
+                        edited_files = [r.path.split('/')[-1] for r in successes]
+                        print(f"[{self.session_id}] EDITED: {', '.join(edited_files)}")
+                        saved_files = [r.path for r in successes]
+
+                # Fall back to full file extraction if no surgical edits
+                if not edit_results:
+                    saved_files = self.code_extractor.extract_and_save(result.output)
+                    if saved_files:
+                        print(f"[{self.session_id}] CREATED: {', '.join([f.split('/')[-1] for f in saved_files])}")
             except Exception:
                 pass  # Logged to file, not console
 
         # Update cost tracking
         self.total_cost += result.cost_usd
+
+        # CRITIC NODE: Verify output before marking complete
+        verification = {"verdict": "APPROVE", "reason": "No verifier", "cost": 0}
+        if self.verifier and result.success and result.output:
+            try:
+                verification = self.verifier.verify(
+                    task=self.task,
+                    output=result.output[:2000],
+                    files_changed=saved_files
+                )
+                self.total_cost += verification.get("cost", 0)
+
+                if verification["verdict"] == "REJECT":
+                    print(f"[{self.session_id}] REJECTED: {verification['reason'][:50]}")
+                elif verification["verdict"] == "MINOR_ISSUES":
+                    print(f"[{self.session_id}] MINOR: {verification['reason'][:50]}")
+            except Exception:
+                pass  # Verification is optional, don't block on failure
 
         # Log result
         log_data = {
@@ -363,18 +437,23 @@ EXECUTE NOW.
             "tokens_output": result.tokens_output,
             "files_created": saved_files,
             "error": result.error,
+            "verification": verification,
             "timestamp": datetime.now().isoformat()
         }
 
         log_file = LOGS_DIR / f"unified_session_{self.session_id}_run_{self.runs}.json"
         write_json(log_file, log_data)
 
+        # Determine success based on execution AND verification
+        is_success = result.success and verification["verdict"] != "REJECT"
+
         return {
-            "returncode": 0 if result.success else 1,
+            "returncode": 0 if is_success else 1,
             "output": result.output,
-            "cost": result.cost_usd,
+            "cost": result.cost_usd + verification.get("cost", 0),
             "files": saved_files,
             "error": result.error,
+            "verification": verification,
             "duration": duration
         }
 
@@ -403,18 +482,39 @@ def main():
     force_engine = engine_map.get(args.engine, EngineType.AUTO)
 
     # Get tasks
+    tasks = []
+
     if args.delegate:
         if not TASKS_FILE.exists():
             print(f"ERROR: --delegate requires {TASKS_FILE}")
             sys.exit(1)
+
+        # Load main tasks file
         tasks_data = read_json(TASKS_FILE)
-        tasks = [
-            {
+        for t in tasks_data:
+            tasks.append({
                 "task": t.get("task", "General improvements"),
                 "budget": t.get("budget", args.budget),
-            }
-            for t in tasks_data
-        ]
+            })
+
+        # Auto-discover grind_tasks_*.json files
+        for task_file in Path(args.workspace).glob("grind_tasks_*.json"):
+            if task_file == TASKS_FILE:
+                continue
+            try:
+                print(f"[AUTODISCOVER] Loading {task_file.name}")
+                new_tasks_data = read_json(task_file)
+                if isinstance(new_tasks_data, dict) and "tasks" in new_tasks_data:
+                    new_tasks_data = new_tasks_data["tasks"]
+
+                for t in new_tasks_data:
+                    tasks.append({
+                        "task": t.get("task") or t.get("description", ""),
+                        "budget": t.get("budget", 0.05),
+                    })
+            except Exception as e:
+                print(f"[AUTODISCOVER] Failed to load {task_file}: {e}")
+
     elif args.task:
         tasks = [{"task": args.task, "budget": args.budget}]
     else:
@@ -478,9 +578,13 @@ def main():
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import threading
 
-    # Separate tasks into waves based on phase
+    # Separate tasks into waves based on phase, EXCLUDING already completed
     waves = {}
     for i, task_obj in enumerate(valid_tasks):
+        # Check if already completed BEFORE adding to wave
+        task_hash = hashlib.md5(task_obj["task"][:200].encode()).hexdigest()
+        if task_hash in completed_tasks:
+            continue  # Don't even add to wave
         phase = task_obj.get("phase", 1)
         if phase not in waves:
             waves[phase] = []
@@ -501,7 +605,8 @@ def main():
 
     def run_task(task_id, task_obj):
         """Run a single task - thread-safe."""
-        task_hash = hash(task_obj["task"][:100])
+        # Use stable hash (md5) instead of Python's hash() which changes on restart
+        task_hash = hashlib.md5(task_obj["task"][:200].encode()).hexdigest()
 
         with completed_lock:
             if task_hash in completed_tasks:
@@ -538,27 +643,87 @@ def main():
     # Run waves sequentially, tasks within each wave in parallel
     max_parallel = 4  # Max concurrent tasks per wave
 
-    for phase in sorted(waves.keys()):
-        wave_tasks = waves[phase]
-        print(f"\n[WAVE {phase}] Starting {len(wave_tasks)} tasks in parallel...")
+    # RECURSIVE LOOP: Keep running until budget exhausted or no new tasks
+    max_iterations = 10  # Safety limit to prevent infinite loops
+    iteration = 0
 
-        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
-            futures = {
-                executor.submit(run_task, task_id, task_obj): task_id
-                for task_id, task_obj in wave_tasks
-            }
+    while iteration < max_iterations:
+        iteration += 1
 
-            for future in as_completed(futures):
-                task_id = futures[future]
+        # Check if we've exhausted budget
+        engine = get_engine()
+        stats = engine.get_stats()
+        if stats.get('total_cost_usd', 0) >= args.budget:
+            print(f"\n[BUDGET] Limit reached: ${stats.get('total_cost_usd', 0):.4f} / ${args.budget:.4f}")
+            break
+
+        # If no waves to run, check for NEW task files
+        if not waves:
+            print(f"\n[ITERATION {iteration}] No pending tasks. Scanning for new task files...")
+
+            # Look for new task JSON files in workspace
+            new_tasks_found = False
+            for task_file in Path(args.workspace).glob("grind_tasks_*.json"):
+                if task_file == TASKS_FILE:
+                    continue  # Skip the main file
+
                 try:
-                    future.result()
-                except Exception as e:
-                    print(f"[{task_id}] THREAD ERROR: {e}")
+                    new_tasks_data = read_json(task_file)
+                    if isinstance(new_tasks_data, dict) and "tasks" in new_tasks_data:
+                        new_tasks_data = new_tasks_data["tasks"]
 
-        print(f"[WAVE {phase}] Complete")
+                    for new_task in new_tasks_data:
+                        task_obj = {
+                            "task": new_task.get("task") or new_task.get("description", ""),
+                            "budget": new_task.get("budget", 0.05),
+                        }
+
+                        # Check if not already completed
+                        task_hash = hashlib.md5(task_obj["task"][:200].encode()).hexdigest()
+                        if task_hash not in completed_tasks:
+                            phase = new_task.get("phase", 1)
+                            if phase not in waves:
+                                waves[phase] = []
+                            waves[phase].append((len(valid_tasks) + 1, task_obj))
+                            valid_tasks.append(task_obj)
+                            new_tasks_found = True
+                            print(f"  [+] Loaded: {task_obj['task'][:60]}...")
+                except Exception as e:
+                    print(f"  [!] Failed to load {task_file}: {e}")
+
+            if not new_tasks_found:
+                print("  [✓] No new tasks found. Execution complete.")
+                break
+
+        # Execute waves
+        for phase in sorted(waves.keys()):
+            wave_tasks = waves[phase]
+            print(f"\n[WAVE {phase}] Starting {len(wave_tasks)} tasks in parallel...")
+
+            with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+                futures = {
+                    executor.submit(run_task, task_id, task_obj): task_id
+                    for task_id, task_obj in wave_tasks
+                }
+
+                for future in as_completed(futures):
+                    task_id = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"[{task_id}] THREAD ERROR: {e}")
+
+            print(f"[WAVE {phase}] Complete")
+
+        # Clear waves for next iteration
+        waves = {}
+
+        # Check budget again before continuing
+        stats = engine.get_stats()
+        if stats.get('total_cost_usd', 0) >= args.budget:
+            break
 
     # Final stats
-    engine = get_engine()
     stats = engine.get_stats()
     print("\n" + "=" * 60)
     print("  FINAL STATS")
@@ -566,6 +731,7 @@ def main():
     print(f"  Engine:       {stats.get('engine', 'unknown')}")
     print(f"  Total Cost:   ${stats.get('total_cost_usd', 0):.4f}")
     print(f"  Total Calls:  {stats.get('total_calls', 0)}")
+    print(f"  Iterations:   {iteration}")
     print("=" * 60)
 
 
