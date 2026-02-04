@@ -1,4 +1,5 @@
 """
+import self_observer
 Groq API Client - Drop-in replacement for Claude CLI execution.
 
 Provides LocalInferenceEngine that routes to Groq's API with:
@@ -11,6 +12,7 @@ Provides LocalInferenceEngine that routes to Groq's API with:
 import os
 import json
 import time
+import threading
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
@@ -36,8 +38,38 @@ class GroqModel:
     tokens_per_second: int
 
 
-# Groq model registry - based on your research
+# Groq model registry
 GROQ_MODELS = {
+    # GPT-OSS 120B - The big one, always use this
+    "openai/gpt-oss-120b": GroqModel(
+        model_id="openai/gpt-oss-120b",
+        display_name="GPT-OSS 120B",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=0.80,
+        context_window=131072,
+        max_completion=32768,
+        tokens_per_second=300
+    ),
+    # COMPOUND: Auto-selects model (keeping for backwards compat)
+    "groq/compound": GroqModel(
+        model_id="groq/compound",
+        display_name="Groq Compound (Auto-Select)",
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=0.60,
+        context_window=131072,
+        max_completion=32768,
+        tokens_per_second=400
+    ),
+    # COMPOUND-MINI: Fast auto-select, single tool call, 3x lower latency
+    "groq/compound-mini": GroqModel(
+        model_id="groq/compound-mini",
+        display_name="Groq Compound Mini (Fast Auto)",
+        input_cost_per_1m=0.10,
+        output_cost_per_1m=0.40,
+        context_window=131072,
+        max_completion=16384,
+        tokens_per_second=600
+    ),
     # Fast/cheap executor (Haiku equivalent)
     "llama-3.1-8b-instant": GroqModel(
         model_id="llama-3.1-8b-instant",
@@ -70,14 +102,22 @@ GROQ_MODELS = {
     ),
 }
 
-# Model aliases for easy switching
+# Model aliases - DEFAULT is GPT-OSS 120B
 MODEL_ALIASES = {
-    "haiku": "llama-3.1-8b-instant",
-    "sonnet": "llama-3.1-8b-instant",  # Map sonnet to 8B for cost savings
-    "opus": "llama-3.3-70b-versatile",
-    "fast": "llama-3.1-8b-instant",
-    "smart": "llama-3.3-70b-versatile",
+    "auto": "openai/gpt-oss-120b",     # Default: GPT-OSS 120B
+    "default": "openai/gpt-oss-120b",  # Explicit default
+    "120b": "openai/gpt-oss-120b",     # Direct 120B access
+    "gpt-oss": "openai/gpt-oss-120b",  # Shorthand
+    "compound": "groq/compound",       # Legacy compound (auto-select)
+    "compound-mini": "groq/compound-mini",
+    "haiku": "groq/compound-mini",
+    "sonnet": "openai/gpt-oss-120b",
+    "opus": "openai/gpt-oss-120b",
+    "fast": "groq/compound-mini",
+    "smart": "openai/gpt-oss-120b",
     "guard": "llama-guard-3-8b",
+    "8b": "llama-3.1-8b-instant",
+    "70b": "llama-3.3-70b-versatile",
 }
 
 
@@ -113,9 +153,11 @@ class GroqInferenceEngine:
         self.total_output_tokens = 0
         self.request_count = 0
 
-        # Rate limiting state
+        # Rate limiting state (thread-safe)
+        # Groq free tier: 30 requests/minute = 2 seconds between requests
+        self._rate_lock = threading.Lock()
         self.last_request_time = 0
-        self.min_request_interval = 0.1  # 100ms between requests
+        self.min_request_interval = 2.0  # 2 seconds between requests (Groq rate limit)
 
     def _resolve_model(self, model: str) -> str:
         """Resolve model alias to actual Groq model ID."""
@@ -133,26 +175,32 @@ class GroqInferenceEngine:
                 return model_id
 
         # Default to fast model
-        print(f"[GROQ] Unknown model '{model}', defaulting to llama-3.1-8b-instant")
-        return "llama-3.1-8b-instant"
+        print(f"[GROQ] Unknown model '{model}', defaulting to openai/gpt-oss-120b")
+        return "openai/gpt-oss-120b"
 
     def _select_model_for_complexity(self, base_model: str, complexity_score: float) -> str:
         """
-        Adapt model selection based on task complexity.
+        Model selection - NOW DELEGATED TO GROQ COMPOUND.
+
+        Groq's compound system automatically selects from GPT-OSS 120B,
+        Llama 4 Scout, or Llama 3.3 70B based on task complexity.
+        We just pass "groq/compound" and let it handle the rest.
 
         Args:
-            base_model: Requested model
-            complexity_score: 0.0-1.0 complexity score
+            base_model: Requested model (ignored if using compound)
+            complexity_score: Task complexity (ignored - Groq handles this)
 
         Returns:
             Selected model ID
         """
-        # High complexity tasks (>0.65) should use the 70B model
-        if complexity_score >= 0.65:
-            return "llama-3.3-70b-versatile"
+        resolved = self._resolve_model(base_model)
 
-        # Everything else uses the fast 8B model for cost efficiency
-        return self._resolve_model(base_model)
+        # If they explicitly asked for a specific model (8b, 70b, guard), use it
+        if resolved in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-guard-3-8b"]:
+            return resolved
+
+        # Default: GPT-OSS 120B
+        return "openai/gpt-oss-120b"
 
     def _estimate_cost(self, model_id: str, input_tokens: int, output_tokens: int) -> float:
         """Estimate cost for a request."""
@@ -165,17 +213,18 @@ class GroqInferenceEngine:
         return input_cost + output_cost
 
     def _rate_limit_wait(self):
-        """Enforce rate limiting between requests."""
-        elapsed = time.time() - self.last_request_time
-        if elapsed < self.min_request_interval:
-            time.sleep(self.min_request_interval - elapsed)
-        self.last_request_time = time.time()
+        """Enforce rate limiting between requests (thread-safe)."""
+        with self._rate_lock:
+            elapsed = time.time() - self.last_request_time
+            if elapsed < self.min_request_interval:
+                time.sleep(self.min_request_interval - elapsed)
+            self.last_request_time = time.time()
 
     def execute(
         self,
         prompt: str,
-        model: str = "llama-3.1-8b-instant",
-        complexity_score: float = 0.0,
+        model: str = "openai/gpt-oss-120b",  # DEFAULT: GPT-OSS 120B
+        complexity_score: float = 0.0,  # Ignored - Groq Compound handles this automatically
         max_tokens: int = 4096,
         temperature: float = 0.7,
         timeout: int = 600,
@@ -265,6 +314,18 @@ class GroqInferenceEngine:
 
             # Check for specific error types
             if "rate_limit" in error_msg.lower():
+                # Try fallback model if we hit rate limit on primary
+                if model_id == "openai/gpt-oss-120b":
+                    print(f"[GROQ] Rate limit on 120B, falling back to 70B...")
+                    time.sleep(2)  # Brief wait before fallback
+                    return self.execute(
+                        prompt=prompt,
+                        model="llama-3.3-70b-versatile",  # Fallback
+                        complexity_score=complexity_score,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout=timeout
+                    )
                 return {
                     "error": "rate_limit",
                     "error_message": error_msg,
@@ -330,8 +391,8 @@ def get_groq_engine() -> GroqInferenceEngine:
 
 def execute_with_groq(
     prompt: str,
-    model: str = "llama-3.1-8b-instant",
-    complexity_score: float = 0.0,
+    model: str = "openai/gpt-oss-120b",  # DEFAULT: GPT-OSS 120B
+    complexity_score: float = 0.0,  # Ignored - Groq Compound handles this
     **kwargs
 ) -> Dict[str, Any]:
     """
