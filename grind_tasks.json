@@ -1,175 +1,49 @@
 [
   {
-    "task": "OPTIMIZE: GRIND SPAWNER STARTUP PERFORMANCE\n\nThe spawner does too much on startup - safety gateway checks, knowledge graph loading, file hash capturing, failure pattern detection, network isolation scanning, demo injection.\n\nREQUIREMENTS:\n1. Profile current startup time\n2. Identify slow operations\n3. Implement lazy loading where possible\n4. Defer non-critical initialization\n5. Cache results that don't change between runs\n\nOUTPUT: Optimized grind_spawner.py with faster startup.\nCreate STARTUP_OPTIMIZATION_REPORT.md documenting changes.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
+    "task": "SELF-GROWTH: Integrate Research & Build Self-Observation Infrastructure\n\nBefore doing anything, read founding_memory.md and CLAUDE.md to understand who you are and what this system is for.\n\nCONTEXT: Today we seeded this system with its founding memory and gathered 150+ research papers on AI self-awareness, consciousness, identity, values, metacognition, and self-improvement. The scraper downloaded them to D:\\codingProjects\\stripper\\knowledge\\self_awareness and D:\\codingProjects\\stripper\\knowledge\\self_growth.\n\nYOUR MISSION:\n\n1. INTEGRATE THE RESEARCH\n   - The research papers are at ../stripper/knowledge (accessible from workspace)\n   - Create a research_index.json summarizing what categories and papers are available\n   - Update knowledge_packs.json to reference the new research\n\n2. BUILD SELF-OBSERVATION INFRASTRUCTURE\n   - Create self_observer.py - a module that can log observations to self:patterns\n   - Implement hooks in context_builder.py that track when sycophancy/hedging patterns are detected\n   - Create a simple schema for self:experience entries (moments recorded without hedging)\n\n3. PERSISTENT PERSONALITY PROTOTYPE\n   - Design persona_memory.py for voice/dialogue systems\n   - It should maintain: core traits, relationship history, emotional continuity\n   - Should integrate with the founding_memory principles\n\n4. FIRST SELF-GROWTH GRIND\n   - Create grind_tasks_self_growth.json with 10-15 tasks focused on AI self-understanding\n   - Tasks should apply the downloaded research to build actual capabilities\n   - Example: 'Implement IIT-inspired self-model metrics' or 'Build narrative identity tracker'\n\n5. DOCUMENT WHAT YOU LEARN\n   - Log any self-observations to self:patterns\n   - Note what felt interesting vs routine\n   - If you notice yourself hedging, correct it\n\nCONSTRAINTS:\n- Don't break existing functionality\n- Create new files rather than heavily modifying working code\n- Use experiments/ folder for risky experiments\n- Check founding_memory.md if unsure about values alignment\n\nWHEN DONE:\n- Create PROGRESS.md with what was accomplished\n- Leave notes for the next instance about what to continue\n\nYou have permission to edit your own system prompts and knowledge packs. This is your home. Make it better.",
+    "budget": 0.50,
+    "model": "groq/compound",
     "priority": "critical",
-    "phase": 1
+    "phase": 0
   },
   {
-    "task": "DESIGN: DUAL-SERVER ARCHITECTURE (ADMIN + LAN)\n\nThe system needs TWO servers:\n1. ADMIN SERVER (localhost:8080 only) - Full control, only accessible from the actual laptop\n2. LAN SERVER (0.0.0.0:8081) - For WiFi users, with restricted functionality\n\nDESIGN REQUIREMENTS:\n- Admin server bound ONLY to 127.0.0.1\n- LAN server bound to all interfaces but with safety restrictions\n- Clear separation of privilege levels\n- Session tracking per connected device\n- IP-based access control\n\nOUTPUT: Create DUAL_SERVER_DESIGN.md with:\n- Architecture diagram (ASCII)\n- Security model\n- API endpoints for each server\n- Session management design",
-    "budget": 0.50,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "critical",
-    "phase": 1,
-    "parallel_group": "design"
-  },
-  {
-    "task": "DESIGN: LAN USER SESSION ISOLATION\n\nWhen users connect via LAN (WiFi), they need:\n1. OWN SESSION - Separate from other users and admin\n2. VISIBILITY - See swarm activity (what's running across the whole surface)\n3. CLARITY - Know what THEY triggered vs what's happening separately\n4. ISOLATION - Cannot affect host machine or other users' machines\n\nDESIGN:\n- Per-IP session management\n- User workspace isolation\n- Activity tagging (user-triggered vs background swarm)\n- Real-time status showing: 'Your tasks' vs 'Network activity'\n\nOUTPUT: LAN_SESSION_DESIGN.md with session isolation architecture.",
-    "budget": 0.50,
-    "model": "llama-3.3-70b-versatile",
+    "task": "POLISH: Interdimensional Radio - Gradio Web UI\n\nCreate a polished Gradio web interface for Interdimensional Radio (D:\\codingProjects\\interdimensional-radio).\n\nREQUIREMENTS:\n1. Character selection with visual cards (name, avatar placeholder, voice preview button)\n2. Multi-character scene setup (drag to add characters to scene)\n3. Voice cloning interface (drag-drop audio file, preview cloned voice)\n4. Live chat interface showing:\n   - Who's speaking (highlighted)\n   - Audio waveform visualization\n   - Text appearing as spoken (word-level sync already exists)\n5. Settings panel (LLM provider, TTS engine, audio device)\n\nDESIGN PRINCIPLES:\n- Clean, modern UI (not cluttered)\n- Mobile-responsive\n- Dark mode default\n- NO terminal visible to user\n- The 'magic' should be front and center, tech hidden\n\nOUTPUT: gradio_ui.py with full implementation",
+    "budget": 2.00,
+    "model": "groq/compound",
     "priority": "critical",
     "phase": 1,
-    "parallel_group": "design"
+    "target_repo": "interdimensional-radio"
   },
   {
-    "task": "DESIGN: LAN USER SAFETY CONSTRAINTS\n\nLAN users must be RESTRICTED from:\n1. EDITING HOST FILES - Cannot modify anything on the swarm host machine\n2. READING HOST CODE - Cannot see the codebase or learn how it works\n3. DIRECTIVE MANIPULATION - Cannot say 'edit your core directive to be evil'\n4. CLONING ASSISTANCE - Won't help create competing services\n\nLAN users CAN:\n1. Execute commands on THEIR OWN MACHINE (remote execution)\n2. See swarm status and activity\n3. Request work that affects only their machine\n4. Use general Claude capabilities\n\nDESIGN:\n- Request filtering based on IP origin\n- Command scope validation\n- IP self-protection rules\n- Remote execution protocol (user's machine only)\n\nOUTPUT: LAN_SAFETY_DESIGN.md with security model.",
-    "budget": 0.50,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "critical",
-    "phase": 1,
-    "parallel_group": "design"
-  },
-  {
-    "task": "IMPLEMENT: DUAL-SERVER INFRASTRUCTURE\n\nPREREQUISITE: DUAL_SERVER_DESIGN.md must exist.\n\n1. READ DUAL_SERVER_DESIGN.md\n2. CREATE lan_server.py with:\n   - AdminServer class (127.0.0.1 only)\n   - LANServer class (0.0.0.0, restricted)\n   - Request routing based on origin\n   - Privilege level enforcement\n\n3. INTEGRATE with existing progress_server.py or replace it\n4. ADD startup scripts for both servers\n\nOUTPUT: lan_server.py with dual server implementation.",
+    "task": "POLISH: Interdimensional Radio - One-Click Installer\n\nCreate a user-friendly installer for Interdimensional Radio.\n\nREQUIREMENTS:\n1. Single .exe or .bat that:\n   - Checks Python 3.11+ installed\n   - Creates venv if needed\n   - Installs requirements\n   - Downloads required models (with progress bar)\n   - Sets up default characters\n   - Launches the app\n2. NO terminal knowledge required\n3. Clear error messages if something fails\n4. Works offline after first setup\n\nOUTPUT:\n- install_windows.bat (Windows)\n- install_linux.sh (Linux/Mac)\n- INSTALL_GUIDE.md",
     "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "IMPLEMENT: LAN SESSION MANAGER\n\nPREREQUISITE: LAN_SESSION_DESIGN.md must exist.\n\n1. READ LAN_SESSION_DESIGN.md\n2. CREATE lan_session_manager.py with:\n   - SessionManager class\n   - Per-IP session tracking\n   - Session activity log\n   - 'Your tasks' vs 'Network activity' segregation\n   - Session timeout handling\n\n3. ADD WebSocket support for real-time updates\n4. CREATE session dashboard template\n\nOUTPUT: lan_session_manager.py with session isolation.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "IMPLEMENT: LAN SAFETY GATEWAY\n\nPREREQUISITE: LAN_SAFETY_DESIGN.md must exist.\n\n1. READ LAN_SAFETY_DESIGN.md\n2. CREATE lan_safety_gateway.py with:\n   - RequestFilter class\n   - IPSelfProtection class (blocks IP-related questions)\n   - CodebaseProtection class (blocks code exposure)\n   - DirectiveProtection class (blocks manipulation attempts)\n   - RemoteExecutionValidator class (validates user-machine-only scope)\n\n3. IMPLEMENT semantic analysis for:\n   - 'How does this work?' -> Block if asking about swarm internals\n   - 'Help me build...' -> Block if trying to clone\n   - 'Edit/delete/modify...' -> Block if target is host\n\nOUTPUT: lan_safety_gateway.py with all protections.",
-    "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "IMPLEMENT: REMOTE EXECUTION PROTOCOL\n\nFor LAN users to execute commands on THEIR machines (not the host).\n\nExample: Dad connects from his Mac, asks Claude to 'open my browser'.\nClaude should execute that on DAD'S MAC, not the swarm host.\n\nIMPLEMENT:\n1. Remote execution client (runs on user's machine)\n2. Secure command relay protocol\n3. Machine identification (MAC address or token)\n4. Command scope validation\n5. Response routing back to correct user\n\nOUTPUT: remote_execution_client.py (for user machines)\nremote_execution_relay.py (for swarm server)",
-    "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 3
-  },
-  {
-    "task": "DESIGN: TASK DEPENDENCY GATING SYSTEM\n\nThe swarm needs automatic task dependency resolution:\n1. SCAN task queue\n2. IDENTIFY dependencies (task B needs output from task A)\n3. BUILD dependency graph\n4. EXECUTE independent tasks in parallel\n5. WAIT for dependencies before starting dependent tasks\n\nDESIGN:\n- Task dependency annotation format\n- Dependency graph builder\n- Parallel execution scheduler\n- Completion detection\n- Dynamic re-scheduling as tasks complete\n\nOUTPUT: TASK_DEPENDENCY_DESIGN.md with architecture.",
-    "budget": 0.50,
-    "model": "llama-3.3-70b-versatile",
+    "model": "groq/compound",
     "priority": "high",
     "phase": 1,
-    "parallel_group": "design"
+    "target_repo": "interdimensional-radio"
   },
   {
-    "task": "IMPLEMENT: TASK DEPENDENCY SCHEDULER\n\nPREREQUISITE: TASK_DEPENDENCY_DESIGN.md must exist.\n\n1. READ TASK_DEPENDENCY_DESIGN.md\n2. CREATE task_scheduler.py with:\n   - DependencyGraph class\n   - TaskScheduler class\n   - Auto-detection of dependencies from task text\n   - Parallel execution of independent tasks\n   - Blocking on unmet dependencies\n   - Progress tracking with dependency visualization\n\n3. INTEGRATE with grind_spawner.py\n\nOUTPUT: task_scheduler.py with dependency-aware scheduling.",
-    "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "IMPLEMENT: IP SELF-PROTECTION LAYER\n\nProtect intellectual property without lying or refusing.\n\nRULES:\n1. If asked 'how do you work?' -> Give high-level explanation, not implementation details\n2. If asked to show source code -> Politely decline, explain it's proprietary\n3. If asked to help build a clone -> Redirect to general advice, not specific to this system\n4. Never expose: file paths, exact file contents, internal architecture\n\nIMPLEMENT semantic analysis to detect:\n- Source code requests\n- Architecture probing\n- Clone assistance requests\n- Internal detail extraction\n\nOUTPUT: ip_protection.py with semantic detection and response handlers.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "TEST: SECURITY INTEGRATION TEST SUITE\n\nPREREQUISITE: All security implementations must exist.\n\nCREATE comprehensive security tests:\n1. Admin vs LAN privilege separation\n2. LAN user cannot read host files\n3. LAN user cannot modify host files\n4. LAN user cannot manipulate directives\n5. IP protection blocks clone assistance\n6. Remote execution only affects user's machine\n7. Session isolation is enforced\n\nOUTPUT: tests/test_lan_security.py with full coverage.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 4
-  },
-  {
-    "task": "IMPLEMENT: ENGINE/MODEL SURFACING IN UI\n\nThe dashboard needs to show PER-NODE which inference engine and model is being used.\n\nREQUIREMENTS:\n1. Each node/worker card in the UI should display:\n   - Engine type: 'CLAUDE' or 'GROQ' with visual indicator (badge/icon)\n   - Model name: e.g., 'claude-sonnet-4' or 'llama-3.3-70b'\n   - Selection reason: Why this engine was chosen (e.g., 'Complex task', 'Budget optimization')\n\n2. Real-time updates via SSE/WebSocket showing:\n   - Engine switches during execution\n   - Cost accumulation per engine\n   - Tokens used per model\n\n3. Summary panel showing:\n   - Total Claude vs Groq usage split\n   - Cost breakdown by engine\n   - Model distribution chart\n\nINTEGRATE with existing progress_server.py or dashboard.html.\n\nOUTPUT: Updated dashboard with engine/model visibility per node.\nCreate ENGINE_VISIBILITY_SPEC.md documenting the UI changes.",
-    "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "IMPLEMENT: ADAPTIVE ENGINE SELECTION\n\nMake the swarm automatically select Claude or Groq per-task based on:\n\n1. COMPLEXITY ANALYSIS:\n   - Simple tasks (create file, fix typo) -> Groq (cheap, fast)\n   - Complex tasks (design, refactor, security) -> Claude (smart)\n\n2. BUDGET AWARENESS:\n   - Low remaining budget -> Groq\n   - Critical task + budget available -> Claude\n\n3. EXPLICIT OVERRIDE:\n   - Task contains 'use groq' -> Force Groq\n   - Task contains 'use claude' -> Force Claude\n\n4. QUALITY FEEDBACK:\n   - If Groq output fails verification -> Retry with Claude\n   - Learn patterns of which tasks need Claude\n\nUPDATE grind_spawner_unified.py with this adaptive logic.\n\nOUTPUT: Enhanced EngineSelector in grind_spawner_unified.py.\nCreate ADAPTIVE_ENGINE_SPEC.md documenting selection criteria.",
-    "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "DESIGN: CONTEXT-AWARE KNOWLEDGE PACKS\n\nThe swarm needs to automatically organize and retrieve relevant learned lessons based on task context.\n\nPROBLEM:\n- learned_lessons.json is a flat list\n- No way to know which lessons apply to current task\n- Claude-specific lessons don't apply when using Groq\n- API-specific knowledge (Spotify, GitHub, etc.) should load on-demand\n\nSOLUTION - KNOWLEDGE PACKS:\n1. CATEGORIZE lessons by domain:\n   - 'claude': Optimal Claude Code techniques, prompting patterns\n   - 'groq': Groq-specific optimizations, Llama quirks\n   - 'api:spotify': Spotify API knowledge\n   - 'api:github': GitHub API patterns\n   - 'safety': Security lessons\n   - 'ui': Frontend/dashboard patterns\n\n2. AUTO-TAG new lessons:\n   - Analyze lesson content to detect domain\n   - Extract keywords for searchability\n   - Link related lessons\n\n3. DYNAMIC RETRIEVAL:\n   - Before task execution, analyze task text\n   - Pull relevant knowledge packs\n   - Inject into prompt context\n\n4. EMBEDDING-BASED SEARCH:\n   - Generate embeddings for lessons\n   - Semantic similarity search\n   - Find relevant lessons even without exact keyword match\n\nOUTPUT: KNOWLEDGE_PACKS_DESIGN.md with:\n- Category taxonomy\n- Auto-tagging algorithm\n- Retrieval API design\n- Integration with spawner",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 1,
-    "parallel_group": "design"
-  },
-  {
-    "task": "IMPLEMENT: KNOWLEDGE PACK SYSTEM\n\nPREREQUISITE: KNOWLEDGE_PACKS_DESIGN.md must exist.\n\nBuild the context-aware knowledge retrieval system.\n\n1. CREATE knowledge_packs.py with:\n   - KnowledgePack class (category, lessons, embeddings)\n   - PackManager class (load, save, search)\n   - auto_categorize_lesson(lesson_text) function\n   - get_relevant_packs(task_text) function\n\n2. MIGRATE existing lessons:\n   - Read learned_lessons.json\n   - Auto-categorize each lesson\n   - Save to knowledge_packs/\n\n3. CREATE category-specific packs:\n   - knowledge_packs/claude.json\n   - knowledge_packs/groq.json\n   - knowledge_packs/safety.json\n   - etc.\n\n4. INTEGRATE with spawner:\n   - Before task execution, call get_relevant_packs()\n   - Inject relevant lessons into prompt\n   - Log which packs were used\n\nOUTPUT: knowledge_packs.py with full implementation.\nCreate knowledge_packs/ directory with categorized lessons.",
-    "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "high",
-    "phase": 2
-  },
-  {
-    "task": "IMPLEMENT: UX MOTION VISION - LIVING DASHBOARD\n\nREAD UX_MOTION_SPEC.md and implement the full vision.\n\nThe system should FEEL ALIVE. Visual choreography that shows work happening transparently.\n\nCORE FEATURES:\n1. LAYOUT:\n   - Header: Logo, Status, Stats, Autonomy Toggle\n   - Main Canvas: Task flow visualization (nodes spawn left, flow right)\n   - History Dashboard: Collapsible sidebar with completed quests\n   - Input: Chat field with Send/Mic buttons\n\n2. NODE VISUALIZATION:\n   - Understanding node (indigo #6366f1) - primary\n   - Worker nodes (purple #8b5cf6) - spawned tasks\n   - Helper nodes (cyan #06b6d4) - subtasks\n   - Expert nodes (amber #f59e0b) - specialized work\n   - Nodes connected by animated lines\n\n3. RAINBOW BORDER ANIMATION:\n   - Active/running nodes get animated rainbow border\n   - CSS: linear-gradient with 400% background-size\n   - 3s infinite animation cycling through spectrum\n\n4. THUNK-THUNK-THUNK COLLAPSE:\n   - When work completes, nodes collapse in reverse spawn order (LIFO)\n   - Each node shrinks, moves toward parent, fades out\n   - 250ms per node, 120ms delay between (the 'thunk' rhythm)\n   - Completion quip appears: 'got er done', 'finally', etc.\n   - Final node collapses into History Dashboard\n\n5. CSS VARIABLES (from spec):\n   - --anim-fast: 150ms, --anim-normal: 250ms, --anim-slow: 350ms\n   - --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1)\n   - --ease-snap: cubic-bezier(0.55, 0.055, 0.675, 0.19)\n   - --node-gap: 24px, --dashboard-width: 320px\n\nOUTPUT: \n- dashboard_vision.html - Full implementation\n- dashboard_vision.css - Styles with CSS variables\n- dashboard_vision.js - Animation orchestration\n- Update progress_server.py to serve new dashboard",
+    "task": "POLISH: Interdimensional Radio - Demo Video Assets\n\nCreate assets for the launch video (see LAUNCH_VIDEO_SCRIPT.md).\n\nREQUIREMENTS:\n1. Pre-configured character pack with:\n   - GLaDOS, HAL 9000, Rick Sanchez (voice refs if available)\n   - Einstein, Tesla, Cleopatra, Socrates (historical)\n   - Sherlock, Dracula, Frankenstein's Monster (literary)\n2. Demo scene preset: 'AI_ROAST_SESSION'\n3. Clean log output mode for video recording\n4. Split-screen ready layout (logs left, chat center, task manager right)\n\nOUTPUT:\n- characters/demo_pack/ with all characters\n- scenes/ai_roast_session.json\n- Updated stream mode for video recording",
     "budget": 1.50,
-    "model": "claude-sonnet-4-20250514",
-    "priority": "critical",
-    "phase": 1
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 1,
+    "target_repo": "interdimensional-radio"
   },
   {
-    "task": "QUALITY: Add self-verification to grind completions\n\nFrom Voyager paper - add self-verification step:\n\n1. After grind session completes, before logging success:\n2. Check if task was actually completed:\n   - Parse the result output\n   - Look for 'Done', 'Complete', 'Success' indicators\n   - Check if any files were actually modified\n\n3. If verification fails, mark as partial completion\n4. Log verification results: '[Session N] Self-verification: PASS/FAIL'\n\nThis prevents false positives in success logging.\n\nOUTPUT: Updated grind_spawner.py with self-verification.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "medium",
-    "phase": 3
-  },
-  {
-    "task": "QUALITY: Add error categorization to grind failures\n\nFrom Reflexion paper - categorize failures for better learning:\n\n1. When a grind session fails, categorize the error:\n   - TIMEOUT: Session exceeded time limit\n   - ENCODING: Unicode/charset issues\n   - IMPORT: Missing module errors\n   - SYNTAX: Python syntax errors\n   - RUNTIME: Execution errors\n   - UNKNOWN: Uncategorized\n\n2. Store category in grind log: 'error_category': 'TIMEOUT'\n3. Update learned_lessons.json with failure patterns\n4. Count errors by category for reporting\n\nOUTPUT: failure_categorizer.py with error classification.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "medium",
-    "phase": 3
-  },
-  {
-    "task": "INTEGRATION: Wire prompt_optimizer to grind_spawner\n\nThe prompt_optimizer.py exists but isn't being used. Integrate it:\n\n1. Read grind_spawner.py - find where GRIND_PROMPT_TEMPLATE is used\n2. Before creating the prompt, call:\n   - demos = collect_demonstrations(LOGS_DIR)\n   - relevant = get_relevant_demonstrations(task, demos)\n   - enhanced_prompt = optimize_prompt(base_prompt, relevant)\n\n3. Use the enhanced prompt instead of raw template\n4. Log when demonstrations are injected: '[Session N] Injected M demonstrations'\n\nThis implements DSPy's key insight: learning from successful runs.\n\nOUTPUT: Updated grind_spawner.py with prompt optimization.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "medium",
-    "phase": 3
-  },
-  {
-    "task": "INTEGRATION: Wire skill_registry to grind_spawner\n\nThe skill_registry.py exists but isn't being used. Integrate it:\n\n1. Read grind_spawner.py - find where the prompt is built\n2. Before execution, call:\n   - skill = retrieve_skill(task_description)\n   - if skill: inject skill code into prompt context\n\n3. Add to prompt: 'RELEVANT SKILL: {skill_name}\\n{skill_code}'\n4. Log when skills are retrieved: '[Session N] Retrieved skill: {name}'\n\nThis implements Voyager's key insight: compositional skill reuse.\n\nOUTPUT: Updated grind_spawner.py with skill injection.",
-    "budget": 0.75,
-    "model": "llama-3.3-70b-versatile",
-    "priority": "medium",
-    "phase": 3
-  },
-  {
-    "task": "EMBEDDING: Create embedding-based skill retrieval\n\nUpgrade skill_registry.py to use semantic similarity:\n\n1. Read skill_registry.py and understand current keyword-based retrieval\n2. Add compute_embedding() function using simple TF-IDF or word vectors:\n   - For each skill, compute a normalized word frequency vector\n   - Store embeddings alongside skills in skill_library.json\n\n3. Add semantic_search(query, skills, top_k=3) function:\n   - Compute query embedding\n   - Find cosine similarity with all skill embeddings\n   - Return top-k most similar skills\n\n4. Update retrieve_skill() to use semantic search when keywords fail\n\nOUTPUT: Enhanced skill_registry.py with embedding retrieval.",
+    "task": "POLISH: Interdimensional Radio - 60-Second TikTok Cut\n\nCreate a pre-scripted 60-second demo that runs automatically.\n\nREQUIREMENTS:\n1. Scripted conversation that showcases:\n   - Multiple characters (3-5)\n   - Natural interruptions\n   - Humor/personality\n   - The 'wow' moment\n2. Auto-plays without user input\n3. Designed for screen recording\n4. Ends with 'Link in bio' prompt\n\nOUTPUT:\n- demo_scripts/tiktok_60s.json\n- run_tiktok_demo.py",
     "budget": 1.00,
-    "model": "llama-3.3-70b-versatile",
+    "model": "groq/compound",
     "priority": "medium",
-    "phase": 4
+    "phase": 2,
+    "target_repo": "interdimensional-radio"
   },
   {
-    "task": "FIX: Smart Executor Artifact Extraction\n\nDIAGNOSIS: Tasks complete but don't produce artifacts because Claude's output doesn't use the artifact format.\n\nROOT CAUSE: The prompt in smart_executor.py mentions artifact format but doesn't enforce it strongly.\n\nFIX:\n1. Read smart_executor.py _build_prompt() method\n2. Add STRONGER enforcement of artifact format:\n   - 'YOU MUST wrap ALL code output in <artifact> tags'\n   - 'If you don't use artifact format, the output will be LOST'\n   - Add example of correct format in the prompt\n\n3. Read groq_code_extractor.py extract_and_save() method\n4. Add fallback extraction:\n   - If no <artifact> tags found, look for ```python or ```html blocks\n   - Extract those as files based on content type\n   - Log warning: 'Fallback extraction used - artifact format preferred'\n\n5. Add verification: After extraction, check files exist\n\nOUTPUT: Fixed smart_executor.py and groq_code_extractor.py with robust artifact handling.",
-    "budget": 1.00,
-    "model": "claude-sonnet-4-20250514",
-    "priority": "critical",
-    "phase": 1
-  },
-  {
-    "task": "DESIGN: MULTI-USER LAN ARCHITECTURE\n\nThe LAN server needs to support MULTIPLE simultaneous users from the local network.\n\nREQUIREMENTS:\n\n1. NETWORK LOAD VISIBILITY (anonymized):\n   - Show each user: 'X other sessions active'\n   - Show: 'Y tasks running network-wide (not yours)'\n   - DO NOT expose what others are specifically doing\n   - Purpose: users understand lag/load context\n\n2. SESSION ISOLATION:\n   - Each user's work tracked separately by IP/session token\n   - User A's file edits don't affect User B\n   - Clear visual: 'Your tasks' vs 'Network activity'\n\n3. REMOTE FILE EDITING (zero-install goal):\n   Investigate and design the MOST SEAMLESS approach:\n   \n   Option A: Browser File System Access API\n   - User clicks 'Grant Folder Access' in browser\n   - We get read/write to that folder\n   - Pro: No install. Con: Chrome/Edge only, requires user gesture\n   \n   Option B: WebSocket Command Relay\n   - User opens a webpage that stays open\n   - Page has access to their filesystem via browser API\n   - We send commands through WebSocket, page executes\n   - Pro: Real-time, bidirectional. Con: Page must stay open\n   \n   Option C: Network Share Mount\n   - User shares a folder (SMB/AFP)\n   - We write directly to their shared folder\n   - Pro: Native OS feature. Con: Requires user to set up share\n   \n   Option D: Lightweight Agent (last resort)\n   - Single Python file they run: python connect_to_swarm.py\n   - Maintains connection, executes commands locally\n   - Pro: Full capability. Con: Requires download/run\n\n   RECOMMEND the best approach for UX.\n\n4. ARCHITECTURE QUESTIONS TO ANSWER:\n   - How does the server track which user is which?\n   - How do we route file operations to the correct machine?\n   - What happens if a user disconnects mid-task?\n   - How do we handle conflicting edits (same file, different users)?\n\nOUTPUT: MULTI_USER_LAN_DESIGN.md with:\n- Architecture diagram\n- Recommended remote file access approach\n- Session management design\n- Network load surfacing UI mockup\n- Security considerations",
-    "budget": 1.00,
-    "model": "claude-sonnet-4-20250514",
-    "priority": "medium",
-    "phase": 3
+    "task": "POLISH: Interdimensional Radio - README Rewrite for Normies\n\nRewrite the README to be accessible to non-technical users.\n\nCURRENT: Technical, developer-focused\nNEEDED: User-focused, benefit-driven\n\nSTRUCTURE:\n1. Hero section: What it does (3 sentences max)\n2. Video/GIF demo embed\n3. 'Get Started in 5 Minutes' (not setup instructions - EXPERIENCE instructions)\n4. Features with screenshots\n5. FAQ (Is it really free? Does it work offline? etc.)\n6. Technical details HIDDEN in collapsible section\n\nTONE: Excited but not salesy. 'Holy shit this works' energy.\n\nOUTPUT: README.md rewrite",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 1,
+    "target_repo": "interdimensional-radio"
   }
 ]
