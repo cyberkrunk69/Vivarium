@@ -942,7 +942,7 @@ CONTROL_PANEL_HTML = '''
         function linkifyFilePaths(text) {
             // Match common file path patterns
             // Patterns: path/to/file.ext, ./file.ext, file.py (+12 lines), etc.
-            const pathRegex = /([a-zA-Z0-9_\-\.\/\\]+\.(py|js|ts|json|md|html|css|yaml|yml|txt|log|sh|sql))/g;
+            const pathRegex = /([a-zA-Z0-9_\\-\\.\\/\\\\]+\\.(py|js|ts|json|md|html|css|yaml|yml|txt|log|sh|sql))/g;
             return text.replace(pathRegex, (match) => {
                 // Clean up the path (remove trailing info like " (+12 lines)")
                 const cleanPath = match.split(' ')[0];
