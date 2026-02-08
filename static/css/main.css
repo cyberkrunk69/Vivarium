@@ -1,7 +1,0 @@
-.draggable:active {
-    cursor: grabbing;
-}
-.interactive {
-    transition: all 0.2s ease;
-    cursor: pointer;
-}

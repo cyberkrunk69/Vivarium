@@ -1,1 +1,0 @@
-Task marked as complete: Groq Compound now handles model selection automatically; manual complexity detection is no longer required.

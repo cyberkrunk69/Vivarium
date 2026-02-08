@@ -296,7 +296,7 @@ def show_status() -> None:
             error_msg = task.get('errors', 'No error details recorded')
             print(f"ID: {task_id}")
             print(f"  Error: {error_msg}")
-            print(f"  Action: Review execution_log.json for details")
+            print(f"  Action: Review execution_log.jsonl for details")
             print()
 
     # Show active locks

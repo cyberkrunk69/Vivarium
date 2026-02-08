@@ -1,8 +1,0 @@
-{
-  "experiments": {},
-  "metadata": {
-    "created": "2026-02-03T10:15:47.703875",
-    "version": "1.0",
-    "description": "Tracks experimental code that can be safely tested before promotion to main codebase"
-  }
-}
