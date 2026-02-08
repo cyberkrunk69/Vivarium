@@ -33,3 +33,4 @@ Integration Instructions for Adding Verification to `grind_spawner_unified.py`
    - Any other locals defined earlier in the same function (e.g., `file_path`, `metadata`) are also in scope, but the verification function only requires the three listed above.
 
 **Copy‑paste Summary**
+</patch>

@@ -1,4 +1,5 @@
-[
+{
+  "tasks": [
   {
     "id": "task_001",
     "title": "Deploy Neural‑Symbolic Hybrid Reasoner micro‑service",
@@ -80,8 +81,9 @@
     "estimate_hours": 140,
     "dependencies": ["task_007"]
   }
-]
-[
+],
+  "alternate_task_sets": [
+    [
   {
     "id": "task_001",
     "title": "Implement Meta‑Learning Scheduler prototype",
@@ -89,7 +91,7 @@
     "owner": "ml_team",
     "priority": "high",
     "estimated_hours": 80,
-    "dependencies": ["task_000"]  // task_000 = baseline setup
+    "dependencies": ["task_000"]
   },
   {
     "id": "task_002",
@@ -172,8 +174,8 @@
     "estimated_hours": 120,
     "dependencies": ["task_009"]
   }
-]
-[
+],
+    [
   {
     "id": "TASK-001",
     "title": "Implement Neuro‑Symbolic Reasoner prototype",
@@ -264,8 +266,8 @@
     "owner": "embodiment",
     "dependencies": ["TASK-009"]
   }
-]
-[
+],
+    [
   {
     "id": "AGI-001",
     "title": "Implement IntegrationHub and core module stubs",
@@ -338,8 +340,8 @@
     "owner": "engineer_5",
     "dependencies": ["AGI-001"]
   }
-]
-[
+],
+    [
   {
     "id": "task_001",
     "title": "Implement UnifiedRepresentation module",
@@ -412,8 +414,8 @@
     "estimate_hours": 80,
     "dependencies": []
   }
-]
-[
+],
+    [
   {
     "id": "AGI-001",
     "title": "Export Novel Reasoning module with clean API",
@@ -522,8 +524,8 @@
     "estimate_hours": 60,
     "dependencies": ["AGI-009", "AGI-011"]
   }
-]
-[
+],
+    [
   {
     "id": "task-001",
     "title": "Implement unified embedding gateway",
@@ -605,8 +607,8 @@
     "estimated_hours": 240,
     "dependencies": ["task-004", "task-005", "task-006", "task-007"]
   }
-]
-[
+],
+    [
   {
     "id": "RRE-001",
     "description": "Implement depth‑aware attention wrapper for RecursiveReasoningEngine (max_depth=5).",
@@ -670,8 +672,8 @@
     "estimate_hours": 40,
     "owner": "tech_writer"
   }
-]
-[
+],
+    [
   {
     "id": "AGI-001",
     "title": "Implement hierarchical meta‑reasoning engine (Phase 1)",
@@ -781,3 +783,5 @@
     "dependencies": ["AGI-009"]
   }
 ]
+  ]
+}

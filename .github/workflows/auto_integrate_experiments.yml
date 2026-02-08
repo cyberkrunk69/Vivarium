@@ -1,0 +1,48 @@
+name: Auto‑Integrate Experiments
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'experiments/**'
+
+jobs:
+  validate-and-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint --if-present
+
+      - name: Run tests
+        run: npm test --if-present
+
+      - name: Create PR for experimental changes
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: auto‑integrate experimental updates"
+          branch: "auto/integrate-${{ github.run_id }}"
+          title: "Auto‑Integrate Experimental Changes"
+          body: |
+            This PR was generated automatically by the **Auto‑Integrate Experiments** workflow.
+            It includes changes detected in the `experiments/` directory and has passed linting and tests.
+          labels: auto‑integrate
+          draft: false

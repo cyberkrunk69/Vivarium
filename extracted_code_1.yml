@@ -1,34 +1,22 @@
-id: task_B
-     command: python process_b.py
-     depends_on:
-       - task_A
-     ```
-
-2. **Queue Scanner**
-   - Periodically reads the task queue (e.g., a Redis list, DB table, or file).
-   - Parses each task's metadata to extract `id` and `depends_on`.
-
-3. **Dependency Graph Builder**
-   - Constructs a DAG using `networkx.DiGraph`.
-   - Nodes = task IDs, edges = dependency (`A -> B` means B depends on A).
-   - Detects cycles; raises an error if found.
-
-4. **Scheduler**
-   - Identifies **ready** tasks: nodes with no incoming edges or whose predecessors have `status == COMPLETED`.
-   - Submits ready tasks to a thread/process pool (`concurrent.futures.ThreadPoolExecutor` or `ProcessPoolExecutor`).
-   - Tracks futures in a `running_tasks` dict `{task_id: future}`.
-
-5. **Execution Worker**
-   - Wrapper that runs the task command (subprocess) and captures stdout/stderr.
-   - Updates task status in a shared store (e.g., DB, Redis) to `COMPLETED` or `FAILED`.
-
-6. **Completion Detector**
-   - Listens for future completion callbacks.
-   - On success, marks node as completed and removes outgoing edges.
-   - Triggers a re‑evaluation of the graph to enqueue newly ready tasks.
-
-7. **Dynamic Re‑scheduling**
-   - After each task finishes, the graph is re‑scanned for newly ready nodes.
-   - Allows tasks that become independent mid‑run to start immediately.
-
-## Data Flow
+example:
+  id: task_B
+  command: python process_b.py
+  depends_on:
+    - task_A
+notes:
+  - "Queue Scanner: Periodically reads the task queue (e.g., a Redis list, DB table, or file)."
+  - "Queue Scanner: Parses each task's metadata to extract id and depends_on."
+  - "Dependency Graph Builder: Constructs a DAG using networkx.DiGraph."
+  - "Dependency Graph Builder: Nodes = task IDs, edges = dependency (A -> B means B depends on A)."
+  - "Dependency Graph Builder: Detects cycles; raises an error if found."
+  - "Scheduler: Identifies ready tasks with no incoming edges or completed predecessors."
+  - "Scheduler: Submits ready tasks to a thread/process pool (ThreadPoolExecutor or ProcessPoolExecutor)."
+  - "Scheduler: Tracks futures in a running_tasks dict {task_id: future}."
+  - "Execution Worker: Runs the task command and captures stdout/stderr."
+  - "Execution Worker: Updates task status in a shared store (e.g., DB, Redis) to COMPLETED or FAILED."
+  - "Completion Detector: Listens for future completion callbacks."
+  - "Completion Detector: On success, marks node completed and removes outgoing edges."
+  - "Completion Detector: Triggers re-evaluation to enqueue newly ready tasks."
+  - "Dynamic Rescheduling: After each task finishes, the graph is re-scanned for ready nodes."
+  - "Dynamic Rescheduling: Allows tasks that become independent mid-run to start immediately."
+data_flow_heading: "Data Flow"

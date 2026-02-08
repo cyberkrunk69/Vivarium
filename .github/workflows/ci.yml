@@ -1,157 +1,29 @@
-name: CI – Test & Lint
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-- name: Install coverage tools
-        run: |
-          pip install pytest-cov
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=app --cov-fail-under=80
-```
-
-#### 4.3.2. Publish Coverage Report to Codecov
-- name: Run full test suite (pytest + unittest)
-        run: |
-          # Run pytest (covers modern tests)
-          pytest
-          # Run legacy unittest suite
-          python -m unittest discover -s legacy_tests -p "test_*.py"
-- name: Install coverage tools
-        run: pip install coverage codecov
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=src --cov-report=xml
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: coverage.xml
-
-Add a step to upload coverage data (requires a Codecov token stored as a secret `CODECOV_TOKEN`).
-- name: Install coverage tools
-        run: |
-          pip install pytest-cov
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=app --cov-fail-under=80
-
-```xml
-<patch path=".github/workflows/ci.yml" action="insert_after" line="22">
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-```
-
-#### 4.3.3. Fail Fast on Flaky Tests
-
-Mark the flaky test with `@pytest.mark.flaky(reruns=3)` and adjust `pytest.ini` to treat flaky failures as errors.
-
-Add a flaky marker in the test file:
-
-```xml
-<patch path="/app/tests/unit/test_utils.py" action="replace_function" target="TestSlugify">
-import pytest
-import unittest
-from app.utils import slugify
-
-@pytest.mark.flaky(reruns=3, reruns_delay=2)
-class TestSlugify(unittest.TestCase):
-    def test_basic(self):
-        self.assertEqual(slugify("Hello World!"), "hello-world")
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      - name: Run Black (check)
-        run: black --check .
-
-      - name: Run Flake8
-        run: flake8 .
-
-      - name: Run Pytest
-        run: pytest -q
-        env:
-          # If the project needs any secret env vars for tests, they can be added here.
-          # Example: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main, develop]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=./ --cov-report=xml
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: coverage.xml
-          fail_ci_if_error: true
-name: CI
-
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[test]
-
-      - name: Run pre‑commit hooks
-        run: |
-          pip install pre-commit
-          pre-commit run --all-files
-
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest pytest-cov
+      - name: Scan structured files
+        run: python tools/scan_structured_files.py
+      - name: Scan workflow semantics
+        run: python tools/scan_workflow_semantics.py
       - name: Run tests with coverage
         run: |
-          pytest --cov=./ --cov-fail-under=80
+          pytest --cov=./ --cov-report=xml

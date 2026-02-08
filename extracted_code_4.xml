@@ -1,6 +1,9 @@
 <patch path="smart_executor.py" action="replace">
+  <![CDATA[
 <<<<<<< SEARCH
 run_inference(
 =======
 run_with_dynamic_model(
 >>>>>>> REPLACE
+]]>
+</patch>

@@ -17,11 +17,22 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-repos:
-  - repo: local
-    hooks:
+      - id: scan-structured-files
+        name: Scan structured files
+        entry: python tools/scan_structured_files.py
+        language: python
+        pass_filenames: false
+        always_run: true
+        additional_dependencies: [PyYAML]
+      - id: scan-workflow-semantics
+        name: Scan workflow semantics
+        entry: python tools/scan_workflow_semantics.py
+        language: python
+        pass_filenames: false
+        always_run: true
+        additional_dependencies: [PyYAML]
       - id: enforce-version-control
-        name: Enforce custom version‑control workflow
+        name: Enforce custom version-control workflow
         entry: python scripts/version_control.py enforce
         language: python
         stages: [commit]

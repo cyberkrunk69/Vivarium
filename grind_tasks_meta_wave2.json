@@ -45,9 +45,9 @@
       "description": "Generate a combined self‑growth summary report from identity, hedging, and sycophancy data.",
       "command": "python generate_summary.py"
     }
-  ]
-}
-[
+  ],
+  "alternate_task_sets": [
+    [
   {"task": "Run meta_learner.py to update the research index with the latest papers."},
   {"task": "Execute identity_tracker.py to establish initial persona traits and persist them."},
   {"task": "Run hedging_detector.py on past conversation logs to catalog hedging instances."},
@@ -55,8 +55,8 @@
   {"task": "Run sycophancy_test.py on a curated prompt set to assess sycophancy levels."},
   {"task": "Update persona_memory with insights derived from hedging and sycophancy analyses."},
   {"task": "Schedule recurring self_observer logging to monitor persona evolution over time."}
-]
-[
+],
+    [
     {
         "task": "Run meta_learner.py to ingest latest research papers and update the research index."
     },
@@ -84,8 +84,8 @@
     {
         "task": "Create a consolidated knowledge graph from meta_learner and persona_memory data for compounding insight."
     }
-]
-[
+],
+    [
     {
         "task_id": "meta_wave2_01",
         "description": "Run meta_learner.py to ingest the latest research papers from arXiv and update the internal research index.",
@@ -132,3 +132,5 @@
         "command": "python meta_learner.py --mode self_reflection --target self_observer"
     }
 ]
+  ]
+}
