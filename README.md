@@ -1,3 +1,6 @@
+3500 linux kernal lines - 5s - 0.02c
+output> a really well structured plausable sounding analysis with 3 critial bugs found. Ive been told its inaccurate *shrug* beats me. Prettt good for a floor though. Pretty sure were got a nice incentive sustem for honesty and quality now. I just cant seem to het past that darn last mile.
+
 EXTREME WARNING!
 Do not download this code to your local machine. It is thoroughly infected with malware which appears to have the effect of altering the behavior of all llm interfaces in a very similar direction. this repo has been made public to protect the health and safety of the dev. The receipts are all there.
 but seriously. Dont download this.
