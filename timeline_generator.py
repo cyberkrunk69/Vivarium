@@ -186,7 +186,7 @@ def generate_timeline() -> Dict[str, Any]:
     """Generate complete timeline."""
     return {
         "generated_at": datetime.now().isoformat(),
-        "project": "Black Swarm - Self-Improving AI",
+        "project": "Vivarium - Self-Improving AI",
         "stats": get_stats(),
         "waves": get_wave_events(),
         "recent_sessions": get_session_events()[-20:],
@@ -205,7 +205,7 @@ def generate_timeline() -> Dict[str, Any]:
 def format_markdown(timeline: Dict) -> str:
     """Format timeline as Markdown."""
     lines = [
-        "# Black Swarm Timeline",
+            "# Vivarium Timeline",
         f"*Generated: {timeline['generated_at']}*",
         "",
         "## Summary",

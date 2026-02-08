@@ -1,5 +1,5 @@
 #!/bin/bash
-# Network Lockdown Script for Black Swarm
+# Network Lockdown Script for Vivarium
 # Only allows connections to Groq API and localhost
 
 echo "[NETWORK] Applying network isolation rules..."

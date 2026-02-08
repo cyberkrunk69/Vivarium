@@ -1,5 +1,5 @@
 """
-Black Swarm API Server (Groq-only)
+Vivarium API Server (Groq-only)
 
 Endpoint:
   POST /grind  - Execute a task using Groq API
@@ -22,7 +22,7 @@ from config import (
 
 load_dotenv()
 
-app = FastAPI(title="Black Swarm", version="1.0")
+app = FastAPI(title="Vivarium", version="1.0")
 
 
 class GrindRequest(BaseModel):

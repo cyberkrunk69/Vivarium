@@ -274,7 +274,7 @@ def get_index_html():
     return f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>Black Swarm Progress</title>
+    <title>Vivarium Progress</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;

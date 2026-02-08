@@ -1,5 +1,5 @@
 """
-Black Swarm Parallel Orchestrator
+Vivarium Parallel Orchestrator
 
 Spawns multiple workers that coordinate using file-based locks.
 Target API: http://127.0.0.1:8420
@@ -142,7 +142,7 @@ def start_orchestrator(num_workers: int = 4, dry_run: bool = False) -> None:
         print(f"[SAFETY] Reset with CircuitBreaker.reset()")
         return
 
-    print(f"Starting Black Swarm Orchestrator with {num_workers} workers...")
+    print(f"Starting Vivarium Orchestrator with {num_workers} workers...")
     print(f"Target API: {SWARM_API_URL}")
 
     # Log orchestrator start event

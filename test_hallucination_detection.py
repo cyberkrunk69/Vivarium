@@ -99,7 +99,7 @@ def test_pattern_extraction():
     # Test output that contains file modification claims in text (like Session 2)
     test_output = """
     Files modified:
-    - dashboard.html:1-544 - Complete brand transformation with Black Swarm visual identity
+    - dashboard.html:1-544 - Complete brand transformation with Vivarium visual identity
 
     Changes summary:
     - CSS variables system with brand colors (--swarm-void, --swarm-neural, --swarm-emergence, --swarm-warning)

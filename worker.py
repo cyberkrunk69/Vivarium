@@ -1,10 +1,10 @@
 """
-Parallel Worker for Black Swarm Orchestrator
+Parallel Worker for Vivarium Orchestrator
 
 Uses file-based lock protocol for coordination between multiple workers.
 Lock Protocol from: claude-code-orchestrator EXECUTION_SWARM_SYSTEM.md
 
-Target API: http://127.0.0.1:8420 (Black Swarm)
+Target API: http://127.0.0.1:8420 (Vivarium)
 """
 
 import json
@@ -186,7 +186,7 @@ def is_task_done(task_id: str, execution_log: Dict[str, Any]) -> bool:
 
 
 def execute_task(task: Dict[str, Any], api_endpoint: str) -> Dict[str, Any]:
-    """Execute a task by sending it to the Black Swarm API."""
+    """Execute a task by sending it to the Vivarium API."""
     task_id = task.get("id", "unknown")
     min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
     max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)

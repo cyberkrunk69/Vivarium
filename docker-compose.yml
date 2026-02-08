@@ -2,7 +2,7 @@ services:
   # Dashboard UI - always running
   dashboard:
     build: .
-    container_name: black-swarm-ui
+    container_name: vivarium-ui
     command: python dashboard_server.py
     ports:
       - "8420:8420"
@@ -19,7 +19,7 @@ services:
   # Worker swarm - runs tasks (HARDENED)
   swarm:
     build: .
-    container_name: black-swarm
+    container_name: vivarium
     command: python grind_spawner_unified.py --delegate --budget 1.00
     environment:
       - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq}

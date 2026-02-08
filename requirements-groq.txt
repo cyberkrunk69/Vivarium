@@ -1,4 +1,4 @@
-# Requirements for Black Swarm on Groq
+# Requirements for Vivarium on Groq
 # Minimal dependencies for network-isolated execution
 
 # Groq SDK
