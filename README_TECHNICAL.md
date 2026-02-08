@@ -105,6 +105,11 @@ Dual-pool token system without survival pressure.
 - Identity respec (name changes, core attribute changes)
 - Mutable attribute updates (15% of respec cost)
 
+**Journaling (community reviewed):**
+- Attempt cost: 10 tokens (blind voting)
+- Accepted entries refund 50%-100% and can earn up to 2x cost
+- Gaming flags trigger 1.25x cost for 2 days
+
 **Key Principle:** Tokens are opportunity, not survival. Residents cannot be coerced through token withholding.
 
 ### 3. Grind Spawner (`grind_spawner_unified.py`)

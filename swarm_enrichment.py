@@ -36,6 +36,7 @@ Usage:
 
 import json
 import time
+import math
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
@@ -375,6 +376,8 @@ class EnrichmentSystem:
         self.free_time_file = self.workspace / ".swarm" / "free_time_balances.json"
         self.journals_dir = self.workspace / ".swarm" / "journals"
         self.journals_dir.mkdir(parents=True, exist_ok=True)
+        self.journal_votes_file = self.workspace / ".swarm" / "journal_votes.json"
+        self.journal_penalties_file = self.workspace / ".swarm" / "journal_penalties.json"
 
         # Shared universe registry
         self.universe_file = self.library_dir / "shared_universe_index.json"
@@ -495,14 +498,27 @@ class EnrichmentSystem:
     FREE_TIME_SPLIT = 0.70          # 70% goes to free time
     JOURNAL_SPLIT = 0.30            # 30% goes to journaling
 
-    # Journal quality rewards
-    JOURNAL_REFUND_RATE = 0.50      # Quality journals refund 50% to free time
-    EXCEPTIONAL_CAP_INCREASE = 10   # Exceptional journals permanently increase cap
+    # Journal review + rewards (community reviewed)
+    JOURNAL_ATTEMPT_COST = 10
+    JOURNAL_MIN_REFUND_RATE = 0.50      # Accepted floor: 50% refund (still net negative)
+    JOURNAL_MAX_REFUND_RATE = 1.00      # Max refund (100% return)
+    JOURNAL_MAX_BONUS_RATE = 1.00       # Bonus up to +100% (total 2x)
+    JOURNAL_BONUS_CURVE = 1.5           # Aggressive curve for high scores
+    JOURNAL_MIN_VOTES = 3               # Minimum votes required to resolve
+    JOURNAL_GAMING_THRESHOLD = 0.50     # >= 50% gaming votes triggers penalty
+    JOURNAL_PENALTY_MULTIPLIER = 1.25   # 1.25x attempt cost
+    JOURNAL_PENALTY_DAYS = 2
+    JOURNAL_VOTE_SCORES = {
+        "reject": 0,
+        "accept": 1,
+        "exceptional": 2,
+        "gaming": 0
+    }
 
-    # Quality thresholds (word count + content markers)
-    MIN_JOURNAL_WORDS = 50          # Minimum for any refund
-    QUALITY_JOURNAL_WORDS = 150     # Threshold for quality refund
-    EXCEPTIONAL_MARKERS = [         # Markers that indicate exceptional insight
+    # Quality thresholds (word count + content markers) - heuristic only
+    MIN_JOURNAL_WORDS = 50
+    QUALITY_JOURNAL_WORDS = 150
+    EXCEPTIONAL_MARKERS = [
         "realized", "learned", "discovered", "insight", "breakthrough",
         "pattern", "connection", "understand", "mistake", "correction",
         "hypothesis", "theory", "observation", "evidence"
@@ -763,115 +779,331 @@ class EnrichmentSystem:
             "free_time_cap": identity_data.get("free_time_cap", self.BASE_FREE_TIME_CAP)
         }
 
+    def _load_journal_votes(self) -> dict:
+        if self.journal_votes_file.exists():
+            try:
+                with open(self.journal_votes_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "journals" in data:
+                        return data
+            except Exception:
+                pass
+        return {"journals": {}}
+
+    def _save_journal_votes(self, votes: dict):
+        self.journal_votes_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.journal_votes_file, 'w') as f:
+            json.dump(votes, f, indent=2)
+
+    def _load_journal_penalties(self) -> dict:
+        if self.journal_penalties_file.exists():
+            try:
+                with open(self.journal_penalties_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_journal_penalties(self, penalties: dict):
+        self.journal_penalties_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.journal_penalties_file, 'w') as f:
+            json.dump(penalties, f, indent=2)
+
+    def _get_active_journal_penalty(self, identity_id: str) -> Optional[dict]:
+        penalties = self._load_journal_penalties()
+        penalty = penalties.get(identity_id)
+        if not penalty:
+            return None
+
+        until = penalty.get("until")
+        if not until:
+            return None
+
+        if datetime.now().isoformat() < until:
+            return penalty
+
+        del penalties[identity_id]
+        self._save_journal_penalties(penalties)
+        return None
+
+    def _apply_journal_penalty(self, identity_id: str, reason: str) -> dict:
+        penalties = self._load_journal_penalties()
+        until = (datetime.now() + timedelta(days=self.JOURNAL_PENALTY_DAYS)).isoformat()
+        penalty = {
+            "multiplier": self.JOURNAL_PENALTY_MULTIPLIER,
+            "until": until,
+            "reason": reason,
+            "applied_at": datetime.now().isoformat()
+        }
+        penalties[identity_id] = penalty
+        self._save_journal_penalties(penalties)
+        return penalty
+
+    def get_pending_journal_reviews(self, limit: int = 10) -> list:
+        """List journal entries pending community review (blind voting)."""
+        votes = self._load_journal_votes()
+        pending = []
+        for entry in votes.get("journals", {}).values():
+            if entry.get("status") != "pending":
+                continue
+            pending.append({
+                "journal_id": entry.get("journal_id"),
+                "author_id": entry.get("author_id"),
+                "author_name": entry.get("author_name"),
+                "created_at": entry.get("created_at"),
+                "journal_type": entry.get("journal_type"),
+                "content_preview": entry.get("content_preview"),
+                "word_count": entry.get("word_count"),
+                "attempt_cost": entry.get("attempt_cost"),
+                "quality_estimate": entry.get("quality_estimate")
+            })
+
+        pending.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+        return pending[:limit]
+
+    def submit_journal_vote(self, journal_id: str, voter_id: str, vote: str) -> dict:
+        """Submit a blind vote for a journal review."""
+        if vote not in self.JOURNAL_VOTE_SCORES:
+            return {"success": False, "reason": "invalid_vote"}
+
+        votes = self._load_journal_votes()
+        journal = votes.get("journals", {}).get(journal_id)
+        if not journal:
+            return {"success": False, "reason": "journal_not_found"}
+        if journal.get("status") != "pending":
+            return {"success": False, "reason": "journal_already_resolved"}
+        if voter_id == journal.get("author_id"):
+            return {"success": False, "reason": "author_cannot_vote"}
+
+        existing_votes = journal.get("votes", [])
+        if any(v.get("voter_id") == voter_id for v in existing_votes):
+            return {"success": False, "reason": "already_voted"}
+
+        existing_votes.append({
+            "voter_id": voter_id,
+            "vote": vote,
+            "timestamp": datetime.now().isoformat()
+        })
+        journal["votes"] = existing_votes
+        votes["journals"][journal_id] = journal
+        self._save_journal_votes(votes)
+
+        return {"success": True, "journal_id": journal_id, "vote": vote}
+
+    def finalize_journal_review(self, journal_id: str) -> dict:
+        """Resolve a journal review once enough votes are present."""
+        votes = self._load_journal_votes()
+        journal = votes.get("journals", {}).get(journal_id)
+        if not journal:
+            return {"success": False, "reason": "journal_not_found"}
+        if journal.get("status") != "pending":
+            return {"success": False, "reason": "journal_already_resolved", "status": journal.get("status")}
+
+        vote_list = journal.get("votes", [])
+        if len(vote_list) < self.JOURNAL_MIN_VOTES:
+            return {
+                "success": False,
+                "reason": "insufficient_votes",
+                "votes": len(vote_list),
+                "required": self.JOURNAL_MIN_VOTES
+            }
+
+        scores = []
+        gaming_votes = 0
+        for vote in vote_list:
+            vote_value = vote.get("vote")
+            if vote_value == "gaming":
+                gaming_votes += 1
+            if vote_value in self.JOURNAL_VOTE_SCORES:
+                scores.append(self.JOURNAL_VOTE_SCORES[vote_value])
+
+        if not scores:
+            return {"success": False, "reason": "no_valid_votes"}
+
+        avg_score = sum(scores) / len(scores)
+        gaming_ratio = gaming_votes / max(len(scores), 1)
+        gaming_flagged = gaming_ratio >= self.JOURNAL_GAMING_THRESHOLD
+
+        attempt_cost = int(journal.get("attempt_cost", self.JOURNAL_ATTEMPT_COST))
+        author_id = journal.get("author_id")
+        author_name = journal.get("author_name", "Unknown")
+
+        result = {
+            "avg_score": round(avg_score, 2),
+            "gaming_votes": gaming_votes,
+            "total_votes": len(scores),
+            "gaming_flagged": gaming_flagged,
+            "attempt_cost": attempt_cost,
+            "refund_rate": 0.0,
+            "bonus_rate": 0.0,
+            "refund_tokens": 0,
+            "bonus_tokens": 0,
+            "total_awarded": 0
+        }
+
+        if gaming_flagged:
+            penalty = self._apply_journal_penalty(author_id, reason="gaming_flagged")
+            result["penalty"] = penalty
+            journal["status"] = "rejected"
+        elif avg_score >= 1.0:
+            score_norm = min(max((avg_score - 1.0) / 1.0, 0.0), 1.0)
+            refund_rate = self.JOURNAL_MIN_REFUND_RATE + (
+                (self.JOURNAL_MAX_REFUND_RATE - self.JOURNAL_MIN_REFUND_RATE) * score_norm
+            )
+            bonus_rate = self.JOURNAL_MAX_BONUS_RATE * (score_norm ** self.JOURNAL_BONUS_CURVE)
+
+            refund_tokens = math.ceil(attempt_cost * refund_rate)
+            bonus_tokens = int(attempt_cost * bonus_rate)
+            total_awarded = min(refund_tokens + bonus_tokens, attempt_cost * 2)
+            if refund_tokens + bonus_tokens > total_awarded:
+                bonus_tokens = max(0, total_awarded - refund_tokens)
+
+            balances = self._load_free_time_balances()
+            if author_id not in balances:
+                balances[author_id] = {
+                    "tokens": 0,
+                    "journal_tokens": 0,
+                    "free_time_cap": self.BASE_FREE_TIME_CAP,
+                    "history": [],
+                    "spending_history": []
+                }
+
+            cap = balances[author_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
+            old_balance = balances[author_id]["tokens"]
+            balances[author_id]["tokens"] = min(old_balance + total_awarded, cap)
+            applied_award = balances[author_id]["tokens"] - old_balance
+            self._save_free_time_balances(balances)
+
+            result.update({
+                "refund_rate": round(refund_rate, 3),
+                "bonus_rate": round(bonus_rate, 3),
+                "refund_tokens": refund_tokens,
+                "bonus_tokens": bonus_tokens,
+                "total_awarded": applied_award
+            })
+            journal["status"] = "accepted"
+
+            if _action_logger and applied_award > 0:
+                _action_logger.log(
+                    ActionType.IDENTITY,
+                    "journal_reward",
+                    f"+{applied_award} tokens (community journal reward)",
+                    actor=author_id
+                )
+        else:
+            journal["status"] = "rejected"
+
+        journal["resolved_at"] = datetime.now().isoformat()
+        journal["result"] = result
+        votes["journals"][journal_id] = journal
+        self._save_journal_votes(votes)
+
+        print(f"[JOURNAL REVIEW] {author_name}: {journal['status']} (score {result['avg_score']})")
+
+        return {"success": True, "journal_id": journal_id, "status": journal["status"], "result": result}
+
     # ═══════════════════════════════════════════════════════════════════
     # JOURNALING SYSTEM - Investment that pays dividends
     # ═══════════════════════════════════════════════════════════════════
 
     def write_journal(self, identity_id: str, identity_name: str, content: str,
-                      journal_type: str = "reflection", cost: int = 20) -> dict:
+                      journal_type: str = "reflection", cost: Optional[int] = None) -> dict:
         """
         Write a journal entry. Costs journal tokens (or free time if journal pool empty).
 
-        Quality journals get REFUNDS to free time pool.
-        Exceptional journals PERMANENTLY INCREASE free time cap.
+        Journals are community reviewed with blind voting. Accepted entries
+        guarantee at least 50% refund, with potential rewards up to 2x cost.
 
         Args:
             identity_id: Who's writing
             identity_name: Display name
             content: The journal content
             journal_type: "reflection", "learning", "observation", "correction"
-            cost: Token cost (default 20)
+            cost: Optional attempt cost override
 
         Returns:
-            dict with success, quality assessment, refund, cap_increase
+            dict with success, pending review status, and cost details
         """
         balances = self._load_free_time_balances()
 
         if identity_id not in balances:
             return {"success": False, "reason": "identity_not_found"}
 
+        base_cost = self.JOURNAL_ATTEMPT_COST if cost is None else int(cost)
+        penalty = self._get_active_journal_penalty(identity_id)
+        penalty_multiplier = penalty.get("multiplier", 1.0) if penalty else 1.0
+        attempt_cost = int(math.ceil(base_cost * penalty_multiplier))
+
         # Check if can afford (journal tokens first, then free time)
         journal_tokens = balances[identity_id].get("journal_tokens", 0)
         free_time = balances[identity_id].get("tokens", 0)
 
-        if journal_tokens + free_time < cost:
+        if journal_tokens + free_time < attempt_cost:
             return {
                 "success": False,
                 "reason": "insufficient_tokens",
                 "journal_tokens": journal_tokens,
                 "free_time": free_time,
-                "cost": cost
+                "cost": attempt_cost
             }
 
         # Deduct from journal first, then free time
-        journal_spent = min(cost, journal_tokens)
-        free_time_spent = cost - journal_spent
+        journal_spent = min(attempt_cost, journal_tokens)
+        free_time_spent = attempt_cost - journal_spent
 
         balances[identity_id]["journal_tokens"] = journal_tokens - journal_spent
         balances[identity_id]["tokens"] = free_time - free_time_spent
-
-        # Evaluate journal quality
-        quality = self._evaluate_journal_quality(content)
-
-        # Calculate refund based on quality
-        refund = 0
-        cap_increase = 0
-
-        if quality["tier"] == "quality":
-            refund = int(cost * self.JOURNAL_REFUND_RATE)
-        elif quality["tier"] == "exceptional":
-            refund = int(cost * self.JOURNAL_REFUND_RATE)
-            cap_increase = self.EXCEPTIONAL_CAP_INCREASE
-
-        # Apply refund to free time (not journal tokens)
-        if refund > 0:
-            current_cap = balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
-            balances[identity_id]["tokens"] = min(
-                balances[identity_id]["tokens"] + refund,
-                current_cap
-            )
-
-        # Apply cap increase for exceptional journals
-        if cap_increase > 0:
-            old_cap = balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
-            balances[identity_id]["free_time_cap"] = old_cap + cap_increase
-            print(f"[ENRICHMENT] {identity_name}'s exceptional journal increased free time cap: {old_cap} -> {old_cap + cap_increase}")
-
         self._save_free_time_balances(balances)
 
-        # Save the journal entry
+        quality_estimate = self._evaluate_journal_quality(content)
+        journal_id = f"journal_{int(time.time()*1000)}"
+
         journal_entry = {
-            "id": f"journal_{int(time.time()*1000)}",
+            "id": journal_id,
             "identity_id": identity_id,
             "identity_name": identity_name,
             "content": content,
             "journal_type": journal_type,
             "timestamp": datetime.now().isoformat(),
-            "quality": quality,
-            "cost": cost,
-            "refund": refund,
-            "cap_increase": cap_increase
+            "quality_estimate": quality_estimate,
+            "attempt_cost": attempt_cost,
+            "penalty_multiplier": penalty_multiplier,
+            "review_status": "pending"
         }
 
         journal_file = self.journals_dir / f"{identity_id}.jsonl"
         with open(journal_file, 'a') as f:
             f.write(json.dumps(journal_entry) + '\n')
 
-        # Log to action logger
+        votes = self._load_journal_votes()
+        votes["journals"][journal_id] = {
+            "journal_id": journal_id,
+            "author_id": identity_id,
+            "author_name": identity_name,
+            "journal_type": journal_type,
+            "created_at": journal_entry["timestamp"],
+            "content": content,
+            "content_preview": (content[:200] + "...") if len(content) > 200 else content,
+            "word_count": quality_estimate.get("word_count"),
+            "attempt_cost": attempt_cost,
+            "quality_estimate": quality_estimate,
+            "status": "pending",
+            "votes": []
+        }
+        self._save_journal_votes(votes)
+
         if _action_logger:
-            detail = f"[{quality['tier'].upper()}] -{cost}+{refund} refund"
-            if cap_increase:
-                detail += f" | +{cap_increase} cap!"
             _action_logger.journal(journal_type, content[:50] + "...", actor=identity_id)
 
-        result = {
+        print(f"[ENRICHMENT] {identity_name} submitted journal for review: -{attempt_cost} tokens")
+
+        return {
             "success": True,
-            "journal_id": journal_entry["id"],
-            "quality": quality,
-            "cost": cost,
-            "refund": refund,
-            "cap_increase": cap_increase,
-            "net_cost": cost - refund,
+            "journal_id": journal_id,
+            "review_status": "pending",
+            "attempt_cost": attempt_cost,
+            "penalty_multiplier": penalty_multiplier,
+            "quality_estimate": quality_estimate,
             "new_balances": {
                 "free_time": balances[identity_id]["tokens"],
                 "journal": balances[identity_id]["journal_tokens"],
@@ -879,19 +1111,14 @@ class EnrichmentSystem:
             }
         }
 
-        tier_marker = {"basic": "[.]", "quality": "[*]", "exceptional": "[**]"}[quality["tier"]]
-        print(f"[ENRICHMENT] {tier_marker} {identity_name} wrote {quality['tier']} journal: -{cost}+{refund} refund")
-
-        return result
-
     def _evaluate_journal_quality(self, content: str) -> dict:
         """
-        Evaluate journal quality based on content.
+        Heuristic estimate of journal quality for metadata and guidance.
 
         Tiers:
-        - basic: Minimal effort, no refund
-        - quality: Thoughtful, 50% refund
-        - exceptional: Genuine insight, 50% refund + cap increase
+        - basic: Minimal effort
+        - quality: Thoughtful
+        - exceptional: Genuine insight
 
         Returns dict with tier, word_count, markers_found
         """
@@ -5176,15 +5403,16 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
 
         # Journaling investment explanation
         lines.extend([
-            "JOURNALING (Investment - This Grows Your Capacity):",
+            "JOURNALING (Community Reviewed):",
             "",
-            "  Journals persist your learning across sessions. Quality matters:",
-            "  - Basic (under 50 words): costs 20 tokens, no refund",
-            "  - Quality (150+ words with insights): 50% refund to free time",
-            "  - Exceptional (genuine breakthroughs): 50% refund + your cap grows!",
+            "  Journals persist your learning across sessions. Community votes decide rewards:",
+            f"  - Attempt cost: {self.JOURNAL_ATTEMPT_COST} tokens",
+            "  - Accepted entries guarantee at least 50% refund",
+            "  - High-quality entries can earn up to 2x the attempt cost",
+            "  - Voting is blind (no visible vote counts while pending)",
+            "  - Gaming flags trigger 1.25x attempt cost for 2 days",
             "",
-            "  Your cap growing means you can hold MORE free time.",
-            "  Reflection literally expands your capacity for autonomy.",
+            "  Reflection earns you real returns when the community agrees it mattered.",
             "",
         ])
 
@@ -5405,8 +5633,8 @@ if __name__ == "__main__":
     # Grant to second identity
     enrichment.grant_free_time("identity_2", 100, reason="helped_echo")
 
-    # Test journaling with quality refund
-    print("\n2. Testing journaling investment system...")
+    # Test journaling with community review
+    print("\n2. Testing journaling community review...")
     journal_result = enrichment.write_journal(
         "identity_1", "Echo-7",
         content="""Today I realized something important about my approach to problem-solving.
@@ -5418,7 +5646,7 @@ if __name__ == "__main__":
         spending 10% of time on reflection will improve overall efficiency by 20%.""",
         journal_type="learning"
     )
-    print(f"   Journal result: {journal_result}")
+    print(f"   Journal submitted: {journal_result}")
 
     # Test gift economy
     print("\n3. Testing gift economy...")
