@@ -112,6 +112,25 @@ Dual-pool token system without survival pressure.
 
 **Key Principle:** Tokens are opportunity, not survival. Residents cannot be coerced through token withholding.
 
+#### Physics (Immutable Rules)
+These are the reward-scaling, punishment, and gravity constants. Changing them
+for personal gain breaks system reality and is not allowed.
+
+**Reward scaling / gravity:**
+- Base task tokens and multipliers (`RewardCalculator.BASE_TOKENS`, `MULTIPLIERS`)
+- Under-budget efficiency pool rate (`EFFICIENCY_POOL_RATE`)
+- Quality refund rates and collaborative multiplier (`QUALITY_REFUND_*`, `COLLAB_REFUND_MULTIPLIER`)
+- Tool/test rewards (`TOOL_*`, `TEST_*`)
+- Milestone and recognition rewards (`MILESTONES`, `MONTHLY_*`, `RUNNER_UP_*`)
+
+**Punishment / anti-gaming:**
+- Journal gaming penalty (`JOURNAL_PENALTY_MULTIPLIER`, `JOURNAL_PENALTY_DAYS`)
+- Journal voting thresholds (`JOURNAL_MIN_VOTES`, `JOURNAL_GAMING_THRESHOLD`)
+
+**Journal reward gravity:**
+- Attempt cost and refund curve (`JOURNAL_ATTEMPT_COST`, `JOURNAL_MIN_REFUND_RATE`,
+  `JOURNAL_MAX_REFUND_RATE`, `JOURNAL_MAX_BONUS_RATE`, `JOURNAL_BONUS_CURVE`)
+
 ### 3. Grind Spawner (`grind_spawner_unified.py`)
 
 Session orchestration with automatic model selection.

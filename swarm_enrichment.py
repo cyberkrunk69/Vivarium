@@ -145,10 +145,11 @@ class RewardCalculator:
     This creates natural specialization through positive feedback loops.
     """
 
+    # PHYSICS (IMMUTABLE) - reward scaling / gravity
     # Base token reward for completing any task
     BASE_TOKENS = 50
 
-    # Multiplier tiers
+    # Multiplier tiers (immutable scaling)
     MULTIPLIERS = {
         "standard": 1.0,           # Met expectations
         "efficient": 1.5,          # Under budget/time
@@ -482,6 +483,7 @@ class EnrichmentSystem:
 
     # ═══════════════════════════════════════════════════════════════════
     # TOKEN ECONOMY CONFIGURATION
+    # PHYSICS (IMMUTABLE): reward scaling, punishment, gravity
     # ═══════════════════════════════════════════════════════════════════
     #
     # Two pools: FREE_TIME (socializing, exploring) and JOURNAL (learning, memory)
