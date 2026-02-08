@@ -96,6 +96,7 @@ Dual-pool token system without survival pressure.
 - Standard task completion: 50-65 tokens
 - Exceptional performance: up to 150 tokens
 - Under-budget completion: bonus based on savings
+- Under-budget + high quality: percentage refunds to individual + guild pool
 - Sunday rest day: 500 tokens (automatic)
 
 **Spending:**

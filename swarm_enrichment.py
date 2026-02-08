@@ -647,6 +647,11 @@ class EnrichmentSystem:
     WEEKLY_EFFICIENCY_BONUS_10 = 25 # Bonus if 10%+ improvement
     WEEKLY_EFFICIENCY_BONUS_20 = 50 # Bonus if 20%+ improvement
 
+    # Quality refund system - under budget + above quality goal
+    QUALITY_REFUND_GOAL = 0.85
+    QUALITY_REFUND_INDIVIDUAL_RATE = 0.50
+    QUALITY_REFUND_GUILD_RATE = 0.25
+
     def grant_free_time(self, identity_id: str, tokens: int, reason: str = "under_budget"):
         """
         Grant tokens to an identity, SPLIT between free time and journaling pools.
@@ -2301,7 +2306,11 @@ class EnrichmentSystem:
     # ─────────────────────────────────────────────────────────────────────
 
     def record_task_tokens(self, identity_id: str, identity_name: str,
-                           tokens_spent: int, task_completed: bool = True) -> dict:
+                           tokens_spent: int, task_completed: bool = True,
+                           quality_score: Optional[float] = None,
+                           quality_goal: Optional[float] = None,
+                           individual_refund_rate: Optional[float] = None,
+                           guild_refund_rate: Optional[float] = None) -> dict:
         """
         Record tokens spent on a task. Efficient workers contribute to the pool.
 
@@ -2313,6 +2322,10 @@ class EnrichmentSystem:
             identity_name: Display name
             tokens_spent: How many tokens were used
             task_completed: Whether task was successfully completed
+            quality_score: Optional quality score (0.0-1.0) for refund eligibility
+            quality_goal: Optional override for quality goal threshold
+            individual_refund_rate: Optional override for individual refund rate
+            guild_refund_rate: Optional override for guild refund rate
 
         Returns:
             dict with efficiency stats and any pool contribution
@@ -2361,13 +2374,94 @@ class EnrichmentSystem:
 
         self._save_efficiency_pool(pool)
 
+        quality_goal = self.QUALITY_REFUND_GOAL if quality_goal is None else quality_goal
+        individual_refund_rate = (
+            self.QUALITY_REFUND_INDIVIDUAL_RATE if individual_refund_rate is None else individual_refund_rate
+        )
+        guild_refund_rate = (
+            self.QUALITY_REFUND_GUILD_RATE if guild_refund_rate is None else guild_refund_rate
+        )
+
+        refund_result = {
+            "eligible": False,
+            "quality_score": quality_score,
+            "quality_goal": quality_goal,
+            "savings": savings,
+            "refund_base": 0,
+            "individual_refund": 0,
+            "guild_refund": 0,
+            "guild_id": None,
+        }
+
+        # Apply quality-based refunds (individual + guild) on remaining savings
+        if task_completed and quality_score is not None and savings > 0 and quality_score >= quality_goal:
+            refund_base = max(savings - pool_contribution, 0)
+            if refund_base > 0:
+                refund_result["eligible"] = True
+                refund_result["refund_base"] = refund_base
+
+                individual_refund = int(refund_base * max(0.0, individual_refund_rate))
+                guild_refund = int(refund_base * max(0.0, guild_refund_rate))
+
+                total_refund = individual_refund + guild_refund
+                if total_refund > refund_base:
+                    overflow = total_refund - refund_base
+                    if guild_refund >= overflow:
+                        guild_refund -= overflow
+                    else:
+                        individual_refund = max(0, individual_refund - (overflow - guild_refund))
+                        guild_refund = 0
+
+                # Grant individual refund
+                balances = self._load_free_time_balances()
+                if identity_id not in balances:
+                    balances[identity_id] = {
+                        "tokens": 0,
+                        "journal_tokens": 0,
+                        "free_time_cap": self.BASE_FREE_TIME_CAP,
+                        "history": [],
+                        "spending_history": []
+                    }
+
+                cap = balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
+                old_balance = balances[identity_id]["tokens"]
+                balances[identity_id]["tokens"] = min(old_balance + individual_refund, cap)
+                applied_individual = balances[identity_id]["tokens"] - old_balance
+                self._save_free_time_balances(balances)
+
+                refund_result["individual_refund"] = applied_individual
+
+                # Grant guild refund if on a team
+                my_team = self.get_my_team(identity_id)
+                if guild_refund > 0 and my_team:
+                    applied_guild = self._add_guild_refund(
+                        my_team["id"],
+                        guild_refund,
+                        identity_id=identity_id,
+                        identity_name=identity_name,
+                        quality_score=quality_score,
+                        tokens_spent=tokens_spent,
+                        savings=savings
+                    )
+                    refund_result["guild_refund"] = applied_guild
+                    refund_result["guild_id"] = my_team["id"]
+
+                if _action_logger and applied_individual > 0:
+                    _action_logger.log(
+                        ActionType.IDENTITY,
+                        "quality_refund",
+                        f"+{applied_individual} tokens (quality refund)",
+                        actor=identity_id
+                    )
+
         result = {
             "tokens_spent": tokens_spent,
             "baseline": self.TOKEN_BASELINE_PER_TASK,
             "savings": savings,
             "pool_contribution": pool_contribution,
             "pool_balance": pool["balance"],
-            "swarm_avg": round(pool["avg_tokens_per_task"], 1)
+            "swarm_avg": round(pool["avg_tokens_per_task"], 1),
+            "quality_refund": refund_result
         }
 
         if pool_contribution > 0:
@@ -4514,6 +4608,17 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         teams = self._load_teams()
         return next((t for t in teams if t["id"] == team_id), None)
 
+    def get_guild_refund_pool(self, team_id: str) -> dict:
+        """Get a team's quality refund pool (guild pool)."""
+        team = self.get_team(team_id)
+        if not team:
+            return {"team_id": team_id, "pool": 0, "history": []}
+        return {
+            "team_id": team_id,
+            "pool": team.get("refund_pool", 0),
+            "history": team.get("refund_history", [])[-10:]
+        }
+
     def get_my_team(self, identity_id: str) -> dict:
         """Get the team this identity belongs to (if any)."""
         teams = self._load_teams()
@@ -4555,7 +4660,9 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             "member_names": {identity_id: identity_name},
             "created_at": datetime.now().isoformat(),
             "bounties_completed": 0,
-            "total_earned": 0
+            "total_earned": 0,
+            "refund_pool": 0,
+            "refund_history": []
         }
 
         teams.append(team)
@@ -4607,6 +4714,49 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             )
 
         return {"success": True, "team": team}
+
+    def _add_guild_refund(self, team_id: str, amount: int, identity_id: str,
+                          identity_name: str, quality_score: float,
+                          tokens_spent: int, savings: int) -> int:
+        """Add a quality refund to a team's guild pool."""
+        if amount <= 0:
+            return 0
+
+        teams = self._load_teams()
+        team = next((t for t in teams if t["id"] == team_id), None)
+        if not team:
+            return 0
+
+        if "refund_pool" not in team:
+            team["refund_pool"] = 0
+        if "refund_history" not in team:
+            team["refund_history"] = []
+
+        team["refund_pool"] += amount
+        team["refund_history"].append({
+            "timestamp": datetime.now().isoformat(),
+            "from_id": identity_id,
+            "from_name": identity_name,
+            "amount": amount,
+            "quality_score": quality_score,
+            "tokens_spent": tokens_spent,
+            "savings": savings
+        })
+
+        if len(team["refund_history"]) > 50:
+            team["refund_history"] = team["refund_history"][-50:]
+
+        self._save_teams(teams)
+
+        if _action_logger:
+            _action_logger.log(
+                ActionType.SOCIAL,
+                "guild_refund",
+                f"+{amount} to {team['name']} guild pool (quality refund)",
+                actor=identity_id
+            )
+
+        return amount
 
     def leave_team(self, identity_id: str) -> dict:
         """
@@ -5118,19 +5268,20 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 lines.append("  Use: claim_bounty(bounty_id) to claim one")
                 lines.append("")
 
-        # Team info
+        # Guild (team) info
         if my_team:
             lines.extend([
-                f"YOUR TEAM: {my_team['name']}",
+                f"YOUR GUILD: {my_team['name']}",
                 f"  Members: {', '.join(my_team.get('member_names', {}).values())}",
                 f"  Bounties completed: {my_team.get('bounties_completed', 0)}",
+                f"  Guild refund pool: {my_team.get('refund_pool', 0)} tokens",
                 "",
             ])
         else:
             all_teams = self.get_teams()
             if all_teams:
                 lines.extend([
-                    "TEAMS (join one or create your own):",
+                    "GUILDS (teams) - join one or create your own:",
                 ])
                 for t in all_teams[:3]:
                     lines.append(f"  - {t['name']}: {len(t.get('members', []))} members")
