@@ -10,6 +10,12 @@ This document describes a sophisticated multi-node architecture for autonomous t
 4. **Quality assurance** - Verification and consensus for critical decisions
 5. **Cost optimization** - Caching, batching, and RPM management
 
+## Current LM Issues (Observation Catalog)
+A user-compiled catalog of 45 observed patterns is maintained in
+`LM_ISSUES_CATALOG.md`. These are the current issues faced with LMs today. The
+catalog includes an initial mapping of the pattern numbers the architecture is
+intended to mitigate.
+
 ---
 
 ## Architecture Diagram
