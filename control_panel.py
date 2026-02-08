@@ -759,6 +759,19 @@ CONTROL_PANEL_HTML = '''
                 </div>
             </details>
 
+            <!-- Collapsible: Estimate Alerts -->
+            <details class="sidebar-section">
+                <summary>
+                    Estimate Alerts
+                    <span id="estimateCount" style="font-size: 0.65rem; color: var(--purple);"></span>
+                </summary>
+                <div class="sidebar-section-content">
+                    <div id="estimateAlertsContainer" style="max-height: 220px; overflow-y: auto;">
+                        <p style="color: var(--text-dim); font-size: 0.7rem;">No estimate requests</p>
+                    </div>
+                </div>
+            </details>
+
             <!-- Collapsible: Bounty Board -->
             <details class="sidebar-section">
                 <summary>
@@ -1765,6 +1778,55 @@ CONTROL_PANEL_HTML = '''
                 });
         }
 
+        function loadEstimateRequests() {
+            fetch('/api/estimates/requests?limit=10')
+                .then(r => r.json())
+                .then(payload => {
+                    const requests = payload.requests || [];
+                    const container = document.getElementById('estimateAlertsContainer');
+                    const countEl = document.getElementById('estimateCount');
+                    if (countEl) countEl.textContent = requests.length > 0 ? `(${requests.length})` : '';
+
+                    if (requests.length === 0) {
+                        container.innerHTML = '<p style="color: var(--text-dim); font-size: 0.7rem;">No estimate requests</p>';
+                        return;
+                    }
+
+                    container.innerHTML = requests.map(req => {
+                        const urgency = req.time_sensitive ? 'URGENT' : 'OPEN';
+                        const band = (req.complexity_band || 'unknown').toUpperCase();
+                        const tier = req.suggested_model_tier ? `Tier: ${req.suggested_model_tier}` : '';
+                        const budget = (typeof req.suggested_budget === 'number') ? `~$${req.suggested_budget.toFixed(2)}` : '';
+                        const hint = [tier, budget].filter(Boolean).join(' | ');
+                        return `
+                            <div class="identity-card" style="margin-bottom: 0.4rem; padding: 0.55rem; border-left: 3px solid var(--purple);">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 600; font-size: 0.8rem; color: var(--text);">
+                                            ${req.task_id || 'task'}
+                                        </div>
+                                        <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 0.15rem;">
+                                            ${urgency} | ${band}
+                                        </div>
+                                        <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 0.15rem;">
+                                            ${req.summary || ''}
+                                        </div>
+                                        ${hint ? `
+                                            <div style="font-size: 0.6rem; color: var(--teal); margin-top: 0.15rem;">
+                                                ${hint}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <div style="color: var(--purple); font-weight: bold; font-size: 0.85rem;">
+                                        ${req.current_bounty || 0}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                });
+        }
+
         function showCompleteBountyModal(bountyId, defaultReward, teamCount) {
             const hasMultipleTeams = teamCount > 1;
 
@@ -1988,10 +2050,12 @@ CONTROL_PANEL_HTML = '''
         loadRequest();
         loadMessages();
         loadBounties();
+        loadEstimateRequests();
         loadChatRooms();
 
         // Refresh bounties, spawner status, and chat rooms periodically
         setInterval(loadBounties, 10000);
+        setInterval(loadEstimateRequests, 12000);
         setInterval(loadSpawnerStatus, 5000);
         setInterval(loadChatRooms, 15000);  // Refresh chat rooms every 15 seconds
     </script>

@@ -466,6 +466,7 @@ def find_and_execute_task(queue: Dict[str, Any]) -> bool:
                         estimated_budget=estimated_budget,
                         actual_cost=result.get("budget_used"),
                         novelty_decay=activity_info.get("decay_multiplier", 1.0),
+                        complexity_score=complexity_analysis.get("complexity_score"),
                     )
                     submission_id = submission.get("submission_id")
                 except Exception as e:

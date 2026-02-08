@@ -116,7 +116,12 @@ def _load_voter_pool() -> List[str]:
     return []
 
 
-def estimate_impact(estimated_budget: Optional[float], task_type: str, files_touched: Optional[List[str]] = None) -> float:
+def estimate_impact(
+    estimated_budget: Optional[float],
+    task_type: str,
+    files_touched: Optional[List[str]] = None,
+    complexity_score: Optional[float] = None,
+) -> float:
     """Heuristic impact estimate in [0, 1]."""
     impact = 0.2
     if estimated_budget:
@@ -125,6 +130,8 @@ def estimate_impact(estimated_budget: Optional[float], task_type: str, files_tou
         impact += 0.2
     if files_touched:
         impact += min(len(files_touched) / 10.0, 0.2)
+    if complexity_score is not None:
+        impact += min(max(complexity_score, 0.0), 1.0) * 0.3
     return min(1.0, impact)
 
 
@@ -200,10 +207,11 @@ def submit_change(
     actual_cost: Optional[float],
     novelty_decay: float = 1.0,
     files_touched: Optional[List[str]] = None,
+    complexity_score: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Create a jury submission and assign voters."""
     submission_id = f"sub_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
-    impact_score = estimate_impact(estimated_budget, task_type, files_touched)
+    impact_score = estimate_impact(estimated_budget, task_type, files_touched, complexity_score)
     voters_needed = required_voters(impact_score)
     pool = [v for v in _load_voter_pool() if v != author_id]
     random.shuffle(pool)
@@ -227,6 +235,7 @@ def submit_change(
         "voters_required": voters_needed,
         "novelty_decay": novelty_decay,
         "path_multiplier": round(path_multiplier, 3),
+        "complexity_score": complexity_score,
         "created_at": get_timestamp(),
         "status": "pending",
     }

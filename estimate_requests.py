@@ -75,6 +75,32 @@ def _current_bounty(request: Dict[str, Any]) -> int:
     return min(bounty, cap)
 
 
+def _complexity_tuning(
+    complexity_score: Optional[float],
+    complexity_band: Optional[str],
+) -> Dict[str, float]:
+    band = (complexity_band or "").lower().strip()
+    score = complexity_score if complexity_score is not None else 0.0
+
+    if not band:
+        if score >= 0.8:
+            band = "critical"
+        elif score >= 0.6:
+            band = "high"
+        elif score >= 0.3:
+            band = "medium"
+        else:
+            band = "low"
+
+    if band == "critical":
+        return {"base_bounty": 10, "escalation_rate": 4.0, "max_bounty": 120}
+    if band == "high":
+        return {"base_bounty": 8, "escalation_rate": 3.0, "max_bounty": 90}
+    if band == "medium":
+        return {"base_bounty": 6, "escalation_rate": 2.2, "max_bounty": 70}
+    return {"base_bounty": 4, "escalation_rate": 1.6, "max_bounty": 50}
+
+
 def register_request(
     *,
     task_id: str,
@@ -93,15 +119,19 @@ def register_request(
         if task_id in requests:
             req = requests[task_id]
         else:
+            tuning = _complexity_tuning(complexity_score, complexity_band)
+            base_bounty = tuning["base_bounty"]
+            max_bounty = tuning["max_bounty"]
+            rate = tuning["escalation_rate"]
             req = {
                 "task_id": task_id,
                 "summary": summary[:400],
                 "created_at": get_timestamp(),
                 "created_at_ts": time.time(),
                 "time_sensitive": bool(time_sensitive),
-                "base_bounty": BASE_BOUNTY,
-                "escalation_rate": escalation_rate if escalation_rate is not None else ESCALATION_RATE,
-                "max_bounty": MAX_BOUNTY,
+                "base_bounty": base_bounty,
+                "escalation_rate": escalation_rate if escalation_rate is not None else rate,
+                "max_bounty": max_bounty,
                 "status": "open",
                 "complexity_score": complexity_score,
                 "complexity_band": complexity_band,
