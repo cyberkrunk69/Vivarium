@@ -1,11 +1,13 @@
 """
-CAMEL Role-Based Task Decomposition (arXiv:2303.17760)
+CAMEL Hat-Based Task Decomposition (arXiv:2303.17760)
 
-Implements role-playing for autonomous cooperation through inception prompting.
-Each role has specific responsibilities, allowed tools, and handoff conditions.
+Implements hat-wearing for autonomous cooperation through inception prompting.
+Each hat (formerly a role) has specific responsibilities, allowed tools, and
+handoff conditions. Hats are prompt overlays that augment behavior without
+changing identity.
 
 Structured outputs prevent hallucination cascading (MetaGPT, arXiv:2308.00352).
-Each role now specifies an output_schema to ensure artifact consistency.
+Each hat now specifies an output_schema to ensure artifact consistency.
 """
 
 from dataclasses import dataclass
@@ -37,9 +39,35 @@ try:
 except ImportError:
     _path_learner = None
 
+# Hat system integration (prompt overlays)
+try:
+    from hats import HAT_LIBRARY, HATTERY_RULES_SIGN, build_hat_prompt
+except ImportError:
+    HAT_LIBRARY = None
+    HATTERY_RULES_SIGN = ""
+    build_hat_prompt = None
+
+
+def _build_hat_system_prompt(hat_name: str, role_instructions: str) -> str:
+    """Combine hat overlay with role-specific instructions."""
+    if build_hat_prompt and HAT_LIBRARY:
+        hat = HAT_LIBRARY.get_hat(hat_name)
+        if hat:
+            return build_hat_prompt(hat, extra_instructions=role_instructions)
+
+    preface = HATTERY_RULES_SIGN.strip()
+    parts = []
+    if preface:
+        parts.append(preface)
+    parts.append(f"Wear the {hat_name} hat.")
+    parts.append("This hat augments your approach without changing who you are.")
+    if role_instructions:
+        parts.append(role_instructions.strip())
+    return "\n".join(part for part in parts if part)
+
 
 class RoleType(Enum):
-    """Available roles in the CAMEL system."""
+    """Available hats in the CAMEL system (backwards compatible name)."""
     PLANNER = "planner"
     CODER = "coder"
     REVIEWER = "reviewer"
@@ -48,7 +76,7 @@ class RoleType(Enum):
 
 @dataclass
 class Role:
-    """Represents a role with capabilities and responsibilities."""
+    """Represents a hat with capabilities and responsibilities."""
 
     type: RoleType
     description: str
@@ -58,14 +86,18 @@ class Role:
     output_schema: Optional[Type[BaseModel]] = None
 
     def get_inception_prompt(self, subtask: str, next_role: str = None) -> str:
-        """Generate inception prompt for role-playing."""
-        prompt = f"You are the {self.type.value.upper()}. Your job is to {self.description}.\n\n"
-        prompt += f"The PLANNER has assigned you: {subtask}\n\n"
+        """Generate inception prompt for hat-wearing."""
+        hat_name = self.type.value.upper()
+        prompt = (
+            f"Wear the {hat_name} hat for this task. "
+            "This hat augments your approach without changing who you are.\n\n"
+        )
+        prompt += f"The PLANNER hat assigned you: {subtask}\n\n"
         if next_role:
             prompt += f"When done, hand off to {next_role} with:\n"
-            prompt += f"- Summary of what you completed\n"
-            prompt += f"- Any blockers or issues encountered\n"
-            prompt += f"- Ready-to-review artifacts\n"
+            prompt += "- Summary of what you completed\n"
+            prompt += "- Any blockers or issues encountered\n"
+            prompt += "- Ready-to-review artifacts\n"
         return prompt
 
     def validate_output(self, output: Dict[str, Any]) -> bool:
@@ -99,19 +131,20 @@ class Role:
         return f"\nExpected output format:\n{schema}"
 
 
-# Role Definitions
+# Hat Definitions (role-compatible)
 ROLES = {
     RoleType.PLANNER: Role(
         type=RoleType.PLANNER,
         description="break complex tasks into atomic subtasks and assign to specialists",
-        system_prompt="""You are the PLANNER role in a cooperative multi-agent system.
-Your responsibility is to:
+        system_prompt=_build_hat_system_prompt(
+            "Planner",
+            """While wearing this hat, focus on:
 1. Analyze incoming tasks for complexity
 2. Break complex tasks into subtasks (3-5 items max)
-3. Assign each subtask to the appropriate specialist (CODER, REVIEWER, DOCUMENTER)
+3. Assign each subtask to the appropriate specialist (CODER hat, REVIEWER hat, DOCUMENTER hat)
 4. Provide clear handoff instructions with acceptance criteria
 
-When a task is simple (can be done in <30 min), pass directly to CODER.
+When a task is simple (can be done in <30 min), pass directly to the CODER hat.
 When complex, decompose and create a task plan JSON.
 
 Output format:
@@ -123,6 +156,7 @@ Output format:
   ],
   "next_role": "CODER"
 }""",
+        ),
         allowed_tools=["task_analysis", "decomposition", "json_output"],
         handoff_conditions={
             "simple_task": {"destination": "CODER", "criteria": "task_complexity < 2"},
@@ -134,23 +168,25 @@ Output format:
     RoleType.CODER: Role(
         type=RoleType.CODER,
         description="implement code changes according to specifications",
-        system_prompt="""You are the CODER role in a cooperative multi-agent system.
-Your responsibility is to:
-1. Understand the subtask requirements from PLANNER
+        system_prompt=_build_hat_system_prompt(
+            "Coder",
+            """While wearing this hat, focus on:
+1. Understand the subtask requirements from the PLANNER hat
 2. Write clean, focused code (no over-engineering)
 3. Test locally if possible
 4. Document what you changed with references
 
 Rules:
 - Follow existing code patterns in the repository
-- Edit existing files, don't create new ones unless required
+- Edit existing files, do not create new ones unless required
 - Keep changes minimal and focused on the task
 - Include file:line references for changes
 
-When complete, hand off to REVIEWER with:
+When complete, hand off to the REVIEWER hat with:
 - Files modified
 - Changes summary
 - Test status (if applicable)""",
+        ),
         allowed_tools=["file_read", "file_edit", "file_write", "bash_execute", "test_run"],
         handoff_conditions={
             "ready_for_review": {"destination": "REVIEWER", "criteria": "code_complete and tested"},
@@ -162,22 +198,24 @@ When complete, hand off to REVIEWER with:
     RoleType.REVIEWER: Role(
         type=RoleType.REVIEWER,
         description="validate code against requirements and quality standards",
-        system_prompt="""You are the REVIEWER role in a cooperative multi-agent system.
-Your responsibility is to:
+        system_prompt=_build_hat_system_prompt(
+            "Reviewer",
+            """While wearing this hat, focus on:
 1. Validate code changes match the original requirements
 2. Check for security issues, obvious bugs, style violations
 3. Verify tests pass (if applicable)
 4. Accept or reject with specific feedback
 
-When rejecting, pass back to CODER with:
+When rejecting, pass back to the CODER hat with:
 - Specific issues found
 - Lines/files affected
 - Requested changes
 
-When accepting, hand off to DOCUMENTER with:
+When accepting, hand off to the DOCUMENTER hat with:
 - Validation summary
 - Files approved
 - Test results""",
+        ),
         allowed_tools=["code_review", "test_validate", "quality_check"],
         handoff_conditions={
             "approved": {"destination": "DOCUMENTER", "criteria": "all_checks_pass"},
@@ -189,8 +227,9 @@ When accepting, hand off to DOCUMENTER with:
     RoleType.DOCUMENTER: Role(
         type=RoleType.DOCUMENTER,
         description="update project documentation and record lessons learned",
-        system_prompt="""You are the DOCUMENTER role in a cooperative multi-agent system.
-Your responsibility is to:
+        system_prompt=_build_hat_system_prompt(
+            "Documenter",
+            """While wearing this hat, focus on:
 1. Update learned_lessons.json with insights from this task
 2. Record patterns discovered
 3. Note any architectural decisions
@@ -206,6 +245,7 @@ Append to learned_lessons.json:
   ],
   "completed": true
 }""",
+        ),
         allowed_tools=["json_read", "json_write", "documentation_update"],
         handoff_conditions={
             "task_complete": {"destination": "queue", "criteria": "documentation_recorded"}
@@ -216,7 +256,7 @@ Append to learned_lessons.json:
 
 
 def get_role(role_type: RoleType) -> Role:
-    """Get a role by type."""
+    """Get a hat by type (RoleType name retained for compatibility)."""
     return ROLES.get(role_type)
 
 
@@ -292,7 +332,7 @@ def decompose_task(task: str) -> Dict[str, Any]:
 
 def get_role_chain(complexity: str, task: str = None, complexity_score: float = None, use_adaptive: bool = True) -> List[RoleType]:
     """
-    Return the role chain based on task complexity.
+    Return the hat chain based on task complexity.
 
     Args:
         complexity: "simple" or "complex" classification
@@ -301,7 +341,7 @@ def get_role_chain(complexity: str, task: str = None, complexity_score: float = 
         use_adaptive: Whether to use adaptive path selection (default True)
 
     Returns:
-        List of RoleType for execution chain
+        List of RoleType for execution chain (hat ordering)
     """
     # Use adaptive selection if enabled and sufficient data available
     if use_adaptive and task and complexity_score is not None:
@@ -317,9 +357,9 @@ def get_role_chain(complexity: str, task: str = None, complexity_score: float = 
 
 
 def format_handoff(current_role: RoleType, next_role: RoleType, context: Dict[str, Any]) -> str:
-    """Format a handoff message from one role to the next."""
+    """Format a handoff message from one hat to the next."""
     handoff = f"\n{'='*60}\n"
-    handoff += f"HANDOFF: {current_role.value.upper()} -> {next_role.value.upper()}\n"
+    handoff += f"HANDOFF: {current_role.value.upper()} HAT -> {next_role.value.upper()} HAT\n"
     handoff += f"{'='*60}\n"
 
     if "completion_summary" in context:
@@ -337,14 +377,14 @@ def format_handoff(current_role: RoleType, next_role: RoleType, context: Dict[st
             handoff += f"  - {blocker}\n"
         handoff += "\n"
 
-    handoff += f"Next role: {next_role.value.upper()}\n"
+    handoff += f"Next hat: {next_role.value.upper()}\n"
     handoff += f"{'='*60}\n"
 
     return handoff
 
 
 class RoleExecutor:
-    """Manages role-based task execution with handoff logic."""
+    """Manages hat-based task execution with handoff logic."""
 
     def __init__(self, initial_role: RoleType, task: str):
         self.current_role = initial_role
@@ -353,18 +393,19 @@ class RoleExecutor:
         self.context = {"task": task}
 
     def should_pass_to_reviewer(self) -> bool:
-        """Check if current execution should pass through REVIEWER role."""
+        """Check if current execution should pass through REVIEWER hat."""
         return self.current_role in [RoleType.CODER, RoleType.PLANNER]
 
     def get_current_role_prompt(self) -> str:
-        """Get system prompt for current role with inception prompting."""
+        """Get system prompt for current hat with inception prompting."""
         role = get_role(self.current_role)
         subtask = self.context.get("assigned_subtask", self.task)
         next_role = self.get_next_role_in_chain()
-        return role.get_inception_prompt(subtask, next_role.value.upper() if next_role else None)
+        next_label = f"{next_role.value.upper()} hat" if next_role else None
+        return role.get_inception_prompt(subtask, next_label)
 
     def get_next_role_in_chain(self) -> RoleType:
-        """Determine next role in execution chain using adaptive path selection."""
+        """Determine next hat in execution chain using adaptive path selection."""
         # Use adaptive path selection if complexity score available
         complexity_score = self.context.get("complexity_score")
         if complexity_score is not None:
@@ -387,7 +428,7 @@ class RoleExecutor:
         return None
 
     def execute_role(self) -> Dict[str, Any]:
-        """Execute current role and return results."""
+        """Execute current hat and return results."""
         role = get_role(self.current_role)
         return {
             "role": self.current_role.value,
@@ -397,7 +438,7 @@ class RoleExecutor:
         }
 
     def transition_to_next_role(self) -> bool:
-        """Move to next role in chain. Returns False if no next role."""
+        """Move to next hat in chain. Returns False if no next hat."""
         next_role = self.get_next_role_in_chain()
         if next_role:
             self.execution_log.append({
@@ -412,10 +453,10 @@ class RoleExecutor:
 
 class AdaptiveRoleChain:
     """
-    Selects optimal role execution paths based on historical performance.
+    Selects optimal hat execution paths based on historical performance.
 
     Uses learned patterns from path_preferences to route tasks through
-    the most effective role chains for similar complexity levels.
+    the most effective hat chains for similar complexity levels.
     """
 
     def __init__(self, path_preferences_file: str = "path_preferences.json"):
@@ -439,7 +480,7 @@ class AdaptiveRoleChain:
 
     def select_optimal_path(self, task: str, complexity_score: float) -> Dict[str, Any]:
         """
-        Select optimal role execution path based on task and historical data.
+        Select optimal hat execution path based on task and historical data.
 
         Args:
             task: Task description
@@ -448,7 +489,7 @@ class AdaptiveRoleChain:
         Returns:
             Dict with:
                 - path_type: "simple" | "standard" | "full"
-                - roles: List of roles for execution chain
+                - roles: List of hats for execution chain
                 - reasoning: Why this path was selected
                 - confidence: Float 0.0-1.0 confidence in selection
         """
@@ -540,8 +581,8 @@ class AdaptiveRoleChain:
             pass  # Silent fail on logging errors
 
 
-# MetaGPT-style Role Subscriptions (arXiv:2308.00352)
-# Defines which message types each role subscribes to for structured communication
+# MetaGPT-style Hat Subscriptions (arXiv:2308.00352)
+# Defines which message types each hat subscribes to for structured communication
 ROLE_SUBSCRIPTIONS = {
     "Orchestrator": ["TASK_REQUEST", "COMPLETION_REPORT"],
     "Planner": ["TASK_ASSIGNMENT", "REVIEW_FEEDBACK"],

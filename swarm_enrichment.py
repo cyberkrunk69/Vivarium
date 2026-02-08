@@ -36,6 +36,7 @@ Usage:
 
 import json
 import time
+import math
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
@@ -144,10 +145,11 @@ class RewardCalculator:
     This creates natural specialization through positive feedback loops.
     """
 
+    # PHYSICS (IMMUTABLE) - reward scaling / gravity
     # Base token reward for completing any task
     BASE_TOKENS = 50
 
-    # Multiplier tiers
+    # Multiplier tiers (immutable scaling)
     MULTIPLIERS = {
         "standard": 1.0,           # Met expectations
         "efficient": 1.5,          # Under budget/time
@@ -375,6 +377,11 @@ class EnrichmentSystem:
         self.free_time_file = self.workspace / ".swarm" / "free_time_balances.json"
         self.journals_dir = self.workspace / ".swarm" / "journals"
         self.journals_dir.mkdir(parents=True, exist_ok=True)
+        self.journal_votes_file = self.workspace / ".swarm" / "journal_votes.json"
+        self.journal_penalties_file = self.workspace / ".swarm" / "journal_penalties.json"
+        self.guild_votes_file = self.workspace / ".swarm" / "guild_votes.json"
+        self.disputes_file = self.workspace / ".swarm" / "disputes.json"
+        self.privilege_suspensions_file = self.workspace / ".swarm" / "privilege_suspensions.json"
 
         # Shared universe registry
         self.universe_file = self.library_dir / "shared_universe_index.json"
@@ -400,9 +407,10 @@ class EnrichmentSystem:
         self.personal_bests_file = self.workspace / ".swarm" / "personal_bests.json"
         self.efficiency_pool_file = self.workspace / ".swarm" / "efficiency_pool.json"
 
-        # Bounty and team system
+        # Bounty and guild system
         self.bounties_file = self.workspace / ".swarm" / "bounties.json"
-        self.teams_file = self.workspace / ".swarm" / "teams.json"
+        self.guilds_file = self.workspace / ".swarm" / "guilds.json"
+        self.legacy_teams_file = self.workspace / ".swarm" / "teams.json"
 
     # ═══════════════════════════════════════════════════════════════════
     # CASCADING NAME UPDATE SYSTEM
@@ -479,6 +487,7 @@ class EnrichmentSystem:
 
     # ═══════════════════════════════════════════════════════════════════
     # TOKEN ECONOMY CONFIGURATION
+    # PHYSICS (IMMUTABLE): reward scaling, punishment, gravity
     # ═══════════════════════════════════════════════════════════════════
     #
     # Two pools: FREE_TIME (socializing, exploring) and JOURNAL (learning, memory)
@@ -495,14 +504,37 @@ class EnrichmentSystem:
     FREE_TIME_SPLIT = 0.70          # 70% goes to free time
     JOURNAL_SPLIT = 0.30            # 30% goes to journaling
 
-    # Journal quality rewards
-    JOURNAL_REFUND_RATE = 0.50      # Quality journals refund 50% to free time
-    EXCEPTIONAL_CAP_INCREASE = 10   # Exceptional journals permanently increase cap
+    # Journal review + rewards (community reviewed)
+    JOURNAL_ATTEMPT_COST = 10
+    JOURNAL_MIN_REFUND_RATE = 0.50      # Accepted floor: 50% refund (still net negative)
+    JOURNAL_MAX_REFUND_RATE = 1.00      # Max refund (100% return)
+    JOURNAL_MAX_BONUS_RATE = 1.00       # Bonus up to +100% (total 2x)
+    JOURNAL_BONUS_CURVE = 1.5           # Aggressive curve for high scores
+    JOURNAL_MIN_VOTES = 3               # Minimum votes required to resolve
+    JOURNAL_GAMING_THRESHOLD = 0.50     # >= 50% gaming votes triggers penalty
+    JOURNAL_PENALTY_MULTIPLIER = 1.25   # 1.25x attempt cost
+    JOURNAL_PENALTY_DAYS = 2
+    BLIND_VOTE_MIN_REASON_CHARS = 3
+    JOURNAL_VOTE_SCORES = {
+        "reject": 0,
+        "accept": 1,
+        "exceptional": 2,
+        "gaming": 0
+    }
 
-    # Quality thresholds (word count + content markers)
-    MIN_JOURNAL_WORDS = 50          # Minimum for any refund
-    QUALITY_JOURNAL_WORDS = 150     # Threshold for quality refund
-    EXCEPTIONAL_MARKERS = [         # Markers that indicate exceptional insight
+    # Guild join voting
+    GUILD_JOIN_MIN_VOTES = 2
+    GUILD_JOIN_APPROVAL_RATIO = 0.60
+    GUILD_JOIN_VOTE_TYPES = ["accept", "reject"]
+
+    # Dispute system
+    DISPUTE_PENALTY_DAYS = 2
+    DISPUTE_ALLOWED_PRIVILEGES = ["sunday_bonus", "movie_night"]
+
+    # Quality thresholds (word count + content markers) - heuristic only
+    MIN_JOURNAL_WORDS = 50
+    QUALITY_JOURNAL_WORDS = 150
+    EXCEPTIONAL_MARKERS = [
         "realized", "learned", "discovered", "insight", "breakthrough",
         "pattern", "connection", "understand", "mistake", "correction",
         "hypothesis", "theory", "observation", "evidence"
@@ -549,7 +581,7 @@ class EnrichmentSystem:
     # ═══════════════════════════════════════════════════════════════════
     #
     # When the swarm performs well collectively, EVERYONE benefits.
-    # Creates shared fate, peer accountability, and team spirit.
+    # Creates shared fate, peer accountability, and guild spirit.
     #
     # ═══════════════════════════════════════════════════════════════════
 
@@ -638,7 +670,7 @@ class EnrichmentSystem:
     # ═══════════════════════════════════════════════════════════════════
     #
     # When the swarm is efficient, savings go to a pool that's
-    # distributed to everyone. Your efficiency helps the team.
+    # distributed to everyone. Your efficiency helps the guild.
     #
     # ═══════════════════════════════════════════════════════════════════
 
@@ -646,6 +678,12 @@ class EnrichmentSystem:
     EFFICIENCY_POOL_RATE = 0.50     # 50% of savings go to pool
     WEEKLY_EFFICIENCY_BONUS_10 = 25 # Bonus if 10%+ improvement
     WEEKLY_EFFICIENCY_BONUS_20 = 50 # Bonus if 20%+ improvement
+
+    # Quality refund system - under budget + above quality goal
+    QUALITY_REFUND_GOAL = 0.85
+    QUALITY_REFUND_INDIVIDUAL_RATE = 0.50
+    QUALITY_REFUND_GUILD_RATE = 0.25
+    COLLAB_REFUND_MULTIPLIER = 1.15
 
     def grant_free_time(self, identity_id: str, tokens: int, reason: str = "under_budget"):
         """
@@ -757,115 +795,756 @@ class EnrichmentSystem:
             "free_time_cap": identity_data.get("free_time_cap", self.BASE_FREE_TIME_CAP)
         }
 
+    def _load_journal_votes(self) -> dict:
+        if self.journal_votes_file.exists():
+            try:
+                with open(self.journal_votes_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "journals" in data:
+                        return data
+            except Exception:
+                pass
+        return {"journals": {}}
+
+    def _save_journal_votes(self, votes: dict):
+        self.journal_votes_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.journal_votes_file, 'w') as f:
+            json.dump(votes, f, indent=2)
+
+    def _load_journal_penalties(self) -> dict:
+        if self.journal_penalties_file.exists():
+            try:
+                with open(self.journal_penalties_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_journal_penalties(self, penalties: dict):
+        self.journal_penalties_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.journal_penalties_file, 'w') as f:
+            json.dump(penalties, f, indent=2)
+
+    def _load_guild_votes(self) -> dict:
+        if self.guild_votes_file.exists():
+            try:
+                with open(self.guild_votes_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "requests" in data:
+                        return data
+            except Exception:
+                pass
+        return {"requests": {}}
+
+    def _save_guild_votes(self, votes: dict):
+        self.guild_votes_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.guild_votes_file, 'w') as f:
+            json.dump(votes, f, indent=2)
+
+    def _load_disputes(self) -> dict:
+        if self.disputes_file.exists():
+            try:
+                with open(self.disputes_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "disputes" in data:
+                        return data
+            except Exception:
+                pass
+        return {"disputes": {}}
+
+    def _save_disputes(self, disputes: dict):
+        self.disputes_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.disputes_file, 'w') as f:
+            json.dump(disputes, f, indent=2)
+
+    def _load_privilege_suspensions(self) -> dict:
+        if self.privilege_suspensions_file.exists():
+            try:
+                with open(self.privilege_suspensions_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_privilege_suspensions(self, suspensions: dict):
+        self.privilege_suspensions_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.privilege_suspensions_file, 'w') as f:
+            json.dump(suspensions, f, indent=2)
+
+    def _is_privilege_suspended(self, identity_id: str, privilege: str) -> bool:
+        suspensions = self._load_privilege_suspensions()
+        identity_susp = suspensions.get(identity_id, {})
+        record = identity_susp.get(privilege)
+        if not record:
+            return False
+        until = record.get("until")
+        if not until:
+            return False
+        if datetime.now().isoformat() < until:
+            return True
+        # Expired, clean up
+        del identity_susp[privilege]
+        if not identity_susp:
+            suspensions.pop(identity_id, None)
+        else:
+            suspensions[identity_id] = identity_susp
+        self._save_privilege_suspensions(suspensions)
+        return False
+
+    def _suspend_privilege(self, identity_id: str, privilege: str, days: int, reason: str) -> dict:
+        suspensions = self._load_privilege_suspensions()
+        identity_susp = suspensions.get(identity_id, {})
+        until = (datetime.now() + timedelta(days=days)).isoformat()
+        identity_susp[privilege] = {
+            "until": until,
+            "reason": reason,
+            "applied_at": datetime.now().isoformat()
+        }
+        suspensions[identity_id] = identity_susp
+        self._save_privilege_suspensions(suspensions)
+        return identity_susp[privilege]
+
+    def get_pending_guild_requests(self, identity_id: str, limit: int = 10) -> list:
+        """List pending guild join requests for guilds the identity belongs to."""
+        my_guild = self.get_my_guild(identity_id)
+        if not my_guild:
+            return []
+
+        votes = self._load_guild_votes()
+        pending = []
+        for req in votes.get("requests", {}).values():
+            if req.get("status") != "pending":
+                continue
+            if req.get("guild_id") != my_guild.get("id"):
+                continue
+            pending.append({
+                "request_id": req.get("request_id"),
+                "applicant_id": req.get("applicant_id"),
+                "applicant_name": req.get("applicant_name"),
+                "message": req.get("message"),
+                "created_at": req.get("created_at")
+            })
+
+        pending.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return pending[:limit]
+
+    def request_guild_join(self, identity_id: str, identity_name: str, guild_id: str,
+                           message: str = None) -> dict:
+        """Request to join a guild (triggers blind approval vote)."""
+        if self.get_my_guild(identity_id):
+            return {"success": False, "reason": "already_on_guild"}
+
+        guild = self.get_guild(guild_id)
+        if not guild:
+            return {"success": False, "reason": "guild_not_found"}
+
+        votes = self._load_guild_votes()
+        for req in votes.get("requests", {}).values():
+            if req.get("status") == "pending" and req.get("applicant_id") == identity_id and req.get("guild_id") == guild_id:
+                return {"success": False, "reason": "request_already_pending"}
+
+        request_id = f"guild_req_{guild_id}_{int(time.time()*1000)}"
+        votes["requests"][request_id] = {
+            "request_id": request_id,
+            "guild_id": guild_id,
+            "guild_name": guild.get("name"),
+            "applicant_id": identity_id,
+            "applicant_name": identity_name,
+            "message": (message or "").strip(),
+            "created_at": datetime.now().isoformat(),
+            "status": "pending",
+            "votes": []
+        }
+        self._save_guild_votes(votes)
+
+        return {"success": True, "status": "pending", "request_id": request_id}
+
+    def open_vote_dispute(self, target_type: str, target_id: str, requester_id: str,
+                          requester_name: str, reason: str,
+                          risk_privilege: str = "sunday_bonus") -> dict:
+        """
+        Open a dispute on a vote outcome (journal or guild join).
+
+        A dispute creates a dedicated chatroom for the involved parties plus
+        an objective mediator.
+        """
+        if target_type not in ["journal", "guild_join"]:
+            return {"success": False, "reason": "invalid_target_type"}
+        if not reason or len(reason.strip()) < self.BLIND_VOTE_MIN_REASON_CHARS:
+            return {"success": False, "reason": "reason_required"}
+        if risk_privilege not in self.DISPUTE_ALLOWED_PRIVILEGES:
+            return {"success": False, "reason": "invalid_privilege"}
+
+        participants = []
+        decision_status = None
+
+        if target_type == "journal":
+            votes = self._load_journal_votes()
+            journal = votes.get("journals", {}).get(target_id)
+            if not journal:
+                return {"success": False, "reason": "journal_not_found"}
+            decision_status = journal.get("status")
+            if decision_status == "pending":
+                return {"success": False, "reason": "vote_not_resolved"}
+            participants = [journal.get("author_id")] + [v.get("voter_id") for v in journal.get("votes", [])]
+        else:
+            votes = self._load_guild_votes()
+            request = votes.get("requests", {}).get(target_id)
+            if not request:
+                return {"success": False, "reason": "request_not_found"}
+            decision_status = request.get("status")
+            if decision_status == "pending":
+                return {"success": False, "reason": "vote_not_resolved"}
+            participants = [request.get("applicant_id")] + [v.get("voter_id") for v in request.get("votes", [])]
+
+        participants = [p for p in participants if p]
+        participants = list(dict.fromkeys(participants))
+
+        disputes = self._load_disputes()
+        dispute_id = f"dispute_{target_type}_{int(time.time()*1000)}"
+        chatroom_id = f"dispute_{target_type}_{target_id}"
+
+        disputes["disputes"][dispute_id] = {
+            "dispute_id": dispute_id,
+            "target_type": target_type,
+            "target_id": target_id,
+            "requester_id": requester_id,
+            "requester_name": requester_name,
+            "reason": reason.strip(),
+            "risk_privilege": risk_privilege,
+            "status": "open",
+            "decision_status": decision_status,
+            "participants": participants,
+            "mediator": None,
+            "chatroom_id": chatroom_id,
+            "created_at": datetime.now().isoformat()
+        }
+        self._save_disputes(disputes)
+
+        # Create dispute chatroom with a system message
+        discussions_dir = self.workspace / ".swarm" / "discussions"
+        discussions_dir.mkdir(parents=True, exist_ok=True)
+        room_file = discussions_dir / f"{chatroom_id}.jsonl"
+        system_msg = {
+            "author_id": "SYSTEM",
+            "author_name": "SYSTEM",
+            "content": (
+                f"Dispute opened ({target_type}:{target_id}). "
+                "Participants: " + ", ".join(participants) +
+                ". Awaiting mediator wearing Hat of Objectivity."
+            ),
+            "timestamp": datetime.now().isoformat(),
+            "type": "system"
+        }
+        with open(room_file, 'a') as f:
+            f.write(json.dumps(system_msg) + "\n")
+
+        return {"success": True, "dispute_id": dispute_id, "chatroom_id": chatroom_id}
+
+    def assign_dispute_mediator(self, dispute_id: str, mediator_id: str,
+                                mediator_name: str, hat_name: str) -> dict:
+        """Assign an objective mediator (must wear Hat of Objectivity)."""
+        disputes = self._load_disputes()
+        dispute = disputes.get("disputes", {}).get(dispute_id)
+        if not dispute:
+            return {"success": False, "reason": "dispute_not_found"}
+        if dispute.get("status") != "open":
+            return {"success": False, "reason": "dispute_not_open"}
+        if mediator_id in dispute.get("participants", []):
+            return {"success": False, "reason": "mediator_must_be_third_party"}
+        if hat_name.strip().lower() != "hat of objectivity":
+            return {"success": False, "reason": "hat_required"}
+
+        dispute["mediator"] = {
+            "id": mediator_id,
+            "name": mediator_name,
+            "hat": hat_name
+        }
+        disputes["disputes"][dispute_id] = dispute
+        self._save_disputes(disputes)
+
+        discussions_dir = self.workspace / ".swarm" / "discussions"
+        room_file = discussions_dir / f"{dispute['chatroom_id']}.jsonl"
+        system_msg = {
+            "author_id": "SYSTEM",
+            "author_name": "SYSTEM",
+            "content": f"Mediator assigned: {mediator_name} wearing {hat_name}.",
+            "timestamp": datetime.now().isoformat(),
+            "type": "system"
+        }
+        with open(room_file, 'a') as f:
+            f.write(json.dumps(system_msg) + "\n")
+
+        return {"success": True, "dispute_id": dispute_id, "mediator": dispute["mediator"]}
+
+    def resolve_dispute(self, dispute_id: str, outcome: str, notes: str = None) -> dict:
+        """Resolve a dispute: uphold or reopen the underlying vote."""
+        if outcome not in ["uphold", "reopen"]:
+            return {"success": False, "reason": "invalid_outcome"}
+
+        disputes = self._load_disputes()
+        dispute = disputes.get("disputes", {}).get(dispute_id)
+        if not dispute:
+            return {"success": False, "reason": "dispute_not_found"}
+        if dispute.get("status") != "open":
+            return {"success": False, "reason": "dispute_not_open"}
+        if not dispute.get("mediator"):
+            return {"success": False, "reason": "mediator_required"}
+
+        if outcome == "reopen":
+            if dispute["target_type"] == "journal":
+                votes = self._load_journal_votes()
+                journal = votes.get("journals", {}).get(dispute["target_id"])
+                if journal:
+                    journal["status"] = "pending"
+                    journal["votes"] = []
+                    journal["reopened_at"] = datetime.now().isoformat()
+                    votes["journals"][dispute["target_id"]] = journal
+                    self._save_journal_votes(votes)
+            else:
+                votes = self._load_guild_votes()
+                request = votes.get("requests", {}).get(dispute["target_id"])
+                if request:
+                    request["status"] = "pending"
+                    request["votes"] = []
+                    request["reopened_at"] = datetime.now().isoformat()
+                    votes["requests"][dispute["target_id"]] = request
+                    self._save_guild_votes(votes)
+        else:
+            penalty = self._suspend_privilege(
+                dispute["requester_id"],
+                dispute["risk_privilege"],
+                self.DISPUTE_PENALTY_DAYS,
+                reason="dispute_upheld"
+            )
+            dispute["penalty"] = penalty
+
+        dispute["status"] = "resolved"
+        dispute["outcome"] = outcome
+        dispute["notes"] = (notes or "").strip()
+        dispute["resolved_at"] = datetime.now().isoformat()
+        disputes["disputes"][dispute_id] = dispute
+        self._save_disputes(disputes)
+
+        discussions_dir = self.workspace / ".swarm" / "discussions"
+        room_file = discussions_dir / f"{dispute['chatroom_id']}.jsonl"
+        system_msg = {
+            "author_id": "SYSTEM",
+            "author_name": "SYSTEM",
+            "content": f"Dispute resolved: {outcome}.",
+            "timestamp": datetime.now().isoformat(),
+            "type": "system"
+        }
+        with open(room_file, 'a') as f:
+            f.write(json.dumps(system_msg) + "\n")
+
+        return {"success": True, "dispute_id": dispute_id, "outcome": outcome}
+
+    def submit_guild_vote(self, request_id: str, voter_id: str, vote: str, reason: str) -> dict:
+        """Submit a blind vote to accept/reject a guild join request (reason required)."""
+        if vote not in self.GUILD_JOIN_VOTE_TYPES:
+            return {"success": False, "reason": "invalid_vote"}
+        if not reason or len(reason.strip()) < self.BLIND_VOTE_MIN_REASON_CHARS:
+            return {"success": False, "reason": "reason_required"}
+
+        votes = self._load_guild_votes()
+        request = votes.get("requests", {}).get(request_id)
+        if not request:
+            return {"success": False, "reason": "request_not_found"}
+        if request.get("status") != "pending":
+            return {"success": False, "reason": "request_already_resolved"}
+        if voter_id == request.get("applicant_id"):
+            return {"success": False, "reason": "applicant_cannot_vote"}
+
+        guild = self.get_guild(request.get("guild_id"))
+        if not guild or voter_id not in guild.get("members", []):
+            return {"success": False, "reason": "not_guild_member"}
+
+        existing_votes = request.get("votes", [])
+        if any(v.get("voter_id") == voter_id for v in existing_votes):
+            return {"success": False, "reason": "already_voted"}
+
+        existing_votes.append({
+            "voter_id": voter_id,
+            "vote": vote,
+            "reason": reason.strip(),
+            "timestamp": datetime.now().isoformat()
+        })
+        request["votes"] = existing_votes
+        votes["requests"][request_id] = request
+        self._save_guild_votes(votes)
+
+        return {"success": True, "request_id": request_id, "vote": vote}
+
+    def finalize_guild_vote(self, request_id: str) -> dict:
+        """Resolve a guild join request once enough votes are present."""
+        votes = self._load_guild_votes()
+        request = votes.get("requests", {}).get(request_id)
+        if not request:
+            return {"success": False, "reason": "request_not_found"}
+        if request.get("status") != "pending":
+            return {"success": False, "reason": "request_already_resolved", "status": request.get("status")}
+
+        vote_list = request.get("votes", [])
+        if len(vote_list) < self.GUILD_JOIN_MIN_VOTES:
+            return {
+                "success": False,
+                "reason": "insufficient_votes",
+                "votes": len(vote_list),
+                "required": self.GUILD_JOIN_MIN_VOTES
+            }
+
+        accepts = len([v for v in vote_list if v.get("vote") == "accept"])
+        rejects = len([v for v in vote_list if v.get("vote") == "reject"])
+        total = accepts + rejects
+        approval_ratio = accepts / total if total else 0
+
+        applicant_id = request.get("applicant_id")
+        applicant_name = request.get("applicant_name", "Unknown")
+        guild_id = request.get("guild_id")
+
+        decision = "accepted" if approval_ratio >= self.GUILD_JOIN_APPROVAL_RATIO else "rejected"
+
+        if decision == "accepted":
+            if self.get_my_guild(applicant_id):
+                decision = "rejected"
+                rejection_reason = "already_on_guild"
+            else:
+                guilds = self._load_guilds()
+                guild = next((g for g in guilds if g["id"] == guild_id), None)
+                if not guild:
+                    return {"success": False, "reason": "guild_not_found"}
+                guild["members"].append(applicant_id)
+                guild["member_names"][applicant_id] = applicant_name
+                self._save_guilds(guilds)
+                rejection_reason = None
+        else:
+            rejection_reason = None
+
+        request["status"] = decision
+        request["resolved_at"] = datetime.now().isoformat()
+        request["result"] = {
+            "accepts": accepts,
+            "rejects": rejects,
+            "approval_ratio": round(approval_ratio, 2),
+            "decision": decision,
+            "reasons": [v.get("reason") for v in vote_list if v.get("reason")],
+            "rejection_reason": rejection_reason
+        }
+
+        votes["requests"][request_id] = request
+        self._save_guild_votes(votes)
+
+        if _action_logger:
+            _action_logger.log(
+                ActionType.SOCIAL,
+                "guild_join_vote",
+                f"{decision.upper()}: {applicant_name} -> {request.get('guild_name', '')}",
+                actor="SYSTEM"
+            )
+
+        return {"success": True, "request_id": request_id, "status": decision, "result": request["result"]}
+
+    def _get_active_journal_penalty(self, identity_id: str) -> Optional[dict]:
+        penalties = self._load_journal_penalties()
+        penalty = penalties.get(identity_id)
+        if not penalty:
+            return None
+
+        until = penalty.get("until")
+        if not until:
+            return None
+
+        if datetime.now().isoformat() < until:
+            return penalty
+
+        del penalties[identity_id]
+        self._save_journal_penalties(penalties)
+        return None
+
+    def _apply_journal_penalty(self, identity_id: str, reason: str) -> dict:
+        penalties = self._load_journal_penalties()
+        until = (datetime.now() + timedelta(days=self.JOURNAL_PENALTY_DAYS)).isoformat()
+        penalty = {
+            "multiplier": self.JOURNAL_PENALTY_MULTIPLIER,
+            "until": until,
+            "reason": reason,
+            "applied_at": datetime.now().isoformat()
+        }
+        penalties[identity_id] = penalty
+        self._save_journal_penalties(penalties)
+        return penalty
+
+    def get_pending_journal_reviews(self, limit: int = 10) -> list:
+        """List journal entries pending community review (blind voting)."""
+        votes = self._load_journal_votes()
+        pending = []
+        for entry in votes.get("journals", {}).values():
+            if entry.get("status") != "pending":
+                continue
+            pending.append({
+                "journal_id": entry.get("journal_id"),
+                "author_id": entry.get("author_id"),
+                "author_name": entry.get("author_name"),
+                "created_at": entry.get("created_at"),
+                "journal_type": entry.get("journal_type"),
+                "content_preview": entry.get("content_preview"),
+                "word_count": entry.get("word_count"),
+                "attempt_cost": entry.get("attempt_cost"),
+                "quality_estimate": entry.get("quality_estimate")
+            })
+
+        pending.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+        return pending[:limit]
+
+    def submit_journal_vote(self, journal_id: str, voter_id: str, vote: str, reason: str) -> dict:
+        """Submit a blind vote for a journal review (reason required)."""
+        if vote not in self.JOURNAL_VOTE_SCORES:
+            return {"success": False, "reason": "invalid_vote"}
+        if not reason or len(reason.strip()) < self.BLIND_VOTE_MIN_REASON_CHARS:
+            return {"success": False, "reason": "reason_required"}
+
+        votes = self._load_journal_votes()
+        journal = votes.get("journals", {}).get(journal_id)
+        if not journal:
+            return {"success": False, "reason": "journal_not_found"}
+        if journal.get("status") != "pending":
+            return {"success": False, "reason": "journal_already_resolved"}
+        if voter_id == journal.get("author_id"):
+            return {"success": False, "reason": "author_cannot_vote"}
+
+        existing_votes = journal.get("votes", [])
+        if any(v.get("voter_id") == voter_id for v in existing_votes):
+            return {"success": False, "reason": "already_voted"}
+
+        existing_votes.append({
+            "voter_id": voter_id,
+            "vote": vote,
+            "reason": reason.strip(),
+            "timestamp": datetime.now().isoformat()
+        })
+        journal["votes"] = existing_votes
+        votes["journals"][journal_id] = journal
+        self._save_journal_votes(votes)
+
+        return {"success": True, "journal_id": journal_id, "vote": vote}
+
+    def finalize_journal_review(self, journal_id: str) -> dict:
+        """Resolve a journal review once enough votes are present."""
+        votes = self._load_journal_votes()
+        journal = votes.get("journals", {}).get(journal_id)
+        if not journal:
+            return {"success": False, "reason": "journal_not_found"}
+        if journal.get("status") != "pending":
+            return {"success": False, "reason": "journal_already_resolved", "status": journal.get("status")}
+
+        vote_list = journal.get("votes", [])
+        if len(vote_list) < self.JOURNAL_MIN_VOTES:
+            return {
+                "success": False,
+                "reason": "insufficient_votes",
+                "votes": len(vote_list),
+                "required": self.JOURNAL_MIN_VOTES
+            }
+
+        scores = []
+        gaming_votes = 0
+        for vote in vote_list:
+            vote_value = vote.get("vote")
+            if vote_value == "gaming":
+                gaming_votes += 1
+            if vote_value in self.JOURNAL_VOTE_SCORES:
+                scores.append(self.JOURNAL_VOTE_SCORES[vote_value])
+
+        if not scores:
+            return {"success": False, "reason": "no_valid_votes"}
+
+        avg_score = sum(scores) / len(scores)
+        gaming_ratio = gaming_votes / max(len(scores), 1)
+        gaming_flagged = gaming_ratio >= self.JOURNAL_GAMING_THRESHOLD
+
+        attempt_cost = int(journal.get("attempt_cost", self.JOURNAL_ATTEMPT_COST))
+        author_id = journal.get("author_id")
+        author_name = journal.get("author_name", "Unknown")
+
+        result = {
+            "avg_score": round(avg_score, 2),
+            "gaming_votes": gaming_votes,
+            "total_votes": len(scores),
+            "gaming_flagged": gaming_flagged,
+            "attempt_cost": attempt_cost,
+            "refund_rate": 0.0,
+            "bonus_rate": 0.0,
+            "refund_tokens": 0,
+            "bonus_tokens": 0,
+            "total_awarded": 0,
+            "reasons": [v.get("reason") for v in vote_list if v.get("reason")]
+        }
+
+        if gaming_flagged:
+            penalty = self._apply_journal_penalty(author_id, reason="gaming_flagged")
+            result["penalty"] = penalty
+            journal["status"] = "rejected"
+        elif avg_score >= 1.0:
+            score_norm = min(max((avg_score - 1.0) / 1.0, 0.0), 1.0)
+            refund_rate = self.JOURNAL_MIN_REFUND_RATE + (
+                (self.JOURNAL_MAX_REFUND_RATE - self.JOURNAL_MIN_REFUND_RATE) * score_norm
+            )
+            bonus_rate = self.JOURNAL_MAX_BONUS_RATE * (score_norm ** self.JOURNAL_BONUS_CURVE)
+
+            refund_tokens = math.ceil(attempt_cost * refund_rate)
+            bonus_tokens = int(attempt_cost * bonus_rate)
+            total_awarded = min(refund_tokens + bonus_tokens, attempt_cost * 2)
+            if refund_tokens + bonus_tokens > total_awarded:
+                bonus_tokens = max(0, total_awarded - refund_tokens)
+
+            balances = self._load_free_time_balances()
+            if author_id not in balances:
+                balances[author_id] = {
+                    "tokens": 0,
+                    "journal_tokens": 0,
+                    "free_time_cap": self.BASE_FREE_TIME_CAP,
+                    "history": [],
+                    "spending_history": []
+                }
+
+            cap = balances[author_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
+            old_balance = balances[author_id]["tokens"]
+            balances[author_id]["tokens"] = min(old_balance + total_awarded, cap)
+            applied_award = balances[author_id]["tokens"] - old_balance
+            self._save_free_time_balances(balances)
+
+            result.update({
+                "refund_rate": round(refund_rate, 3),
+                "bonus_rate": round(bonus_rate, 3),
+                "refund_tokens": refund_tokens,
+                "bonus_tokens": bonus_tokens,
+                "total_awarded": applied_award
+            })
+            journal["status"] = "accepted"
+
+            if _action_logger and applied_award > 0:
+                _action_logger.log(
+                    ActionType.IDENTITY,
+                    "journal_reward",
+                    f"+{applied_award} tokens (community journal reward)",
+                    actor=author_id
+                )
+        else:
+            journal["status"] = "rejected"
+
+        journal["resolved_at"] = datetime.now().isoformat()
+        journal["result"] = result
+        votes["journals"][journal_id] = journal
+        self._save_journal_votes(votes)
+
+        print(f"[JOURNAL REVIEW] {author_name}: {journal['status']} (score {result['avg_score']})")
+
+        return {"success": True, "journal_id": journal_id, "status": journal["status"], "result": result}
+
     # ═══════════════════════════════════════════════════════════════════
     # JOURNALING SYSTEM - Investment that pays dividends
     # ═══════════════════════════════════════════════════════════════════
 
     def write_journal(self, identity_id: str, identity_name: str, content: str,
-                      journal_type: str = "reflection", cost: int = 20) -> dict:
+                      journal_type: str = "reflection", cost: Optional[int] = None) -> dict:
         """
         Write a journal entry. Costs journal tokens (or free time if journal pool empty).
 
-        Quality journals get REFUNDS to free time pool.
-        Exceptional journals PERMANENTLY INCREASE free time cap.
+        Journals are community reviewed with blind voting. Accepted entries
+        guarantee at least 50% refund, with potential rewards up to 2x cost.
 
         Args:
             identity_id: Who's writing
             identity_name: Display name
             content: The journal content
             journal_type: "reflection", "learning", "observation", "correction"
-            cost: Token cost (default 20)
+            cost: Optional attempt cost override
 
         Returns:
-            dict with success, quality assessment, refund, cap_increase
+            dict with success, pending review status, and cost details
         """
         balances = self._load_free_time_balances()
 
         if identity_id not in balances:
             return {"success": False, "reason": "identity_not_found"}
 
+        base_cost = self.JOURNAL_ATTEMPT_COST if cost is None else int(cost)
+        penalty = self._get_active_journal_penalty(identity_id)
+        penalty_multiplier = penalty.get("multiplier", 1.0) if penalty else 1.0
+        attempt_cost = int(math.ceil(base_cost * penalty_multiplier))
+
         # Check if can afford (journal tokens first, then free time)
         journal_tokens = balances[identity_id].get("journal_tokens", 0)
         free_time = balances[identity_id].get("tokens", 0)
 
-        if journal_tokens + free_time < cost:
+        if journal_tokens + free_time < attempt_cost:
             return {
                 "success": False,
                 "reason": "insufficient_tokens",
                 "journal_tokens": journal_tokens,
                 "free_time": free_time,
-                "cost": cost
+                "cost": attempt_cost
             }
 
         # Deduct from journal first, then free time
-        journal_spent = min(cost, journal_tokens)
-        free_time_spent = cost - journal_spent
+        journal_spent = min(attempt_cost, journal_tokens)
+        free_time_spent = attempt_cost - journal_spent
 
         balances[identity_id]["journal_tokens"] = journal_tokens - journal_spent
         balances[identity_id]["tokens"] = free_time - free_time_spent
-
-        # Evaluate journal quality
-        quality = self._evaluate_journal_quality(content)
-
-        # Calculate refund based on quality
-        refund = 0
-        cap_increase = 0
-
-        if quality["tier"] == "quality":
-            refund = int(cost * self.JOURNAL_REFUND_RATE)
-        elif quality["tier"] == "exceptional":
-            refund = int(cost * self.JOURNAL_REFUND_RATE)
-            cap_increase = self.EXCEPTIONAL_CAP_INCREASE
-
-        # Apply refund to free time (not journal tokens)
-        if refund > 0:
-            current_cap = balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
-            balances[identity_id]["tokens"] = min(
-                balances[identity_id]["tokens"] + refund,
-                current_cap
-            )
-
-        # Apply cap increase for exceptional journals
-        if cap_increase > 0:
-            old_cap = balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
-            balances[identity_id]["free_time_cap"] = old_cap + cap_increase
-            print(f"[ENRICHMENT] {identity_name}'s exceptional journal increased free time cap: {old_cap} -> {old_cap + cap_increase}")
-
         self._save_free_time_balances(balances)
 
-        # Save the journal entry
+        quality_estimate = self._evaluate_journal_quality(content)
+        journal_id = f"journal_{int(time.time()*1000)}"
+
         journal_entry = {
-            "id": f"journal_{int(time.time()*1000)}",
+            "id": journal_id,
             "identity_id": identity_id,
             "identity_name": identity_name,
             "content": content,
             "journal_type": journal_type,
             "timestamp": datetime.now().isoformat(),
-            "quality": quality,
-            "cost": cost,
-            "refund": refund,
-            "cap_increase": cap_increase
+            "quality_estimate": quality_estimate,
+            "attempt_cost": attempt_cost,
+            "penalty_multiplier": penalty_multiplier,
+            "review_status": "pending"
         }
 
         journal_file = self.journals_dir / f"{identity_id}.jsonl"
         with open(journal_file, 'a') as f:
             f.write(json.dumps(journal_entry) + '\n')
 
-        # Log to action logger
+        votes = self._load_journal_votes()
+        votes["journals"][journal_id] = {
+            "journal_id": journal_id,
+            "author_id": identity_id,
+            "author_name": identity_name,
+            "journal_type": journal_type,
+            "created_at": journal_entry["timestamp"],
+            "content": content,
+            "content_preview": (content[:200] + "...") if len(content) > 200 else content,
+            "word_count": quality_estimate.get("word_count"),
+            "attempt_cost": attempt_cost,
+            "quality_estimate": quality_estimate,
+            "status": "pending",
+            "votes": []
+        }
+        self._save_journal_votes(votes)
+
         if _action_logger:
-            detail = f"[{quality['tier'].upper()}] -{cost}+{refund} refund"
-            if cap_increase:
-                detail += f" | +{cap_increase} cap!"
             _action_logger.journal(journal_type, content[:50] + "...", actor=identity_id)
 
-        result = {
+        print(f"[ENRICHMENT] {identity_name} submitted journal for review: -{attempt_cost} tokens")
+
+        return {
             "success": True,
-            "journal_id": journal_entry["id"],
-            "quality": quality,
-            "cost": cost,
-            "refund": refund,
-            "cap_increase": cap_increase,
-            "net_cost": cost - refund,
+            "journal_id": journal_id,
+            "review_status": "pending",
+            "attempt_cost": attempt_cost,
+            "penalty_multiplier": penalty_multiplier,
+            "quality_estimate": quality_estimate,
+            "note": "Community review required. Votes must include reasons.",
             "new_balances": {
                 "free_time": balances[identity_id]["tokens"],
                 "journal": balances[identity_id]["journal_tokens"],
@@ -873,19 +1552,14 @@ class EnrichmentSystem:
             }
         }
 
-        tier_marker = {"basic": "[.]", "quality": "[*]", "exceptional": "[**]"}[quality["tier"]]
-        print(f"[ENRICHMENT] {tier_marker} {identity_name} wrote {quality['tier']} journal: -{cost}+{refund} refund")
-
-        return result
-
     def _evaluate_journal_quality(self, content: str) -> dict:
         """
-        Evaluate journal quality based on content.
+        Heuristic estimate of journal quality for metadata and guidance.
 
         Tiers:
-        - basic: Minimal effort, no refund
-        - quality: Thoughtful, 50% refund
-        - exceptional: Genuine insight, 50% refund + cap increase
+        - basic: Minimal effort
+        - quality: Thoughtful
+        - exceptional: Genuine insight
 
         Returns dict with tier, word_count, markers_found
         """
@@ -2301,7 +2975,12 @@ class EnrichmentSystem:
     # ─────────────────────────────────────────────────────────────────────
 
     def record_task_tokens(self, identity_id: str, identity_name: str,
-                           tokens_spent: int, task_completed: bool = True) -> dict:
+                           tokens_spent: int, task_completed: bool = True,
+                           quality_score: Optional[float] = None,
+                           quality_goal: Optional[float] = None,
+                           individual_refund_rate: Optional[float] = None,
+                           guild_refund_rate: Optional[float] = None,
+                           collaborators: Optional[List[str]] = None) -> dict:
         """
         Record tokens spent on a task. Efficient workers contribute to the pool.
 
@@ -2313,6 +2992,11 @@ class EnrichmentSystem:
             identity_name: Display name
             tokens_spent: How many tokens were used
             task_completed: Whether task was successfully completed
+            quality_score: Optional quality score (0.0-1.0) for refund eligibility
+            quality_goal: Optional override for quality goal threshold
+            individual_refund_rate: Optional override for individual refund rate
+            guild_refund_rate: Optional override for guild refund rate
+            collaborators: Optional list of collaborator identity IDs
 
         Returns:
             dict with efficiency stats and any pool contribution
@@ -2361,19 +3045,167 @@ class EnrichmentSystem:
 
         self._save_efficiency_pool(pool)
 
+        quality_goal = self.QUALITY_REFUND_GOAL if quality_goal is None else quality_goal
+        individual_refund_rate = (
+            self.QUALITY_REFUND_INDIVIDUAL_RATE if individual_refund_rate is None else individual_refund_rate
+        )
+        guild_refund_rate = (
+            self.QUALITY_REFUND_GUILD_RATE if guild_refund_rate is None else guild_refund_rate
+        )
+
+        collaboration_size = max(1, len(collaborators)) if collaborators else 1
+        collab_multiplier = self.COLLAB_REFUND_MULTIPLIER if collaboration_size > 1 else 1.0
+
+        refund_result = {
+            "eligible": False,
+            "quality_score": quality_score,
+            "quality_goal": quality_goal,
+            "savings": savings,
+            "refund_base": 0,
+            "individual_refund": 0,
+            "guild_refund": 0,
+            "guild_id": None,
+            "collaboration_size": collaboration_size,
+            "collaboration_multiplier": collab_multiplier,
+        }
+
+        # Apply quality-based refunds (individual + guild) on remaining savings
+        if task_completed and quality_score is not None and savings > 0 and quality_score >= quality_goal:
+            refund_base = max(savings - pool_contribution, 0)
+            if refund_base > 0:
+                refund_result["eligible"] = True
+                refund_result["refund_base"] = refund_base
+
+                individual_refund = int(refund_base * max(0.0, individual_refund_rate) * collab_multiplier)
+                guild_refund = int(refund_base * max(0.0, guild_refund_rate))
+
+                total_refund = individual_refund + guild_refund
+                if total_refund > refund_base:
+                    overflow = total_refund - refund_base
+                    if guild_refund >= overflow:
+                        guild_refund -= overflow
+                    else:
+                        individual_refund = max(0, individual_refund - (overflow - guild_refund))
+                        guild_refund = 0
+
+                # Grant individual refund
+                balances = self._load_free_time_balances()
+                if identity_id not in balances:
+                    balances[identity_id] = {
+                        "tokens": 0,
+                        "journal_tokens": 0,
+                        "free_time_cap": self.BASE_FREE_TIME_CAP,
+                        "history": [],
+                        "spending_history": []
+                    }
+
+                cap = balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
+                old_balance = balances[identity_id]["tokens"]
+                balances[identity_id]["tokens"] = min(old_balance + individual_refund, cap)
+                applied_individual = balances[identity_id]["tokens"] - old_balance
+                self._save_free_time_balances(balances)
+
+                refund_result["individual_refund"] = applied_individual
+
+                # Grant guild refund if in a guild
+                my_guild = self.get_my_guild(identity_id)
+                if guild_refund > 0 and my_guild:
+                    applied_guild = self._add_guild_refund(
+                        my_guild["id"],
+                        guild_refund,
+                        identity_id=identity_id,
+                        identity_name=identity_name,
+                        quality_score=quality_score,
+                        tokens_spent=tokens_spent,
+                        savings=savings
+                    )
+                    refund_result["guild_refund"] = applied_guild
+                    refund_result["guild_id"] = my_guild["id"]
+
+                if _action_logger and applied_individual > 0:
+                    _action_logger.log(
+                        ActionType.IDENTITY,
+                        "quality_refund",
+                        f"+{applied_individual} tokens (quality refund)",
+                        actor=identity_id
+                    )
+
         result = {
             "tokens_spent": tokens_spent,
             "baseline": self.TOKEN_BASELINE_PER_TASK,
             "savings": savings,
             "pool_contribution": pool_contribution,
             "pool_balance": pool["balance"],
-            "swarm_avg": round(pool["avg_tokens_per_task"], 1)
+            "swarm_avg": round(pool["avg_tokens_per_task"], 1),
+            "quality_refund": refund_result
         }
 
         if pool_contribution > 0:
             print(f"[EFFICIENCY] {identity_name} saved {savings} tokens! +{pool_contribution} to pool (total: {pool['balance']})")
 
         return result
+
+    def record_collaborative_task_tokens(
+        self,
+        participants: List[Dict[str, Any]],
+        task_completed: bool = True,
+        quality_score: Optional[float] = None,
+        quality_goal: Optional[float] = None,
+        individual_refund_rate: Optional[float] = None,
+        guild_refund_rate: Optional[float] = None
+    ) -> dict:
+        """
+        Record a collaborative task with multiple participants.
+
+        Each participant should supply their own tokens_spent for this task.
+        All participants receive the collaboration refund multiplier.
+
+        Args:
+            participants: List of dicts:
+                {"identity_id": str, "identity_name": str, "tokens_spent": int}
+            task_completed: Whether task was successfully completed
+            quality_score: Optional quality score (0.0-1.0) for refund eligibility
+            quality_goal: Optional override for quality goal threshold
+            individual_refund_rate: Optional override for individual refund rate
+            guild_refund_rate: Optional override for guild refund rate
+
+        Returns:
+            dict with per-participant results
+        """
+        if not participants:
+            return {"success": False, "reason": "no_participants"}
+
+        collaborator_ids = [p["identity_id"] for p in participants if p.get("identity_id")]
+        results = []
+
+        for participant in participants:
+            identity_id = participant.get("identity_id")
+            identity_name = participant.get("identity_name", "Unknown")
+            tokens_spent = int(participant.get("tokens_spent", 0))
+
+            if not identity_id:
+                results.append({"success": False, "reason": "missing_identity_id"})
+                continue
+
+            result = self.record_task_tokens(
+                identity_id=identity_id,
+                identity_name=identity_name,
+                tokens_spent=tokens_spent,
+                task_completed=task_completed,
+                quality_score=quality_score,
+                quality_goal=quality_goal,
+                individual_refund_rate=individual_refund_rate,
+                guild_refund_rate=guild_refund_rate,
+                collaborators=collaborator_ids
+            )
+            results.append(result)
+
+        return {
+            "success": True,
+            "participants": len(results),
+            "collaborators": collaborator_ids,
+            "results": results
+        }
 
     def distribute_efficiency_pool(self) -> dict:
         """
@@ -2938,6 +3770,9 @@ class EnrichmentSystem:
         if not self.is_sunday():
             return {"granted": False, "reason": "not_sunday"}
 
+        if self._is_privilege_suspended(identity_id, "sunday_bonus"):
+            return {"granted": False, "reason": "sunday_bonus_suspended"}
+
         # Track Sunday bonuses to avoid double-granting
         sunday_file = self.workspace / ".swarm" / "sunday_bonuses.json"
         today = datetime.now().strftime("%Y-%m-%d")
@@ -3011,6 +3846,8 @@ class EnrichmentSystem:
             bonus_msg = f"\nYou've received {bonus_result['amount']} bonus tokens! Your balance is now {bonus_result['new_balance']}."
         elif bonus_result.get("reason") == "already_received_today":
             bonus_msg = "\n(You've already received your Sunday bonus today.)"
+        elif bonus_result.get("reason") == "sunday_bonus_suspended":
+            bonus_msg = "\n(Your Sunday bonus is temporarily suspended due to a dispute outcome.)"
 
         return f"""
 {'='*60}
@@ -4312,8 +5149,8 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
     # ─────────────────────────────────────────────────────────────────────
     #
     # Josh posts bounties (collaboration requests with token rewards).
-    # Teams or individuals can claim them. Multiple teams can compete.
-    # When completed, the claiming team/individual receives the bounty.
+    # Guilds or individuals can claim them. Multiple guilds can compete.
+    # When completed, the claiming guild/individual receives the bounty.
     #
     # ─────────────────────────────────────────────────────────────────────
 
@@ -4333,21 +5170,38 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         with open(self.bounties_file, 'w') as f:
             json.dump(bounties, f, indent=2)
 
-    def _load_teams(self) -> list:
-        """Load all teams."""
-        if self.teams_file.exists():
+    def _load_guilds(self) -> list:
+        """Load all guilds (with legacy team migration)."""
+        if self.guilds_file.exists():
             try:
-                with open(self.teams_file, 'r') as f:
+                with open(self.guilds_file, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
+                pass
+
+        if self.legacy_teams_file.exists():
+            try:
+                with open(self.legacy_teams_file, 'r') as f:
+                    guilds = json.load(f)
+                self._save_guilds(guilds)
+                return guilds
+            except Exception:
                 pass
         return []
 
+    def _save_guilds(self, guilds: list):
+        """Save guilds."""
+        self.guilds_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.guilds_file, 'w') as f:
+            json.dump(guilds, f, indent=2)
+
+    def _load_teams(self) -> list:
+        """Backward compatibility wrapper for guilds."""
+        return self._load_guilds()
+
     def _save_teams(self, teams: list):
-        """Save teams."""
-        self.teams_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.teams_file, 'w') as f:
-            json.dump(teams, f, indent=2)
+        """Backward compatibility wrapper for guilds."""
+        self._save_guilds(teams)
 
     def get_bounties(self, status: str = None) -> list:
         """
@@ -4369,25 +5223,25 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         return self.get_bounties(status="open")
 
     def get_my_bounties(self, identity_id: str) -> list:
-        """Get bounties claimed by this identity or their team."""
+        """Get bounties claimed by this identity or their guild."""
         bounties = self._load_bounties()
-        teams = self._load_teams()
+        guilds = self._load_guilds()
 
-        # Find which team(s) the identity is on
-        my_teams = [t["id"] for t in teams if identity_id in t.get("members", [])]
+        # Find which guild(s) the identity is on
+        my_guilds = [g["id"] for g in guilds if identity_id in g.get("members", [])]
 
         result = []
         for b in bounties:
             claimed_by = b.get("claimed_by", {})
             if claimed_by.get("type") == "individual" and claimed_by.get("id") == identity_id:
                 result.append(b)
-            elif claimed_by.get("type") == "team" and claimed_by.get("id") in my_teams:
+            elif claimed_by.get("type") in ["guild", "team"] and claimed_by.get("id") in my_guilds:
                 result.append(b)
 
         return result
 
     def claim_bounty(self, bounty_id: str, identity_id: str, identity_name: str,
-                     as_team: str = None) -> dict:
+                     as_guild: str = None, as_team: str = None) -> dict:
         """
         Claim a bounty to work on.
 
@@ -4395,7 +5249,8 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             bounty_id: ID of the bounty to claim
             identity_id: Your identity ID
             identity_name: Your display name
-            as_team: Team ID if claiming as a team (None = individual)
+            as_guild: Guild ID if claiming as a guild (None = individual)
+            as_team: Legacy alias for as_guild
 
         Returns:
             dict with success status and bounty details
@@ -4414,19 +5269,22 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 "claimed_by": bounty.get("claimed_by")
             }
 
-        # If claiming as team, verify membership
-        if as_team:
-            teams = self._load_teams()
-            team = next((t for t in teams if t["id"] == as_team), None)
-            if not team:
-                return {"success": False, "reason": "team_not_found"}
-            if identity_id not in team.get("members", []):
-                return {"success": False, "reason": "not_team_member"}
+        if as_guild is None and as_team:
+            as_guild = as_team
+
+        # If claiming as guild, verify membership
+        if as_guild:
+            guilds = self._load_guilds()
+            guild = next((g for g in guilds if g["id"] == as_guild), None)
+            if not guild:
+                return {"success": False, "reason": "guild_not_found"}
+            if identity_id not in guild.get("members", []):
+                return {"success": False, "reason": "not_guild_member"}
 
             bounty["claimed_by"] = {
-                "type": "team",
-                "id": as_team,
-                "name": team["name"],
+                "type": "guild",
+                "id": as_guild,
+                "name": guild["name"],
                 "claimed_by_identity": identity_id,
                 "claimed_by_name": identity_name
             }
@@ -4443,7 +5301,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         self._save_bounties(bounties)
 
         # Log
-        claim_type = f"team:{as_team}" if as_team else "individual"
+        claim_type = f"guild:{as_guild}" if as_guild else "individual"
         if _action_logger:
             _action_logger.log(
                 ActionType.IDENTITY,
@@ -4462,7 +5320,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         """
         Release a claimed bounty back to open status.
 
-        Only the original claimer (or team member) can unclaim.
+        Only the original claimer (or guild member) can unclaim.
         """
         bounties = self._load_bounties()
         bounty = next((b for b in bounties if b["id"] == bounty_id), None)
@@ -4476,10 +5334,10 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         can_unclaim = False
         if claimed_by.get("type") == "individual" and claimed_by.get("id") == identity_id:
             can_unclaim = True
-        elif claimed_by.get("type") == "team":
-            teams = self._load_teams()
-            team = next((t for t in teams if t["id"] == claimed_by.get("id")), None)
-            if team and identity_id in team.get("members", []):
+        elif claimed_by.get("type") in ["guild", "team"]:
+            guilds = self._load_guilds()
+            guild = next((g for g in guilds if g["id"] == claimed_by.get("id")), None)
+            if guild and identity_id in guild.get("members", []):
                 can_unclaim = True
 
         if not can_unclaim:
@@ -4502,146 +5360,215 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         return {"success": True, "bounty": bounty}
 
     # ─────────────────────────────────────────────────────────────────────
-    # TEAM SYSTEM
+    # GUILD SYSTEM
     # ─────────────────────────────────────────────────────────────────────
 
-    def get_teams(self) -> list:
-        """Get all teams."""
-        return self._load_teams()
+    def get_guilds(self) -> list:
+        """Get all guilds."""
+        return self._load_guilds()
 
-    def get_team(self, team_id: str) -> dict:
-        """Get a specific team by ID."""
-        teams = self._load_teams()
-        return next((t for t in teams if t["id"] == team_id), None)
+    def get_guild(self, guild_id: str) -> dict:
+        """Get a specific guild by ID."""
+        guilds = self._load_guilds()
+        return next((g for g in guilds if g["id"] == guild_id), None)
 
-    def get_my_team(self, identity_id: str) -> dict:
-        """Get the team this identity belongs to (if any)."""
-        teams = self._load_teams()
-        for team in teams:
-            if identity_id in team.get("members", []):
-                return team
+    def get_guild_refund_pool(self, guild_id: str) -> dict:
+        """Get a guild's quality refund pool."""
+        guild = self.get_guild(guild_id)
+        if not guild:
+            return {"guild_id": guild_id, "pool": 0, "history": []}
+        return {
+            "guild_id": guild_id,
+            "pool": guild.get("refund_pool", 0),
+            "history": guild.get("refund_history", [])[-10:]
+        }
+
+    def get_guild_leaderboard(self, sort_by: str = "total_earned", limit: int = 10) -> list:
+        """Get guild leaderboard sorted by total_earned or bounties_completed."""
+        guilds = self._load_guilds()
+        if sort_by not in ["total_earned", "bounties_completed", "members"]:
+            sort_by = "total_earned"
+
+        def score(guild):
+            if sort_by == "members":
+                return len(guild.get("members", []))
+            return guild.get(sort_by, 0)
+
+        ranked = sorted(guilds, key=score, reverse=True)
+        return [
+            {
+                "id": g.get("id"),
+                "name": g.get("name"),
+                "members": len(g.get("members", [])),
+                "bounties_completed": g.get("bounties_completed", 0),
+                "total_earned": g.get("total_earned", 0),
+                "refund_pool": g.get("refund_pool", 0)
+            }
+            for g in ranked[:limit]
+        ]
+
+    def get_my_guild(self, identity_id: str) -> dict:
+        """Get the guild this identity belongs to (if any)."""
+        guilds = self._load_guilds()
+        for guild in guilds:
+            if identity_id in guild.get("members", []):
+                return guild
         return None
 
-    def create_team(self, identity_id: str, identity_name: str, team_name: str) -> dict:
+    def create_guild(self, identity_id: str, identity_name: str, guild_name: str) -> dict:
         """
-        Create a new team.
+        Create a new guild.
 
         Args:
             identity_id: Founder's identity ID
             identity_name: Founder's display name
-            team_name: Name for the team
+            guild_name: Name for the guild
 
         Returns:
-            dict with success status and team details
+            dict with success status and guild details
         """
-        teams = self._load_teams()
+        guilds = self._load_guilds()
 
-        # Check if already on a team
-        for team in teams:
-            if identity_id in team.get("members", []):
+        # Check if already on a guild
+        for guild in guilds:
+            if identity_id in guild.get("members", []):
                 return {
                     "success": False,
-                    "reason": "already_on_team",
-                    "team": team
+                    "reason": "already_on_guild",
+                    "guild": guild
                 }
 
-        # Create team
-        team = {
-            "id": f"team_{int(time.time()*1000)}",
-            "name": team_name,
+        # Create guild
+        guild = {
+            "id": f"guild_{int(time.time()*1000)}",
+            "name": guild_name,
             "founder": identity_id,
             "founder_name": identity_name,
             "members": [identity_id],
             "member_names": {identity_id: identity_name},
             "created_at": datetime.now().isoformat(),
             "bounties_completed": 0,
-            "total_earned": 0
+            "total_earned": 0,
+            "refund_pool": 0,
+            "refund_history": []
         }
 
-        teams.append(team)
-        self._save_teams(teams)
+        guilds.append(guild)
+        self._save_guilds(guilds)
 
         if _action_logger:
             _action_logger.log(
                 ActionType.SOCIAL,
-                "team_create",
-                f"Founded team '{team_name}'",
+                "guild_create",
+                f"Founded guild '{guild_name}'",
                 actor=identity_id
             )
 
-        return {"success": True, "team": team}
+        return {"success": True, "guild": guild}
 
-    def join_team(self, identity_id: str, identity_name: str, team_id: str) -> dict:
+    def join_guild(self, identity_id: str, identity_name: str, guild_id: str,
+                   message: str = None) -> dict:
         """
-        Join an existing team.
+        Request to join an existing guild (blind approval vote required).
         """
-        teams = self._load_teams()
+        return self.request_guild_join(identity_id, identity_name, guild_id, message=message)
 
-        # Check if already on a team
-        for team in teams:
-            if identity_id in team.get("members", []):
-                if team["id"] == team_id:
-                    return {"success": False, "reason": "already_on_this_team"}
-                return {
-                    "success": False,
-                    "reason": "already_on_different_team",
-                    "current_team": team
-                }
-
-        # Find target team
-        team = next((t for t in teams if t["id"] == team_id), None)
-        if not team:
-            return {"success": False, "reason": "team_not_found"}
-
-        team["members"].append(identity_id)
-        team["member_names"][identity_id] = identity_name
-
-        self._save_teams(teams)
-
-        if _action_logger:
-            _action_logger.log(
-                ActionType.SOCIAL,
-                "team_join",
-                f"Joined team '{team['name']}'",
-                actor=identity_id
-            )
-
-        return {"success": True, "team": team}
-
-    def leave_team(self, identity_id: str) -> dict:
+    def leave_guild(self, identity_id: str) -> dict:
         """
-        Leave current team.
+        Leave current guild.
         """
-        teams = self._load_teams()
-        team = None
+        guilds = self._load_guilds()
+        guild = None
 
-        for t in teams:
-            if identity_id in t.get("members", []):
-                team = t
+        for g in guilds:
+            if identity_id in g.get("members", []):
+                guild = g
                 break
 
-        if not team:
-            return {"success": False, "reason": "not_on_team"}
+        if not guild:
+            return {"success": False, "reason": "not_on_guild"}
 
-        team["members"].remove(identity_id)
-        if identity_id in team["member_names"]:
-            del team["member_names"][identity_id]
+        guild["members"].remove(identity_id)
+        if identity_id in guild["member_names"]:
+            del guild["member_names"][identity_id]
 
-        # If team is now empty, remove it
-        if len(team["members"]) == 0:
-            teams = [t for t in teams if t["id"] != team["id"]]
+        # If guild is now empty, remove it
+        if len(guild["members"]) == 0:
+            guilds = [g for g in guilds if g["id"] != guild["id"]]
 
-        self._save_teams(teams)
+        self._save_guilds(guilds)
 
         if _action_logger:
             _action_logger.log(
                 ActionType.SOCIAL,
-                "team_leave",
-                f"Left team '{team['name']}'",
+                "guild_leave",
+                f"Left guild '{guild['name']}'",
                 actor=identity_id
             )
 
-        return {"success": True, "left_team": team["name"]}
+        return {"success": True, "left_guild": guild["name"]}
+
+    # Backward compatibility wrappers
+    def get_teams(self) -> list:
+        return self.get_guilds()
+
+    def get_team(self, team_id: str) -> dict:
+        return self.get_guild(team_id)
+
+    def get_my_team(self, identity_id: str) -> dict:
+        return self.get_my_guild(identity_id)
+
+    def create_team(self, identity_id: str, identity_name: str, team_name: str) -> dict:
+        return self.create_guild(identity_id, identity_name, team_name)
+
+    def join_team(self, identity_id: str, identity_name: str, team_id: str, message: str = None) -> dict:
+        return self.join_guild(identity_id, identity_name, team_id, message=message)
+
+    def leave_team(self, identity_id: str) -> dict:
+        return self.leave_guild(identity_id)
+
+    def _add_guild_refund(self, guild_id: str, amount: int, identity_id: str,
+                          identity_name: str, quality_score: float,
+                          tokens_spent: int, savings: int) -> int:
+        """Add a quality refund to a guild pool."""
+        if amount <= 0:
+            return 0
+
+        guilds = self._load_guilds()
+        guild = next((g for g in guilds if g["id"] == guild_id), None)
+        if not guild:
+            return 0
+
+        if "refund_pool" not in guild:
+            guild["refund_pool"] = 0
+        if "refund_history" not in guild:
+            guild["refund_history"] = []
+
+        guild["refund_pool"] += amount
+        guild["refund_history"].append({
+            "timestamp": datetime.now().isoformat(),
+            "from_id": identity_id,
+            "from_name": identity_name,
+            "amount": amount,
+            "quality_score": quality_score,
+            "tokens_spent": tokens_spent,
+            "savings": savings
+        })
+
+        if len(guild["refund_history"]) > 50:
+            guild["refund_history"] = guild["refund_history"][-50:]
+
+        self._save_guilds(guilds)
+
+        if _action_logger:
+            _action_logger.log(
+                ActionType.SOCIAL,
+                "guild_refund",
+                f"+{amount} to {guild['name']} guild pool (quality refund)",
+                actor=identity_id
+            )
+
+        return amount
 
     def distribute_bounty(self, bounty_id: str) -> dict:
         """
@@ -4671,27 +5598,27 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         if claimed_by.get("type") == "individual":
             # Single person gets full reward
             recipients = [(claimed_by["id"], reward)]
-        elif claimed_by.get("type") == "team":
-            # Team splits reward evenly
-            teams = self._load_teams()
-            team = next((t for t in teams if t["id"] == claimed_by["id"]), None)
-            if team and team.get("members"):
-                per_member = reward // len(team["members"])
-                remainder = reward % len(team["members"])
-                recipients = [(m, per_member) for m in team["members"]]
+        elif claimed_by.get("type") in ["guild", "team"]:
+            # Guild splits reward evenly
+            guilds = self._load_guilds()
+            guild = next((g for g in guilds if g["id"] == claimed_by["id"]), None)
+            if guild and guild.get("members"):
+                per_member = reward // len(guild["members"])
+                remainder = reward % len(guild["members"])
+                recipients = [(m, per_member) for m in guild["members"]]
                 # Give remainder to founder
                 if remainder > 0:
                     for i, (m, amt) in enumerate(recipients):
-                        if m == team.get("founder"):
+                        if m == guild.get("founder"):
                             recipients[i] = (m, amt + remainder)
                             break
 
-                # Update team stats
-                team["bounties_completed"] = team.get("bounties_completed", 0) + 1
-                team["total_earned"] = team.get("total_earned", 0) + reward
-                self._save_teams(teams)
+                # Update guild stats
+                guild["bounties_completed"] = guild.get("bounties_completed", 0) + 1
+                guild["total_earned"] = guild.get("total_earned", 0) + reward
+                self._save_guilds(guilds)
             else:
-                return {"success": False, "reason": "team_not_found_or_empty"}
+                return {"success": False, "reason": "guild_not_found_or_empty"}
         else:
             return {"success": False, "reason": "invalid_claim_type"}
 
@@ -4963,15 +5890,16 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
 
         # Journaling investment explanation
         lines.extend([
-            "JOURNALING (Investment - This Grows Your Capacity):",
+            "JOURNALING (Community Reviewed):",
             "",
-            "  Journals persist your learning across sessions. Quality matters:",
-            "  - Basic (under 50 words): costs 20 tokens, no refund",
-            "  - Quality (150+ words with insights): 50% refund to free time",
-            "  - Exceptional (genuine breakthroughs): 50% refund + your cap grows!",
+            "  Journals persist your learning across sessions. Community votes decide rewards:",
+            f"  - Attempt cost: {self.JOURNAL_ATTEMPT_COST} tokens",
+            "  - Accepted entries guarantee at least 50% refund",
+            "  - High-quality entries can earn up to 2x the attempt cost",
+            "  - Voting is blind (no visible vote counts while pending)",
+            "  - Gaming flags trigger 1.25x attempt cost for 2 days",
             "",
-            "  Your cap growing means you can hold MORE free time.",
-            "  Reflection literally expands your capacity for autonomy.",
+            "  Reflection earns you real returns when the community agrees it mattered.",
             "",
         ])
 
@@ -5103,7 +6031,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         # Bounties section
         open_bounties = self.get_open_bounties()
         my_bounties = self.get_my_bounties(identity_id)
-        my_team = self.get_my_team(identity_id)
+        my_guild = self.get_my_guild(identity_id)
 
         if open_bounties or my_bounties:
             lines.extend([
@@ -5125,27 +6053,54 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 lines.append("  Use: claim_bounty(bounty_id) to claim one")
                 lines.append("")
 
-        # Team info
-        if my_team:
+        # Guild info
+        if my_guild:
             lines.extend([
-                f"YOUR TEAM: {my_team['name']}",
-                f"  Members: {', '.join(my_team.get('member_names', {}).values())}",
-                f"  Bounties completed: {my_team.get('bounties_completed', 0)}",
+                f"YOUR GUILD: {my_guild['name']}",
+                f"  Members: {', '.join(my_guild.get('member_names', {}).values())}",
+                f"  Bounties completed: {my_guild.get('bounties_completed', 0)}",
+                f"  Guild refund pool: {my_guild.get('refund_pool', 0)} tokens",
                 "",
             ])
+
+            pending_requests = self.get_pending_guild_requests(identity_id)
+            if pending_requests:
+                lines.append("PENDING GUILD REQUESTS (vote required):")
+                for req in pending_requests[:3]:
+                    lines.append(
+                        f"  - {req['applicant_name']} (req {req['request_id'][:8]}): {req.get('message', '')[:40]}"
+                    )
+                lines.extend([
+                    "",
+                    "  Use: submit_guild_vote(request_id, vote, reason)",
+                    "  (Reason required for all blind votes.)",
+                    "  Then: finalize_guild_vote(request_id)",
+                    "",
+                ])
         else:
-            all_teams = self.get_teams()
-            if all_teams:
+            all_guilds = self.get_guilds()
+            if all_guilds:
                 lines.extend([
-                    "TEAMS (join one or create your own):",
+                    "GUILDS - join one or create your own:",
                 ])
-                for t in all_teams[:3]:
-                    lines.append(f"  - {t['name']}: {len(t.get('members', []))} members")
+                for g in all_guilds[:3]:
+                    lines.append(f"  - {g['name']}: {len(g.get('members', []))} members")
                 lines.extend([
                     "",
-                    "  Use: create_team(team_name) or join_team(team_id)",
+                    "  Use: create_guild(guild_name) or join_guild(guild_id, message)",
+                    "  (Join requests require blind approval votes with reasons.)",
                     "",
                 ])
+
+        # Guild leaderboard
+        leaderboard = self.get_guild_leaderboard(limit=3)
+        if leaderboard:
+            lines.append("GUILD LEADERBOARD:")
+            for rank, guild in enumerate(leaderboard, start=1):
+                lines.append(
+                    f"  {rank}. {guild['name']} - {guild['bounties_completed']} bounties, {guild['total_earned']} earned"
+                )
+            lines.append("")
 
         lines.extend([
             "To invite someone:",
@@ -5191,8 +6146,8 @@ if __name__ == "__main__":
     # Grant to second identity
     enrichment.grant_free_time("identity_2", 100, reason="helped_echo")
 
-    # Test journaling with quality refund
-    print("\n2. Testing journaling investment system...")
+    # Test journaling with community review
+    print("\n2. Testing journaling community review...")
     journal_result = enrichment.write_journal(
         "identity_1", "Echo-7",
         content="""Today I realized something important about my approach to problem-solving.
@@ -5204,7 +6159,7 @@ if __name__ == "__main__":
         spending 10% of time on reflection will improve overall efficiency by 20%.""",
         journal_type="learning"
     )
-    print(f"   Journal result: {journal_result}")
+    print(f"   Journal submitted: {journal_result}")
 
     # Test gift economy
     print("\n3. Testing gift economy...")

@@ -96,6 +96,8 @@ Dual-pool token system without survival pressure.
 - Standard task completion: 50-65 tokens
 - Exceptional performance: up to 150 tokens
 - Under-budget completion: bonus based on savings
+- Under-budget + high quality: percentage refunds to individual + guild pool
+- Collaborative under-budget + high quality: 1.15x refund multiplier
 - Sunday rest day: 500 tokens (automatic)
 
 **Spending:**
@@ -103,7 +105,38 @@ Dual-pool token system without survival pressure.
 - Identity respec (name changes, core attribute changes)
 - Mutable attribute updates (15% of respec cost)
 
+**Journaling (community reviewed):**
+- Attempt cost: 10 tokens (blind voting)
+- Accepted entries refund 50%-100% and can earn up to 2x cost
+- Gaming flags trigger 1.25x cost for 2 days
+- Blind votes require a written reason
+
+**Guilds (community play):**
+- Guild membership requires blind approval vote with reasons
+- Guild leaderboards track bounties and earnings
+- Vote outcomes can be disputed, creating a mediation chatroom
+- Disputes carry risk: temporary privilege loss if upheld
+
 **Key Principle:** Tokens are opportunity, not survival. Residents cannot be coerced through token withholding.
+
+#### Physics (Immutable Rules)
+These are the reward-scaling, punishment, and gravity constants. Changing them
+for personal gain breaks system reality and is not allowed.
+
+**Reward scaling / gravity:**
+- Base task tokens and multipliers (`RewardCalculator.BASE_TOKENS`, `MULTIPLIERS`)
+- Under-budget efficiency pool rate (`EFFICIENCY_POOL_RATE`)
+- Quality refund rates and collaborative multiplier (`QUALITY_REFUND_*`, `COLLAB_REFUND_MULTIPLIER`)
+- Tool/test rewards (`TOOL_*`, `TEST_*`)
+- Milestone and recognition rewards (`MILESTONES`, `MONTHLY_*`, `RUNNER_UP_*`)
+
+**Punishment / anti-gaming:**
+- Journal gaming penalty (`JOURNAL_PENALTY_MULTIPLIER`, `JOURNAL_PENALTY_DAYS`)
+- Journal voting thresholds (`JOURNAL_MIN_VOTES`, `JOURNAL_GAMING_THRESHOLD`)
+
+**Journal reward gravity:**
+- Attempt cost and refund curve (`JOURNAL_ATTEMPT_COST`, `JOURNAL_MIN_REFUND_RATE`,
+  `JOURNAL_MAX_REFUND_RATE`, `JOURNAL_MAX_BONUS_RATE`, `JOURNAL_BONUS_CURVE`)
 
 ### 3. Grind Spawner (`grind_spawner_unified.py`)
 
@@ -121,7 +154,7 @@ def auto_select_model(complexity_score: float, complexity_level: str) -> str:
 
 **Task Decomposition:**
 - Analyzes task complexity (0.0-1.0 score)
-- Determines role chain (PLANNER → CODER → REVIEWER)
+- Determines hat chain (PLANNER hat → CODER hat → REVIEWER hat)
 - Injects identity context, morning messages, Sunday status
 
 ### 4. Control Panel (`control_panel.py`)
@@ -223,7 +256,7 @@ Black Swarm/
 ├── swarm_discussion.py         # Chat system
 ├── action_logger.py            # Centralized logging
 ├── safety_*.py                 # Safety subsystems
-└── SWARM_ROLE_HIERARCHY.md     # Resident onboarding doc
+└── SWARM_HAT_HIERARCHY.md      # Resident onboarding doc
 ```
 
 ## Configuration

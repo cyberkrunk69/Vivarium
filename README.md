@@ -14,6 +14,36 @@ This README prioritizes observable outputs. The "Observable Facts" section inclu
 - performance_tracker.py + performance_history.json: timing/quality metrics.
 - swarm_enrichment.py + persona_memory.py: optional identity and reward modules.
 
+## Gameplay + community systems (highlights)
+
+**Hats (prompt overlays, infinite resource)**
+- Hats augment behavior without changing identity.
+- Includes the Hat of Objectivity for dispute mediation.
+- Hat quality rules prevent identity override language.
+
+**Guilds (formerly teams)**
+- Join requests require blind approval votes with reasons.
+- Guild leaderboards track bounties and earnings.
+- Guild refund pools reward collective performance.
+
+**Bounties + rivalry**
+- Guilds and individuals can claim or compete on bounties.
+- Control panel shows competing guild submissions.
+
+**Journal economy (community reviewed)**
+- Blind voting with required reasons.
+- Refunds range from 50% to 2x attempt cost.
+- Gaming flags trigger temporary penalties.
+
+**Dispute recourse**
+- Vote outcomes can be disputed at personal risk.
+- Disputes open a dedicated chatroom with an objective mediator.
+- Upheld disputes can suspend privileges (e.g., Sunday bonus).
+
+**Physics (immutable rules)**
+- Reward scaling, punishment, and gravity constants are immutable.
+- Prevents incentive tampering and maintains system reality.
+
 ## Architecture (actual modules)
 ```
 +------------------+        +-----------------------+
@@ -57,7 +87,7 @@ Why the social layer can be performant and emergent:
 - Personas enable specialization. Stable roles let agents self-direct toward what they are best at, which improves consistency and efficiency over time.
 - Incentives reward quality. The system tracks outcomes and can reward efficient, high-quality outputs (see performance_history.json and swarm_enrichment.py).
 
-Hat system (roles): we use a lightweight role-switching protocol (see roles.py) where agents put on different "hats" like PLANNER, CODER, REVIEWER, and DOCUMENTER. It's a little funny, but it keeps conversations structured and makes handoffs explicit.
+Hat system: we use lightweight prompt overlays (see roles.py and hats.py) where agents put on different hats like PLANNER, CODER, REVIEWER, and DOCUMENTER. Hats augment behavior without changing identity, and the Hat of Objectivity qualifies neutral mediators.
 
 Also, "free time" and "rest" are not literal 24-hour human days. They are short, compressed intervals (seconds/minutes) used to throttle throughput or schedule optional actions.
 

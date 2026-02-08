@@ -38,7 +38,7 @@ WAVE_RESULTS = {
     2: ("Consolidation", "AI cleans up duplicate code and centralizes configuration.", "Eliminated 76 lines of redundant code."),
     3: ("Testing", "5 worker AIs write tests for the codebase in parallel.", "80+ automated tests created."),
     4: ("Research Implementation", "6 worker AIs each implement a different AI research paper.",
-        "6 new capabilities: Memory synthesis, Skill library, Role system, Prompt optimizer, Quality gates, Self-reflection."),
+        "6 new capabilities: Memory synthesis, Skill library, Hat system, Prompt optimizer, Quality gates, Self-reflection."),
     5: ("Deep Research (Opus)", "2 senior AIs read 715MB of AI research papers.", "984 lines of implementation plans."),
     6: ("Advanced Integration", "6 worker AIs implement research recommendations.", "Connected all new capabilities together."),
     7: ("Wire Everything", "Connect all pieces so they actually work together.",
@@ -56,7 +56,7 @@ WAVE_RESULTS = {
 CAPABILITIES = [
     ("Memory Synthesis", "Remembers important lessons, forgets trivial ones", "Generative Agents"),
     ("Skill Library", "Saves successful code patterns for reuse", "Voyager"),
-    ("Role System", "Different AIs specialize in different jobs", "CAMEL"),
+    ("Hat System", "Residents wear hats to specialize without identity change", "CAMEL"),
     ("Prompt Optimizer", "Prompts get better from successful examples", "DSPy"),
     ("Quality Gates", "Catches mistakes before they spread", "MetaGPT"),
     ("Self-Reflection", "AI thinks about why things failed", "Reflexion"),
