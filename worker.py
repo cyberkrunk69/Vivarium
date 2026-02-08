@@ -16,8 +16,15 @@ import httpx
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
-from utils import read_json, write_json, get_timestamp, ensure_dir, format_error
-from config import LOCK_TIMEOUT_SECONDS, API_TIMEOUT_SECONDS, DEFAULT_MIN_BUDGET, DEFAULT_MAX_BUDGET
+from utils import read_json, append_jsonl, read_jsonl, get_timestamp, ensure_dir, format_error
+from config import (
+    LOCK_TIMEOUT_SECONDS,
+    API_TIMEOUT_SECONDS,
+    DEFAULT_MIN_BUDGET,
+    DEFAULT_MAX_BUDGET,
+    validate_model_id,
+    validate_config,
+)
 
 # ============================================================================
 # CONSTANTS
@@ -25,7 +32,7 @@ from config import LOCK_TIMEOUT_SECONDS, API_TIMEOUT_SECONDS, DEFAULT_MIN_BUDGET
 WORKSPACE: Path = Path(__file__).parent
 QUEUE_FILE: Path = WORKSPACE / "queue.json"
 LOCKS_DIR: Path = WORKSPACE / "task_locks"
-EXECUTION_LOG: Path = WORKSPACE / "execution_log.json"
+EXECUTION_LOG: Path = WORKSPACE / "execution_log.jsonl"
 
 API_REQUEST_TIMEOUT: float = API_TIMEOUT_SECONDS
 WORKER_CHECK_INTERVAL: float = 2.0  # Delay between queue checks in seconds
@@ -65,49 +72,33 @@ def ensure_directories() -> None:
 
 def read_queue() -> Dict[str, Any]:
     """Read the shared queue file (never write to it from workers)."""
-    try:
-        data = read_json(QUEUE_FILE)
-        if not data:
-            return {"tasks": [], "completed": [], "failed": []}
-        return data
-    except (json.JSONDecodeError, IOError) as e:
-        _log("ERROR", f"Failed to read queue file: {e}")
-        return {"tasks": [], "completed": [], "failed": []}
+    data = read_json(QUEUE_FILE)
+    if not data:
+        raise ValueError("Queue file is empty")
+    return data
 
 
 def read_execution_log() -> Dict[str, Any]:
-    """Read the execution log to check task statuses."""
-    try:
-        data = read_json(EXECUTION_LOG)
-        if not data:
-            return {"version": "1.0", "tasks": {}, "swarm_summary": {}}
-        return data
-    except (json.JSONDecodeError, IOError) as e:
-        _log("ERROR", f"Failed to read execution log: {e}")
-        return {"version": "1.0", "tasks": {}, "swarm_summary": {}}
+    """Read the execution log (JSONL) and return latest status per task."""
+    events = read_jsonl(EXECUTION_LOG)
+    task_index: Dict[str, Any] = {}
+    for event in events:
+        task_id = event.get("task_id")
+        if task_id:
+            task_index[task_id] = event
+    return {"tasks": task_index}
 
 
-def write_execution_log(log: Dict[str, Any]) -> None:
-    """Update the execution log with task progress and recalculate summary."""
-    try:
-        tasks = log.get("tasks", {})
-        completed = sum(1 for t in tasks.values() if t.get("status") == "completed")
-        in_progress = sum(1 for t in tasks.values() if t.get("status") == "in_progress")
-        pending = sum(1 for t in tasks.values() if t.get("status") == "pending")
-        failed = sum(1 for t in tasks.values() if t.get("status") == "failed")
-
-        log["swarm_summary"] = {
-            "total_tasks": len(tasks),
-            "completed": completed,
-            "in_progress": in_progress,
-            "pending": pending,
-            "failed": failed
-        }
-
-        write_json(EXECUTION_LOG, log)
-    except (IOError, TypeError) as e:
-        _log("ERROR", f"Failed to write execution log: {e}")
-        raise
+def append_execution_event(task_id: str, status: str, **fields: Any) -> None:
+    """Append an execution event to the JSONL log."""
+    record = {
+        "task_id": task_id,
+        "worker_id": WORKER_ID,
+        "status": status,
+        "timestamp": get_timestamp(),
+        **fields,
+    }
+    append_jsonl(EXECUTION_LOG, record)
 
 
 def get_lock_path(task_id: str) -> Path:
@@ -200,43 +191,49 @@ def execute_task(task: Dict[str, Any], api_endpoint: str) -> Dict[str, Any]:
     min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
     max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)
     intensity = task.get("intensity", DEFAULT_INTENSITY)
+    prompt = task.get("prompt") or task.get("task") or task.get("instruction")
+    model = task.get("model")
+    if model:
+        validate_model_id(model)
+
+    if not prompt:
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": "Task missing prompt/instruction"
+        }
 
     _log("INFO", f"Executing task {task_id} (budget: ${min_budget}-${max_budget}, intensity: {intensity})")
 
+    payload = {
+        "prompt": prompt,
+        "model": model,
+        "min_budget": min_budget,
+        "max_budget": max_budget,
+        "intensity": intensity,
+        "task_id": task_id,
+    }
+
     try:
         with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
-            response = client.post(
-                f"{api_endpoint}/grind",
-                json={
-                    "min_budget": min_budget,
-                    "max_budget": max_budget,
-                    "intensity": intensity
-                }
-            )
+            response = client.post(f"{api_endpoint}/grind", json=payload)
 
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    return {
-                        "status": "completed",
-                        "result_summary": result.get("result", "Task completed"),
-                        "errors": None
-                    }
-                except json.JSONDecodeError as e:
-                    _log("ERROR", f"Failed to decode API response: {e}")
-                    return {
-                        "status": "failed",
-                        "result_summary": None,
-                        "errors": f"Invalid API response: {e}"
-                    }
-            else:
-                error_msg = f"API returned {response.status_code}: {response.text}"
-                _log("WARN", error_msg)
-                return {
-                    "status": "failed",
-                    "result_summary": None,
-                    "errors": error_msg
-                }
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "status": "completed",
+                "result_summary": result.get("result", "Task completed"),
+                "errors": None,
+                "model": result.get("model"),
+            }
+
+        error_msg = f"API returned {response.status_code}: {response.text}"
+        _log("WARN", error_msg)
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": error_msg
+        }
     except httpx.ConnectError as e:
         error_msg = f"Cannot connect to API at {api_endpoint}: {e}"
         _log("ERROR", error_msg)
@@ -253,8 +250,8 @@ def execute_task(task: Dict[str, Any], api_endpoint: str) -> Dict[str, Any]:
             "result_summary": None,
             "errors": error_msg
         }
-    except Exception as e:
-        error_msg = f"Unexpected error executing task: {type(e).__name__}: {e}"
+    except json.JSONDecodeError as e:
+        error_msg = f"Invalid API response: {e}"
         _log("ERROR", error_msg)
         return {
             "status": "failed",
@@ -265,58 +262,44 @@ def execute_task(task: Dict[str, Any], api_endpoint: str) -> Dict[str, Any]:
 
 def find_and_execute_task(queue: Dict[str, Any]) -> bool:
     """Find an available task, lock it, execute it, and report results."""
-    try:
-        execution_log = read_execution_log()
-        api_endpoint = queue.get("api_endpoint", "http://127.0.0.1:8420")
+    execution_log = read_execution_log()
+    api_endpoint = queue.get("api_endpoint", "http://127.0.0.1:8420")
 
-        for task in queue.get("tasks", []):
-            task_id = task.get("id")
-            if not task_id:
-                continue
+    for task in queue.get("tasks", []):
+        task_id = task.get("id")
+        if not task_id:
+            continue
 
-            if is_task_done(task_id, execution_log):
-                continue
+        if is_task_done(task_id, execution_log):
+            continue
 
-            if not check_dependencies_complete(task, execution_log):
-                continue
+        if not check_dependencies_complete(task, execution_log):
+            continue
 
-            if not try_acquire_lock(task_id):
-                continue
+        if not try_acquire_lock(task_id):
+            continue
 
-            _log("INFO", f"Acquired lock for {task_id}")
-
-            if task_id not in execution_log.get("tasks", {}):
-                execution_log.setdefault("tasks", {})[task_id] = {}
-
-            execution_log["tasks"][task_id].update({
-                "worker_id": WORKER_ID,
-                "status": "in_progress",
-                "started_at": get_timestamp(),
-                "completed_at": None,
-                "result_summary": None,
-                "errors": None
-            })
-            write_execution_log(execution_log)
+        _log("INFO", f"Acquired lock for {task_id}")
+        try:
+            append_execution_event(task_id, "in_progress", started_at=get_timestamp())
 
             result = execute_task(task, api_endpoint)
-
-            execution_log["tasks"][task_id].update({
-                "status": result["status"],
-                "completed_at": get_timestamp(),
-                "result_summary": result["result_summary"],
-                "errors": result["errors"]
-            })
-            write_execution_log(execution_log)
-
+            append_execution_event(
+                task_id,
+                result["status"],
+                completed_at=get_timestamp(),
+                result_summary=result.get("result_summary"),
+                errors=result.get("errors"),
+                model=result.get("model"),
+            )
+            _log("INFO", f"Completed task {task_id} - {result['status']}")
+        finally:
             release_lock(task_id)
-            _log("INFO", f"Released lock for {task_id} - {result['status']}")
+            _log("INFO", f"Released lock for {task_id}")
 
-            return True
+        return True
 
-        return False
-    except Exception as e:
-        _log("ERROR", f"Unexpected error in find_and_execute_task: {type(e).__name__}: {e}")
-        return False
+    return False
 
 
 def worker_loop(max_iterations: Optional[int] = None) -> None:
@@ -351,10 +334,7 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
                 break
             except Exception as e:
                 _log("ERROR", f"Unexpected error in worker loop: {type(e).__name__}: {e}")
-                idle_count += 1
-                if idle_count >= MAX_IDLE_CYCLES:
-                    break
-                time.sleep(WORKER_CHECK_INTERVAL)
+                raise
 
         _log("INFO", f"Worker finished. Executed {iterations} tasks.")
     except Exception as e:
@@ -362,16 +342,30 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
         sys.exit(1)
 
 
-def add_task(task_id: str, instruction: str, depends_on: Optional[List[str]] = None) -> None:
+def add_task(
+    task_id: str,
+    prompt: str,
+    depends_on: Optional[List[str]] = None,
+    task_type: str = "grind",
+    min_budget: float = DEFAULT_MIN_BUDGET,
+    max_budget: float = DEFAULT_MAX_BUDGET,
+    intensity: str = DEFAULT_INTENSITY,
+    model: Optional[str] = None,
+) -> None:
     """Helper to add a task to the queue."""
     try:
         queue = read_queue()
 
         task: Dict[str, Any] = {
             "id": task_id,
-            "atomic_instruction": instruction,
+            "type": task_type,
+            "prompt": prompt,
+            "min_budget": min_budget,
+            "max_budget": max_budget,
+            "intensity": intensity,
             "depends_on": depends_on or [],
-            "parallel_safe": True
+            "parallel_safe": True,
+            "model": model,
         }
 
         queue["tasks"].append(task)
@@ -388,10 +382,12 @@ if __name__ == "__main__":
     try:
         if len(sys.argv) > 1:
             if sys.argv[1] == "add" and len(sys.argv) >= 4:
+                validate_config(require_groq_key=False)
                 deps = sys.argv[4].split(",") if len(sys.argv) > 4 else None
                 add_task(sys.argv[2], sys.argv[3], deps)
             elif sys.argv[1] == "run":
                 try:
+                    validate_config(require_groq_key=True)
                     max_iter = int(sys.argv[2]) if len(sys.argv) > 2 else None
                     worker_loop(max_iter)
                 except ValueError:

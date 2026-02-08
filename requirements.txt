@@ -1,4 +1,6 @@
-# Added for benchmark suite
+# Core API and HTTP client dependencies
 fastapi
 uvicorn
-sse-starlette
+httpx
+python-dotenv
+pydantic

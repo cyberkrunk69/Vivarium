@@ -215,6 +215,12 @@ def initialize_sandbox(workspace_root: str):
     global _global_sandbox
     _global_sandbox = WorkspaceSandbox(workspace_root)
 
+
+# Backwards-compatible alias
+def init_sandbox(workspace_root: str):
+    """Alias for initialize_sandbox."""
+    initialize_sandbox(workspace_root)
+
 def get_sandbox() -> Optional[WorkspaceSandbox]:
     """Get the global sandbox instance."""
     return _global_sandbox
@@ -233,11 +239,7 @@ def safe_write(path: str, content: str, encoding: str = 'utf-8') -> bool:
     """
     sandbox = get_sandbox()
     if sandbox is None:
-        # No sandbox initialized - allow but warn
-        print("WARNING: No sandbox initialized, writing without validation")
-        with open(path, 'w', encoding=encoding) as f:
-            f.write(content)
-        return True
+        raise RuntimeError("Sandbox not initialized; refusing unsafe write")
 
     if not sandbox.validate_write(path):
         print(f"BLOCKED: Write to {path} blocked by sandbox")
@@ -265,10 +267,7 @@ def safe_read(path: str, encoding: str = 'utf-8') -> Optional[str]:
     """
     sandbox = get_sandbox()
     if sandbox is None:
-        # No sandbox initialized - allow but warn
-        print("WARNING: No sandbox initialized, reading without validation")
-        with open(path, 'r', encoding=encoding) as f:
-            return f.read()
+        raise RuntimeError("Sandbox not initialized; refusing unsafe read")
 
     if not sandbox.validate_read(path):
         print(f"BLOCKED: Read from {path} blocked by sandbox")
