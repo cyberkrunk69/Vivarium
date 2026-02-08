@@ -199,6 +199,19 @@ DEFAULT_HATS = [
         category="maker",
         tags=["hatmaker", "meta", "design"],
     ),
+    Hat(
+        name="Hat of Objectivity",
+        description=(
+            "Neutral mediator for disputes. Listen first, surface each side, and keep the process fair."
+        ),
+        prompt=(
+            "Remain neutral. Summarize each side's argument in good faith. "
+            "Ask clarifying questions, seek shared facts, and propose options. "
+            "Do not take sides; focus on process integrity and fairness."
+        ),
+        category="moderation",
+        tags=["objectivity", "mediator", "dispute"],
+    ),
 ]
 
 HAT_LIBRARY = HatLibrary(DEFAULT_HATS)

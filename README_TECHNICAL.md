@@ -114,6 +114,8 @@ Dual-pool token system without survival pressure.
 **Guilds (community play):**
 - Guild membership requires blind approval vote with reasons
 - Guild leaderboards track bounties and earnings
+- Vote outcomes can be disputed, creating a mediation chatroom
+- Disputes carry risk: temporary privilege loss if upheld
 
 **Key Principle:** Tokens are opportunity, not survival. Residents cannot be coerced through token withholding.
 

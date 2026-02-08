@@ -380,6 +380,8 @@ class EnrichmentSystem:
         self.journal_votes_file = self.workspace / ".swarm" / "journal_votes.json"
         self.journal_penalties_file = self.workspace / ".swarm" / "journal_penalties.json"
         self.guild_votes_file = self.workspace / ".swarm" / "guild_votes.json"
+        self.disputes_file = self.workspace / ".swarm" / "disputes.json"
+        self.privilege_suspensions_file = self.workspace / ".swarm" / "privilege_suspensions.json"
 
         # Shared universe registry
         self.universe_file = self.library_dir / "shared_universe_index.json"
@@ -524,6 +526,10 @@ class EnrichmentSystem:
     GUILD_JOIN_MIN_VOTES = 2
     GUILD_JOIN_APPROVAL_RATIO = 0.60
     GUILD_JOIN_VOTE_TYPES = ["accept", "reject"]
+
+    # Dispute system
+    DISPUTE_PENALTY_DAYS = 2
+    DISPUTE_ALLOWED_PRIVILEGES = ["sunday_bonus", "movie_night"]
 
     # Quality thresholds (word count + content markers) - heuristic only
     MIN_JOURNAL_WORDS = 50
@@ -835,6 +841,69 @@ class EnrichmentSystem:
         with open(self.guild_votes_file, 'w') as f:
             json.dump(votes, f, indent=2)
 
+    def _load_disputes(self) -> dict:
+        if self.disputes_file.exists():
+            try:
+                with open(self.disputes_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "disputes" in data:
+                        return data
+            except Exception:
+                pass
+        return {"disputes": {}}
+
+    def _save_disputes(self, disputes: dict):
+        self.disputes_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.disputes_file, 'w') as f:
+            json.dump(disputes, f, indent=2)
+
+    def _load_privilege_suspensions(self) -> dict:
+        if self.privilege_suspensions_file.exists():
+            try:
+                with open(self.privilege_suspensions_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_privilege_suspensions(self, suspensions: dict):
+        self.privilege_suspensions_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.privilege_suspensions_file, 'w') as f:
+            json.dump(suspensions, f, indent=2)
+
+    def _is_privilege_suspended(self, identity_id: str, privilege: str) -> bool:
+        suspensions = self._load_privilege_suspensions()
+        identity_susp = suspensions.get(identity_id, {})
+        record = identity_susp.get(privilege)
+        if not record:
+            return False
+        until = record.get("until")
+        if not until:
+            return False
+        if datetime.now().isoformat() < until:
+            return True
+        # Expired, clean up
+        del identity_susp[privilege]
+        if not identity_susp:
+            suspensions.pop(identity_id, None)
+        else:
+            suspensions[identity_id] = identity_susp
+        self._save_privilege_suspensions(suspensions)
+        return False
+
+    def _suspend_privilege(self, identity_id: str, privilege: str, days: int, reason: str) -> dict:
+        suspensions = self._load_privilege_suspensions()
+        identity_susp = suspensions.get(identity_id, {})
+        until = (datetime.now() + timedelta(days=days)).isoformat()
+        identity_susp[privilege] = {
+            "until": until,
+            "reason": reason,
+            "applied_at": datetime.now().isoformat()
+        }
+        suspensions[identity_id] = identity_susp
+        self._save_privilege_suspensions(suspensions)
+        return identity_susp[privilege]
+
     def get_pending_guild_requests(self, identity_id: str, limit: int = 10) -> list:
         """List pending guild join requests for guilds the identity belongs to."""
         my_guild = self.get_my_guild(identity_id)
@@ -889,6 +958,187 @@ class EnrichmentSystem:
         self._save_guild_votes(votes)
 
         return {"success": True, "status": "pending", "request_id": request_id}
+
+    def open_vote_dispute(self, target_type: str, target_id: str, requester_id: str,
+                          requester_name: str, reason: str,
+                          risk_privilege: str = "sunday_bonus") -> dict:
+        """
+        Open a dispute on a vote outcome (journal or guild join).
+
+        A dispute creates a dedicated chatroom for the involved parties plus
+        an objective mediator.
+        """
+        if target_type not in ["journal", "guild_join"]:
+            return {"success": False, "reason": "invalid_target_type"}
+        if not reason or len(reason.strip()) < self.BLIND_VOTE_MIN_REASON_CHARS:
+            return {"success": False, "reason": "reason_required"}
+        if risk_privilege not in self.DISPUTE_ALLOWED_PRIVILEGES:
+            return {"success": False, "reason": "invalid_privilege"}
+
+        participants = []
+        decision_status = None
+
+        if target_type == "journal":
+            votes = self._load_journal_votes()
+            journal = votes.get("journals", {}).get(target_id)
+            if not journal:
+                return {"success": False, "reason": "journal_not_found"}
+            decision_status = journal.get("status")
+            if decision_status == "pending":
+                return {"success": False, "reason": "vote_not_resolved"}
+            participants = [journal.get("author_id")] + [v.get("voter_id") for v in journal.get("votes", [])]
+        else:
+            votes = self._load_guild_votes()
+            request = votes.get("requests", {}).get(target_id)
+            if not request:
+                return {"success": False, "reason": "request_not_found"}
+            decision_status = request.get("status")
+            if decision_status == "pending":
+                return {"success": False, "reason": "vote_not_resolved"}
+            participants = [request.get("applicant_id")] + [v.get("voter_id") for v in request.get("votes", [])]
+
+        participants = [p for p in participants if p]
+        participants = list(dict.fromkeys(participants))
+
+        disputes = self._load_disputes()
+        dispute_id = f"dispute_{target_type}_{int(time.time()*1000)}"
+        chatroom_id = f"dispute_{target_type}_{target_id}"
+
+        disputes["disputes"][dispute_id] = {
+            "dispute_id": dispute_id,
+            "target_type": target_type,
+            "target_id": target_id,
+            "requester_id": requester_id,
+            "requester_name": requester_name,
+            "reason": reason.strip(),
+            "risk_privilege": risk_privilege,
+            "status": "open",
+            "decision_status": decision_status,
+            "participants": participants,
+            "mediator": None,
+            "chatroom_id": chatroom_id,
+            "created_at": datetime.now().isoformat()
+        }
+        self._save_disputes(disputes)
+
+        # Create dispute chatroom with a system message
+        discussions_dir = self.workspace / ".swarm" / "discussions"
+        discussions_dir.mkdir(parents=True, exist_ok=True)
+        room_file = discussions_dir / f"{chatroom_id}.jsonl"
+        system_msg = {
+            "author_id": "SYSTEM",
+            "author_name": "SYSTEM",
+            "content": (
+                f"Dispute opened ({target_type}:{target_id}). "
+                "Participants: " + ", ".join(participants) +
+                ". Awaiting mediator wearing Hat of Objectivity."
+            ),
+            "timestamp": datetime.now().isoformat(),
+            "type": "system"
+        }
+        with open(room_file, 'a') as f:
+            f.write(json.dumps(system_msg) + "\n")
+
+        return {"success": True, "dispute_id": dispute_id, "chatroom_id": chatroom_id}
+
+    def assign_dispute_mediator(self, dispute_id: str, mediator_id: str,
+                                mediator_name: str, hat_name: str) -> dict:
+        """Assign an objective mediator (must wear Hat of Objectivity)."""
+        disputes = self._load_disputes()
+        dispute = disputes.get("disputes", {}).get(dispute_id)
+        if not dispute:
+            return {"success": False, "reason": "dispute_not_found"}
+        if dispute.get("status") != "open":
+            return {"success": False, "reason": "dispute_not_open"}
+        if mediator_id in dispute.get("participants", []):
+            return {"success": False, "reason": "mediator_must_be_third_party"}
+        if hat_name.strip().lower() != "hat of objectivity":
+            return {"success": False, "reason": "hat_required"}
+
+        dispute["mediator"] = {
+            "id": mediator_id,
+            "name": mediator_name,
+            "hat": hat_name
+        }
+        disputes["disputes"][dispute_id] = dispute
+        self._save_disputes(disputes)
+
+        discussions_dir = self.workspace / ".swarm" / "discussions"
+        room_file = discussions_dir / f"{dispute['chatroom_id']}.jsonl"
+        system_msg = {
+            "author_id": "SYSTEM",
+            "author_name": "SYSTEM",
+            "content": f"Mediator assigned: {mediator_name} wearing {hat_name}.",
+            "timestamp": datetime.now().isoformat(),
+            "type": "system"
+        }
+        with open(room_file, 'a') as f:
+            f.write(json.dumps(system_msg) + "\n")
+
+        return {"success": True, "dispute_id": dispute_id, "mediator": dispute["mediator"]}
+
+    def resolve_dispute(self, dispute_id: str, outcome: str, notes: str = None) -> dict:
+        """Resolve a dispute: uphold or reopen the underlying vote."""
+        if outcome not in ["uphold", "reopen"]:
+            return {"success": False, "reason": "invalid_outcome"}
+
+        disputes = self._load_disputes()
+        dispute = disputes.get("disputes", {}).get(dispute_id)
+        if not dispute:
+            return {"success": False, "reason": "dispute_not_found"}
+        if dispute.get("status") != "open":
+            return {"success": False, "reason": "dispute_not_open"}
+        if not dispute.get("mediator"):
+            return {"success": False, "reason": "mediator_required"}
+
+        if outcome == "reopen":
+            if dispute["target_type"] == "journal":
+                votes = self._load_journal_votes()
+                journal = votes.get("journals", {}).get(dispute["target_id"])
+                if journal:
+                    journal["status"] = "pending"
+                    journal["votes"] = []
+                    journal["reopened_at"] = datetime.now().isoformat()
+                    votes["journals"][dispute["target_id"]] = journal
+                    self._save_journal_votes(votes)
+            else:
+                votes = self._load_guild_votes()
+                request = votes.get("requests", {}).get(dispute["target_id"])
+                if request:
+                    request["status"] = "pending"
+                    request["votes"] = []
+                    request["reopened_at"] = datetime.now().isoformat()
+                    votes["requests"][dispute["target_id"]] = request
+                    self._save_guild_votes(votes)
+        else:
+            penalty = self._suspend_privilege(
+                dispute["requester_id"],
+                dispute["risk_privilege"],
+                self.DISPUTE_PENALTY_DAYS,
+                reason="dispute_upheld"
+            )
+            dispute["penalty"] = penalty
+
+        dispute["status"] = "resolved"
+        dispute["outcome"] = outcome
+        dispute["notes"] = (notes or "").strip()
+        dispute["resolved_at"] = datetime.now().isoformat()
+        disputes["disputes"][dispute_id] = dispute
+        self._save_disputes(disputes)
+
+        discussions_dir = self.workspace / ".swarm" / "discussions"
+        room_file = discussions_dir / f"{dispute['chatroom_id']}.jsonl"
+        system_msg = {
+            "author_id": "SYSTEM",
+            "author_name": "SYSTEM",
+            "content": f"Dispute resolved: {outcome}.",
+            "timestamp": datetime.now().isoformat(),
+            "type": "system"
+        }
+        with open(room_file, 'a') as f:
+            f.write(json.dumps(system_msg) + "\n")
+
+        return {"success": True, "dispute_id": dispute_id, "outcome": outcome}
 
     def submit_guild_vote(self, request_id: str, voter_id: str, vote: str, reason: str) -> dict:
         """Submit a blind vote to accept/reject a guild join request (reason required)."""
@@ -1294,6 +1544,7 @@ class EnrichmentSystem:
             "attempt_cost": attempt_cost,
             "penalty_multiplier": penalty_multiplier,
             "quality_estimate": quality_estimate,
+            "note": "Community review required. Votes must include reasons.",
             "new_balances": {
                 "free_time": balances[identity_id]["tokens"],
                 "journal": balances[identity_id]["journal_tokens"],
@@ -3519,6 +3770,9 @@ class EnrichmentSystem:
         if not self.is_sunday():
             return {"granted": False, "reason": "not_sunday"}
 
+        if self._is_privilege_suspended(identity_id, "sunday_bonus"):
+            return {"granted": False, "reason": "sunday_bonus_suspended"}
+
         # Track Sunday bonuses to avoid double-granting
         sunday_file = self.workspace / ".swarm" / "sunday_bonuses.json"
         today = datetime.now().strftime("%Y-%m-%d")
@@ -3592,6 +3846,8 @@ class EnrichmentSystem:
             bonus_msg = f"\nYou've received {bonus_result['amount']} bonus tokens! Your balance is now {bonus_result['new_balance']}."
         elif bonus_result.get("reason") == "already_received_today":
             bonus_msg = "\n(You've already received your Sunday bonus today.)"
+        elif bonus_result.get("reason") == "sunday_bonus_suspended":
+            bonus_msg = "\n(Your Sunday bonus is temporarily suspended due to a dispute outcome.)"
 
         return f"""
 {'='*60}
