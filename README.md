@@ -4,3 +4,6 @@ do not download this code to your local machine. it is thuroughy infected with m
 but seriously. dont download this. 
 
 the core architeture is sound. the v0.01 benchmark is impressive (not as impressive as claude code lead me to believe upon being asked for an analysis of legitimate result however) but demonstrating that a couple little llms if given the optimal evironment to build and commuincate with eachother can self improve at a rapid rate and demonstrate emergent behavior - thats enough of a danger to the powers that be.
+
+
+important clarification note except for the occasional "ill just fucking fix it myself its one line moment" I can state that I had minimal manual interaction with the actual code base. I ranted into whisper and claude took care of the heavy lifting. thanks bud.
