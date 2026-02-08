@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-The Black Swarm Dashboard embedded in `progress_server.py` provides real-time monitoring of autonomous swarm activity. While visually polished with modern CSS animations and a dark theme aesthetic, the interface suffers from critical accessibility gaps, information density issues, and interaction design weaknesses that impair usability for diverse users and use cases.
+The Vivarium Dashboard embedded in `progress_server.py` provides real-time monitoring of autonomous swarm activity. While visually polished with modern CSS animations and a dark theme aesthetic, the interface suffers from critical accessibility gaps, information density issues, and interaction design weaknesses that impair usability for diverse users and use cases.
 
 **Key Findings:**
 - **P0 Critical**: Missing ARIA labels, keyboard navigation, semantic HTML structure
@@ -270,11 +270,11 @@ The Black Swarm Dashboard embedded in `progress_server.py` provides real-time mo
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Black Swarm Dashboard - Real-time Monitoring</title>
+  <title>Vivarium Dashboard - Real-time Monitoring</title>
 </head>
 <body>
   <header role="banner">
-    <h1>Black Swarm Monitoring</h1>
+    <h1>Vivarium Monitoring</h1>
     <div class="subtitle" role="doc-subtitle">Autonomous swarm intelligence in action</div>
   </header>
 
@@ -439,7 +439,7 @@ function connectWithRetry(retryCount = 0) {
 ## Mockup Descriptions of Ideal State
 
 ### Enhanced Header and Navigation
-- **Logo/Brand**: Subtle icon with Black Swarm branding
+- **Logo/Brand**: Subtle icon with Vivarium branding
 - **Navigation**: Tab-based navigation for different views (Overview, Detailed, Logs)
 - **Controls**: Pause/play button, refresh control, settings gear icon
 - **Status**: More prominent connection indicator with last update time
@@ -466,6 +466,6 @@ function connectWithRetry(retryCount = 0) {
 
 ## Conclusion
 
-The Black Swarm Dashboard demonstrates strong visual design capabilities but fails to meet modern accessibility and usability standards. The critical P0 issues around accessibility must be addressed immediately to ensure inclusive access. The P1 improvements would significantly enhance the user experience for monitoring autonomous swarm operations, while P2 enhancements would position the dashboard as a best-in-class monitoring solution.
+The Vivarium Dashboard demonstrates strong visual design capabilities but fails to meet modern accessibility and usability standards. The critical P0 issues around accessibility must be addressed immediately to ensure inclusive access. The P1 improvements would significantly enhance the user experience for monitoring autonomous swarm operations, while P2 enhancements would position the dashboard as a best-in-class monitoring solution.
 
 The recommended fixes prioritize user inclusivity, information clarity, and operational efficiency - core principles for mission-critical monitoring interfaces.

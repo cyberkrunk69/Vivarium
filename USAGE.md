@@ -1,6 +1,6 @@
-# Black Swarm Usage Guide
+# Vivarium Usage Guide
 
-This guide covers common workflows for the Black Swarm parallel task orchestration system.
+This guide covers common workflows for the Vivarium parallel task orchestration system.
 
 ## Architecture Overview
 

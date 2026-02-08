@@ -1,4 +1,4 @@
-# Black Swarm Self-Improvement Log
+# Vivarium Self-Improvement Log
 
 ## Current Stats
 - **Total grind sessions**: 16 (Wave 3: 5, Wave 4: 6+6)

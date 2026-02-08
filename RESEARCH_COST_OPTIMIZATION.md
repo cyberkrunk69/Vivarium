@@ -1,6 +1,6 @@
 # AI Agent System Cost Optimization Research
 
-**Project:** Black Swarm Agent Orchestration System
+**Project:** Vivarium Agent Orchestration System
 **Date:** 2026-02-03
 **Scope:** Token usage patterns, cost reduction strategies, quality-cost tradeoffs, and budget management
 
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This research analyzes the Black Swarm agent system's cost structure and identifies optimization opportunities. Based on analysis of 10+ waves of grind sessions totaling approximately $0.92 in API costs across 10 research-backed implementations, the system demonstrates several cost optimization patterns worth studying and extending.
+This research analyzes the Vivarium agent system's cost structure and identifies optimization opportunities. Based on analysis of 10+ waves of grind sessions totaling approximately $0.92 in API costs across 10 research-backed implementations, the system demonstrates several cost optimization patterns worth studying and extending.
 
 **Key Findings:**
 - Average cost per task: $0.03-$0.07 (Haiku), $0.80 (Sonnet), $5.00 (Opus)
@@ -542,7 +542,7 @@ class BudgetGuard:
 
 ## 7. Conclusion
 
-The Black Swarm system already implements several cost optimization patterns (minimal prompts, DSPy demonstrations, tiered models). The primary opportunities for further optimization are:
+The Vivarium system already implements several cost optimization patterns (minimal prompts, DSPy demonstrations, tiered models). The primary opportunities for further optimization are:
 
 1. **Context management** - Importance scoring and caching could reduce input tokens by 30-50%
 2. **Model cascading** - Starting with Haiku could reduce average task cost by 30-50%

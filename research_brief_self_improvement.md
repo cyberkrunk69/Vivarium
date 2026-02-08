@@ -1,5 +1,5 @@
 # Self-Improvement Research Brief
-## Black Swarm - Research Analysis for Implementation
+## Vivarium - Research Analysis for Implementation
 
 **Date:** 2026-02-03
 **Analyst:** Opus Instance 1 - Self-Improvement Research Lead

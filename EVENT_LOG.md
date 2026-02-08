@@ -1,4 +1,4 @@
-# Black Swarm Event Log
+# Vivarium Event Log
 
 This is a chronological record of the self-improving AI experiment for posterity.
 
@@ -162,7 +162,7 @@ This is a chronological record of the self-improving AI experiment for posterity
 - **Git Commits:** 3
 
 ### GitHub
-- **Repo:** https://github.com/cyberkrunk69/black-swarm (private)
+- **Repo:** https://github.com/cyberkrunk69/Vivarium (private)
 - **Initial Commit:** d9908f69
 - **Latest Commit:** 5a8a58d0
 

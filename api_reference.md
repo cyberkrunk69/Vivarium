@@ -1,7 +1,7 @@
-# Black Swarm API Reference
+# Vivarium API Reference
 
 ## API Overview
-- **Title**: Black Swarm
+- **Title**: Vivarium
 - **Version**: 1.0
 - **Base URL**: http://127.0.0.1:8420
 

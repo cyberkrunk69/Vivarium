@@ -1,4 +1,4 @@
-# Black Swarm Timeline
+# Vivarium Timeline
 *Generated: 2026-02-03T06:03:51.725203*
 
 ## Summary

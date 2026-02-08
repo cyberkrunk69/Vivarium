@@ -1,4 +1,4 @@
-# Black Swarm Architecture
+# Vivarium Architecture
 
 ## System Overview
 

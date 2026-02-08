@@ -1,6 +1,6 @@
 # Multi-Agent Coordination Research Brief
 
-**Project:** Black Swarm
+**Project:** Vivarium
 **Date:** 2026-02-03
 **Focus:** Multi-agent coordination, prompt optimization, and planning/search strategies
 

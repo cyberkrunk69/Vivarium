@@ -89,7 +89,7 @@ This audit reviews all user-facing CLI scripts in the project. **38 issues** wer
 |---|----------|-------|----------|---------------|
 | 35 | Critical | TOGETHER_API_KEY error returns HTTP 500 with technical message | lines 54-55 | Return 503 Service Unavailable with user-friendly message: "Planning service unavailable. Set TOGETHER_API_KEY environment variable." |
 | 36 | Medium | `/plan` response uses different key than `/grind/queue` expects | line 67 | Response says `tasks_created` but explore agent report says `tasks_generated` - inconsistent |
-| 37 | Low | No startup message when running directly | line 235 | Add: `print(f"Black Swarm API starting on http://127.0.0.1:8420")` before uvicorn.run() |
+| 37 | Low | No startup message when running directly | line 235 | Add: `print(f"Vivarium API starting on http://127.0.0.1:8420")` before uvicorn.run() |
 
 ### 8. launch.bat
 
