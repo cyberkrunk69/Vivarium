@@ -4660,6 +4660,13 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
 
         claimed_by = bounty.get("claimed_by", {})
         reward = bounty.get("reward", 0)
+        try:
+            slot_multiplier = float(
+                claimed_by.get("slot_multiplier") or bounty.get("slot_multiplier") or 1.0
+            )
+        except (TypeError, ValueError):
+            slot_multiplier = 1.0
+        reward = int(round(reward * max(0.0, slot_multiplier)))
 
         if claimed_by.get("type") == "individual":
             # Single person gets full reward

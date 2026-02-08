@@ -757,18 +757,21 @@ CONTROL_PANEL_HTML = '''
                 </div>
             </details>
 
-            <!-- Collapsible: Bounty Board -->
+            <!-- Collapsible: Commons Crucible -->
             <details class="sidebar-section">
                 <summary>
-                    Bounty Board
+                    Commons Crucible
                     <span id="bountyCount" style="font-size: 0.65rem; color: var(--yellow);"></span>
                 </summary>
                 <div class="sidebar-section-content">
                     <div class="identity-card" style="margin-bottom: 0.5rem;">
-                        <input type="text" id="bountyTitle" placeholder="Bounty title..."
+                        <div style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.3rem;">
+                            PVP/coop arena. Slots fill fast; overflow rewards decay sharply.
+                        </div>
+                        <input type="text" id="bountyTitle" placeholder="Challenge title..."
                             style="width: 100%; padding: 0.25rem; margin-bottom: 0.2rem; background: var(--bg-dark);
                                    border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-size: 0.8rem;">
-                        <textarea id="bountyDesc" placeholder="What needs to be done..."
+                        <textarea id="bountyDesc" placeholder="Objective and success criteria..."
                             style="width: 100%; height: 40px; background: var(--bg-dark); border: 1px solid var(--border);
                                    color: var(--text); padding: 0.25rem; border-radius: 4px; font-size: 0.75rem; resize: none;"></textarea>
                         <div style="display: flex; gap: 0.3rem; margin-top: 0.2rem; align-items: center;">
@@ -776,10 +779,18 @@ CONTROL_PANEL_HTML = '''
                                 style="width: 50px; padding: 0.2rem; background: var(--bg-dark);
                                        border: 1px solid var(--border); color: var(--yellow); border-radius: 4px; font-size: 0.75rem;"
                                 title="Token reward">
-                            <input type="number" id="bountyMaxTeams" placeholder="Teams" min="1" max="5" value="1"
+                            <select id="bountyMode"
+                                style="width: 62px; padding: 0.2rem; background: var(--bg-dark);
+                                       border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-size: 0.65rem;"
+                                title="Mode">
+                                <option value="hybrid" selected>Hybrid</option>
+                                <option value="pvp">PVP</option>
+                                <option value="coop">Coop</option>
+                            </select>
+                            <input type="number" id="bountyMaxTeams" placeholder="Slots" min="1" max="8" value="2"
                                 style="width: 40px; padding: 0.2rem; background: var(--bg-dark);
                                        border: 1px solid var(--border); color: var(--teal); border-radius: 4px; font-size: 0.75rem;"
-                                title="Max competing teams">
+                                title="Slots with full rewards">
                             <button onclick="createBounty()"
                                 style="flex: 1; padding: 0.25rem; background: var(--yellow); border: none;
                                        color: var(--bg-dark); border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.7rem;">
@@ -1645,12 +1656,13 @@ CONTROL_PANEL_HTML = '''
             }
         }
 
-        // Bounty functions
+        // Crucible functions
         function createBounty() {
             const title = document.getElementById('bountyTitle').value.trim();
             const description = document.getElementById('bountyDesc').value.trim();
             const reward = parseInt(document.getElementById('bountyReward').value) || 50;
-            const maxTeams = parseInt(document.getElementById('bountyMaxTeams').value) || 1;
+            const maxTeams = parseInt(document.getElementById('bountyMaxTeams').value) || 2;
+            const mode = document.getElementById('bountyMode').value || 'hybrid';
 
             if (!title) {
                 alert('Please enter a bounty title');
@@ -1660,7 +1672,14 @@ CONTROL_PANEL_HTML = '''
             fetch('/api/bounties', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({title, description, reward, max_teams: maxTeams})
+                body: JSON.stringify({
+                    title,
+                    description,
+                    reward,
+                    max_teams: maxTeams,
+                    slots: maxTeams,
+                    game_mode: mode
+                })
             })
             .then(r => r.json())
             .then(data => {
@@ -1668,7 +1687,8 @@ CONTROL_PANEL_HTML = '''
                     document.getElementById('bountyTitle').value = '';
                     document.getElementById('bountyDesc').value = '';
                     document.getElementById('bountyReward').value = '50';
-                    document.getElementById('bountyMaxTeams').value = '1';
+                    document.getElementById('bountyMaxTeams').value = '2';
+                    document.getElementById('bountyMode').value = 'hybrid';
                     loadBounties();
                 }
             });
@@ -1683,7 +1703,7 @@ CONTROL_PANEL_HTML = '''
                     if (countEl) countEl.textContent = bounties.length > 0 ? `(${bounties.length})` : '';
 
                     if (bounties.length === 0) {
-                        container.innerHTML = '<p style="color: var(--text-dim); font-size: 0.7rem;">No active bounties</p>';
+                        container.innerHTML = '<p style="color: var(--text-dim); font-size: 0.7rem;">No active Crucible matches</p>';
                         return;
                     }
 
@@ -1696,7 +1716,10 @@ CONTROL_PANEL_HTML = '''
                         const borderColor = statusColors[b.status] || 'var(--border)';
                         const teams = b.teams || [];
                         const teamCount = teams.length;
-                        const maxTeams = b.max_teams || 1;
+                        const slots = b.slots || b.max_teams || 1;
+                        const overflow = Math.max(0, teamCount - slots);
+                        const mode = (b.game_mode || 'hybrid').toUpperCase();
+                        const gameName = b.game_name || 'Commons Crucible';
                         const cost = b.cost_tracking || {};
                         const apiCost = cost.api_cost ? `$${cost.api_cost.toFixed(3)}` : '';
                         const sessions = cost.sessions_used || 0;
@@ -1720,7 +1743,8 @@ CONTROL_PANEL_HTML = '''
                                     <div style="flex: 1;">
                                         <div style="font-weight: 600; font-size: 0.8rem; color: var(--text);">${b.title}</div>
                                         <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 0.15rem;">
-                                            ${b.status.toUpperCase()}${maxTeams > 1 ? ` | Teams: ${teamCount}/${maxTeams}` : ''}
+                                            ${gameName} | ${mode} | ${b.status.toUpperCase()}
+                                            ${slots > 0 ? ` | Slots: ${overflow > 0 ? `${slots} (+${overflow} overflow)` : `${teamCount}/${slots}`}` : ''}
                                         </div>
                                         ${apiCost || sessions ? `
                                             <div style="font-size: 0.6rem; color: var(--purple); margin-top: 0.15rem;">
@@ -1884,7 +1908,12 @@ CONTROL_PANEL_HTML = '''
                                         <span style="font-weight: 600; color: var(--teal);">${s.identity_name}</span>
                                         <span style="font-size: 0.75rem; color: var(--text-dim);">${new Date(s.submitted_at).toLocaleString()}</span>
                                     </div>
-                                    ${s.description ? `<p style="font-size: 0.85rem; color: var(--text); margin-bottom: 0.5rem;">${s.description}</p>` : ''}
+                                    ${s.description ? `<p style="font-size: 0.85rem; color: var(--text); margin-bottom: 0.4rem;">${s.description}</p>` : ''}
+                                    ${s.slot_multiplier !== undefined ? `
+                                        <div style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 0.4rem;">
+                                            Slot ${s.slot_index || '?'}${s.slots ? `/${s.slots}` : ''} | x${(Number(s.slot_multiplier) || 0).toFixed(2)}${s.slot_reason ? ` (${s.slot_reason})` : ''}
+                                        </div>
+                                    ` : ''}
                                     ${s.artifacts && s.artifacts.length > 0 ? `
                                         <div style="font-size: 0.75rem; color: var(--text-dim);">
                                             <span>Artifacts:</span>
@@ -2700,7 +2729,119 @@ def api_add_completed_request():
 
 
 # Bounty API endpoints
+CRUCIBLE_NAME = "Commons Crucible"
+DEFAULT_SLOT_POLICY = {
+    "in_slot_multiplier": 1.0,
+    "overflow_decay": 0.5,
+    "min_multiplier": 0.05,
+    "min_description_chars": 20,
+    "allow_artifact_override": True,
+    "max_rewarded_submissions_per_identity": 1,
+}
+
 BOUNTIES_FILE = WORKSPACE / ".swarm" / "bounties.json"
+
+
+def _get_slots_for_bounty(bounty: dict) -> int:
+    slots = bounty.get("slots", bounty.get("max_teams", 1))
+    try:
+        return max(1, int(slots))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _normalize_slot_policy(policy):
+    merged = DEFAULT_SLOT_POLICY.copy()
+    if isinstance(policy, dict):
+        for key in DEFAULT_SLOT_POLICY:
+            if key in policy:
+                merged[key] = policy[key]
+    # Clamp numeric fields
+    try:
+        merged["overflow_decay"] = float(merged["overflow_decay"])
+    except (TypeError, ValueError):
+        merged["overflow_decay"] = DEFAULT_SLOT_POLICY["overflow_decay"]
+    merged["overflow_decay"] = max(0.1, min(0.95, merged["overflow_decay"]))
+    try:
+        merged["min_multiplier"] = float(merged["min_multiplier"])
+    except (TypeError, ValueError):
+        merged["min_multiplier"] = DEFAULT_SLOT_POLICY["min_multiplier"]
+    merged["min_multiplier"] = max(0.0, min(1.0, merged["min_multiplier"]))
+    try:
+        merged["in_slot_multiplier"] = float(merged["in_slot_multiplier"])
+    except (TypeError, ValueError):
+        merged["in_slot_multiplier"] = DEFAULT_SLOT_POLICY["in_slot_multiplier"]
+    merged["in_slot_multiplier"] = max(0.1, min(2.0, merged["in_slot_multiplier"]))
+    try:
+        merged["min_description_chars"] = int(merged["min_description_chars"])
+    except (TypeError, ValueError):
+        merged["min_description_chars"] = DEFAULT_SLOT_POLICY["min_description_chars"]
+    merged["min_description_chars"] = max(0, merged["min_description_chars"])
+    try:
+        merged["max_rewarded_submissions_per_identity"] = int(
+            merged["max_rewarded_submissions_per_identity"]
+        )
+    except (TypeError, ValueError):
+        merged["max_rewarded_submissions_per_identity"] = (
+            DEFAULT_SLOT_POLICY["max_rewarded_submissions_per_identity"]
+        )
+    merged["max_rewarded_submissions_per_identity"] = max(
+        1, merged["max_rewarded_submissions_per_identity"]
+    )
+    merged["allow_artifact_override"] = bool(merged.get("allow_artifact_override", True))
+    return merged
+
+
+def _compute_slot_multiplier(slot_index: int, slots: int, policy: dict) -> float:
+    if slots <= 0 or slot_index <= slots:
+        return float(policy.get("in_slot_multiplier", 1.0))
+    overflow = max(0, slot_index - slots)
+    decay = float(policy.get("overflow_decay", 0.5))
+    multiplier = float(policy.get("in_slot_multiplier", 1.0)) * (decay ** overflow)
+    return max(float(policy.get("min_multiplier", 0.05)), multiplier)
+
+
+def _evaluate_submission(bounty, identity_id, description, artifacts):
+    teams = bounty.get("teams", [])
+    slots = _get_slots_for_bounty(bounty)
+    slot_index = len(teams) + 1
+    policy = _normalize_slot_policy(bounty.get("slot_policy"))
+
+    multiplier = _compute_slot_multiplier(slot_index, slots, policy)
+    reasons = []
+
+    if not identity_id:
+        reasons.append("missing_identity")
+
+    if identity_id:
+        submitted = [t for t in teams if t.get("identity_id") == identity_id]
+        if len(submitted) >= policy.get("max_rewarded_submissions_per_identity", 1):
+            reasons.append("repeat_submission")
+
+    min_chars = policy.get("min_description_chars", 0)
+    desc_ok = len((description or "").strip()) >= min_chars if min_chars else True
+    has_artifacts = bool(artifacts)
+    if not desc_ok and not (policy.get("allow_artifact_override", True) and has_artifacts):
+        reasons.append("insufficient_contribution")
+
+    if slot_index > slots:
+        reasons.append("overflow")
+
+    if reasons and any(r in ["missing_identity", "repeat_submission", "insufficient_contribution"] for r in reasons):
+        multiplier = 0.0
+
+    if not reasons:
+        reason = "in_slot"
+    else:
+        reason = ",".join(reasons)
+
+    return {
+        "slot_index": slot_index,
+        "slots": slots,
+        "slot_multiplier": round(multiplier, 4),
+        "slot_reason": reason,
+        "policy": policy,
+    }
 
 
 def load_bounties():
@@ -2737,6 +2878,15 @@ def api_create_bounty():
     title = data.get('title', '').strip()
     description = data.get('description', '').strip()
     reward = int(data.get('reward', 50))
+    slots = data.get('slots', data.get('max_teams', 1))
+    try:
+        slots = max(1, int(slots))
+    except (TypeError, ValueError):
+        slots = 1
+    game_mode = (data.get('game_mode') or 'hybrid').lower()
+    if game_mode not in ('pvp', 'coop', 'hybrid'):
+        game_mode = 'hybrid'
+    slot_policy = _normalize_slot_policy(data.get('slot_policy'))
 
     if not title:
         return jsonify({'success': False, 'error': 'Title required'})
@@ -2747,11 +2897,20 @@ def api_create_bounty():
         'title': title,
         'description': description,
         'reward': reward,
+        'game_name': CRUCIBLE_NAME,
+        'game_mode': game_mode,
         'status': 'open',
         'created_at': datetime.now().isoformat(),
         'claimed_by': None,
         # Project-level cost tracking
-        'max_teams': data.get('max_teams', 1),  # How many competing teams allowed
+        'max_teams': slots,  # Back-compat: slots with full rewards
+        'slots': slots,
+        'slot_policy': slot_policy,
+        'slot_state': {
+            'slots': slots,
+            'filled': 0,
+            'overflow': 0
+        },
         'teams': [],  # List of team submissions
         'cost_tracking': {
             'api_cost': 0.0,
@@ -2798,26 +2957,44 @@ def api_submit_to_bounty(bounty_id):
     if bounty.get('status') != 'open':
         return jsonify({'success': False, 'error': 'Bounty is not open for submissions'})
 
-    # Check team limit
-    max_teams = bounty.get('max_teams', 1)
+    # Normalize slot policy and evaluate rewards
+    bounty['slot_policy'] = _normalize_slot_policy(bounty.get('slot_policy'))
+    bounty['slots'] = _get_slots_for_bounty(bounty)
     current_teams = bounty.get('teams', [])
-    if len(current_teams) >= max_teams:
-        return jsonify({'success': False, 'error': f'Maximum {max_teams} team(s) already submitted'})
+
+    identity_id = data.get('identity_id')
+    description = data.get('description', '')
+    artifacts = data.get('artifacts', [])
+    slot_info = _evaluate_submission(bounty, identity_id, description, artifacts)
 
     # Create submission
     submission = {
         'id': f"sub_{int(time.time()*1000)}",
-        'identity_id': data.get('identity_id'),
+        'identity_id': identity_id,
         'identity_name': data.get('identity_name', 'Unknown'),
-        'description': data.get('description', ''),
-        'artifacts': data.get('artifacts', []),  # List of file paths
+        'description': description,
+        'artifacts': artifacts,  # List of file paths
         'submitted_at': datetime.now().isoformat(),
-        'notes': data.get('notes', '')
+        'notes': data.get('notes', ''),
+        'slot_index': slot_info['slot_index'],
+        'slots': slot_info['slots'],
+        'slot_multiplier': slot_info['slot_multiplier'],
+        'slot_reason': slot_info['slot_reason'],
+        'reward_cap': int(round(bounty.get('reward', 0) * slot_info['slot_multiplier']))
     }
 
     if 'teams' not in bounty:
         bounty['teams'] = []
     bounty['teams'].append(submission)
+
+    # Update slot state
+    slots = bounty.get('slots', _get_slots_for_bounty(bounty))
+    team_count = len(bounty['teams'])
+    bounty['slot_state'] = {
+        'slots': slots,
+        'filled': min(team_count, slots),
+        'overflow': max(0, team_count - slots)
+    }
 
     # Mark bounty as claimed if this is the first submission
     if bounty['status'] == 'open' and len(bounty['teams']) == 1:
@@ -2944,6 +3121,15 @@ def api_complete_bounty(bounty_id):
 
         # If there are teams, distribute according to placement
         teams = bounty.get('teams', [])
+        if teams and len(teams) == 1:
+            # Persist slot multiplier for single-claimer distribution
+            try:
+                bounty['slot_multiplier'] = float(teams[0].get('slot_multiplier', 1.0))
+                bounty['slot_reason'] = teams[0].get('slot_reason', 'in_slot')
+            except (TypeError, ValueError):
+                bounty['slot_multiplier'] = 1.0
+                bounty['slot_reason'] = 'in_slot'
+            save_bounties(bounties)
         if teams and len(teams) > 1:
             # Winner gets winner_reward, runner-up gets runner_up_reward
             result = {
@@ -2953,13 +3139,19 @@ def api_complete_bounty(bounty_id):
             }
             for i, team in enumerate(teams):
                 reward = winner_reward if i == 0 else (runner_up_reward if i == 1 else 0)
+                try:
+                    slot_multiplier = float(team.get('slot_multiplier', 1.0))
+                except (TypeError, ValueError):
+                    slot_multiplier = 1.0
+                reward = int(round(reward * max(0.0, slot_multiplier)))
                 if reward > 0:
                     for member_id in team.get('members', []):
                         enrichment.grant_free_time(member_id, reward, f"bounty_{bounty_id}_place_{i+1}")
                         result['distributions'].append({
                             'identity': member_id,
                             'reward': reward,
-                            'place': i + 1
+                            'place': i + 1,
+                            'slot_multiplier': slot_multiplier
                         })
         else:
             # Single team/claimant - use original distribution
