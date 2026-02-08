@@ -121,7 +121,7 @@ def auto_select_model(complexity_score: float, complexity_level: str) -> str:
 
 **Task Decomposition:**
 - Analyzes task complexity (0.0-1.0 score)
-- Determines role chain (PLANNER → CODER → REVIEWER)
+- Determines hat chain (PLANNER hat → CODER hat → REVIEWER hat)
 - Injects identity context, morning messages, Sunday status
 
 ### 4. Control Panel (`control_panel.py`)
@@ -223,7 +223,7 @@ Black Swarm/
 ├── swarm_discussion.py         # Chat system
 ├── action_logger.py            # Centralized logging
 ├── safety_*.py                 # Safety subsystems
-└── SWARM_ROLE_HIERARCHY.md     # Resident onboarding doc
+└── SWARM_HAT_HIERARCHY.md      # Resident onboarding doc
 ```
 
 ## Configuration
