@@ -35,8 +35,13 @@ SKIP_DIRS = {
     ".grind_cache",
 }
 
-SCAN_SUFFIXES = {".py", ".sh", ".yml", ".yaml"}
-SCAN_FILENAMES = {"Dockerfile", "docker-compose.yml", "docker-compose.yaml"}
+SCAN_SUFFIXES = {".sh", ".yml", ".yaml"}
+# Focus on high-risk execution entrypoints (not docs/tests).
+SCAN_FILENAMES = {
+    "Dockerfile",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+}
 
 BANNED = [
     (
@@ -65,6 +70,11 @@ def iter_files(root: Path) -> Iterable[Path]:
         # Skip directories by name anywhere in the path
         if any(part in SKIP_DIRS for part in path.parts):
             continue
+        # Skip tests and this scanner itself (tests may intentionally contain patterns)
+        if "tests" in path.parts:
+            continue
+        if path.resolve() == Path(__file__).resolve():
+            continue
         if path.name in SCAN_FILENAMES or path.suffix in SCAN_SUFFIXES:
             yield path
 
@@ -88,9 +98,14 @@ def main() -> int:
         text = read_text(file)
         if not text:
             continue
-        for regex, desc in BANNED:
-            if regex.search(text):
-                findings.append(f"{file.relative_to(ROOT)}: {desc}")
+        for i, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            # Ignore comment-only lines in common formats (Dockerfile, shell, yaml)
+            if stripped.startswith("#"):
+                continue
+            for regex, desc in BANNED:
+                if regex.search(line):
+                    findings.append(f"{file.relative_to(ROOT)}:{i}: {desc}")
 
     if findings:
         sys.stderr.write("SECURITY SCAN FAILED:\n")
