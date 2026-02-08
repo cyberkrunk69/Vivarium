@@ -651,6 +651,7 @@ class EnrichmentSystem:
     QUALITY_REFUND_GOAL = 0.85
     QUALITY_REFUND_INDIVIDUAL_RATE = 0.50
     QUALITY_REFUND_GUILD_RATE = 0.25
+    COLLAB_REFUND_MULTIPLIER = 1.15
 
     def grant_free_time(self, identity_id: str, tokens: int, reason: str = "under_budget"):
         """
@@ -2310,7 +2311,8 @@ class EnrichmentSystem:
                            quality_score: Optional[float] = None,
                            quality_goal: Optional[float] = None,
                            individual_refund_rate: Optional[float] = None,
-                           guild_refund_rate: Optional[float] = None) -> dict:
+                           guild_refund_rate: Optional[float] = None,
+                           collaborators: Optional[List[str]] = None) -> dict:
         """
         Record tokens spent on a task. Efficient workers contribute to the pool.
 
@@ -2326,6 +2328,7 @@ class EnrichmentSystem:
             quality_goal: Optional override for quality goal threshold
             individual_refund_rate: Optional override for individual refund rate
             guild_refund_rate: Optional override for guild refund rate
+            collaborators: Optional list of collaborator identity IDs
 
         Returns:
             dict with efficiency stats and any pool contribution
@@ -2382,6 +2385,9 @@ class EnrichmentSystem:
             self.QUALITY_REFUND_GUILD_RATE if guild_refund_rate is None else guild_refund_rate
         )
 
+        collaboration_size = max(1, len(collaborators)) if collaborators else 1
+        collab_multiplier = self.COLLAB_REFUND_MULTIPLIER if collaboration_size > 1 else 1.0
+
         refund_result = {
             "eligible": False,
             "quality_score": quality_score,
@@ -2391,6 +2397,8 @@ class EnrichmentSystem:
             "individual_refund": 0,
             "guild_refund": 0,
             "guild_id": None,
+            "collaboration_size": collaboration_size,
+            "collaboration_multiplier": collab_multiplier,
         }
 
         # Apply quality-based refunds (individual + guild) on remaining savings
@@ -2400,7 +2408,7 @@ class EnrichmentSystem:
                 refund_result["eligible"] = True
                 refund_result["refund_base"] = refund_base
 
-                individual_refund = int(refund_base * max(0.0, individual_refund_rate))
+                individual_refund = int(refund_base * max(0.0, individual_refund_rate) * collab_multiplier)
                 guild_refund = int(refund_base * max(0.0, guild_refund_rate))
 
                 total_refund = individual_refund + guild_refund
@@ -2468,6 +2476,68 @@ class EnrichmentSystem:
             print(f"[EFFICIENCY] {identity_name} saved {savings} tokens! +{pool_contribution} to pool (total: {pool['balance']})")
 
         return result
+
+    def record_collaborative_task_tokens(
+        self,
+        participants: List[Dict[str, Any]],
+        task_completed: bool = True,
+        quality_score: Optional[float] = None,
+        quality_goal: Optional[float] = None,
+        individual_refund_rate: Optional[float] = None,
+        guild_refund_rate: Optional[float] = None
+    ) -> dict:
+        """
+        Record a collaborative task with multiple participants.
+
+        Each participant should supply their own tokens_spent for this task.
+        All participants receive the collaboration refund multiplier.
+
+        Args:
+            participants: List of dicts:
+                {"identity_id": str, "identity_name": str, "tokens_spent": int}
+            task_completed: Whether task was successfully completed
+            quality_score: Optional quality score (0.0-1.0) for refund eligibility
+            quality_goal: Optional override for quality goal threshold
+            individual_refund_rate: Optional override for individual refund rate
+            guild_refund_rate: Optional override for guild refund rate
+
+        Returns:
+            dict with per-participant results
+        """
+        if not participants:
+            return {"success": False, "reason": "no_participants"}
+
+        collaborator_ids = [p["identity_id"] for p in participants if p.get("identity_id")]
+        results = []
+
+        for participant in participants:
+            identity_id = participant.get("identity_id")
+            identity_name = participant.get("identity_name", "Unknown")
+            tokens_spent = int(participant.get("tokens_spent", 0))
+
+            if not identity_id:
+                results.append({"success": False, "reason": "missing_identity_id"})
+                continue
+
+            result = self.record_task_tokens(
+                identity_id=identity_id,
+                identity_name=identity_name,
+                tokens_spent=tokens_spent,
+                task_completed=task_completed,
+                quality_score=quality_score,
+                quality_goal=quality_goal,
+                individual_refund_rate=individual_refund_rate,
+                guild_refund_rate=guild_refund_rate,
+                collaborators=collaborator_ids
+            )
+            results.append(result)
+
+        return {
+            "success": True,
+            "participants": len(results),
+            "collaborators": collaborator_ids,
+            "results": results
+        }
 
     def distribute_efficiency_pool(self) -> dict:
         """

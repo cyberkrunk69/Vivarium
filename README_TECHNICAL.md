@@ -97,6 +97,7 @@ Dual-pool token system without survival pressure.
 - Exceptional performance: up to 150 tokens
 - Under-budget completion: bonus based on savings
 - Under-budget + high quality: percentage refunds to individual + guild pool
+- Collaborative under-budget + high quality: 1.15x refund multiplier
 - Sunday rest day: 500 tokens (automatic)
 
 **Spending:**
