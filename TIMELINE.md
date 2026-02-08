@@ -72,6 +72,32 @@ The following are commit messages recorded in git log; included verbatim:
 - Failures cluster around integration steps (safety wiring, file operations),
   suggesting these are the highest-friction points to stabilize.
 
+## Claude era vs Cursor era (speed + quality comparison)
+Definition used for this comparison:
+- Claude era = commits before the first cursor/ PR merge
+  (c5862f3 @ 2026-02-07T23:07:56-07:00).
+- Cursor era = commits from that merge onward.
+
+Output speed (commit cadence):
+- Claude era: 30 commits across 5 calendar days, 114.26h span,
+  avg gap 3.94h, max gap 62.31h.
+  With the 10h/day assumption: ~6 commits per 10h.
+- Cursor era: 54 commits across 2 calendar days, 13.62h span,
+  avg gap 0.26h, max gap 3.43h.
+  With the 10h/day assumption: ~27 commits per 10h.
+
+Quality signals (evidence-backed):
+- Claude era: performance_history.json (2026-02-03) shows 45 sessions,
+  avg duration 102.31s, avg quality 0.97, success rate 82.22%.
+  Regressions include verification mismatches, safety integration failures,
+  and encoding/patch parse errors (tool_operations.json, performance_history.json,
+  kernel_run.log).
+- Cursor era: quality signals are primarily code/infra changes:
+  core path unit/integration/e2e tests, quality gate pipeline, pruning bloat,
+  Groq-only hardening (git log).
+  No comparable runtime metrics after 2026-02-03 are present in
+  performance_history.json.
+
 ## Timeline gaps between code changes (commit-time analysis)
 Assumption: ~10 hours/day of active development since start.
 Note: Commit gaps measure time between code changes, not necessarily idle time.

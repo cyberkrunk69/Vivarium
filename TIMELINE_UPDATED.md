@@ -39,3 +39,19 @@ Commit messages recorded in git log:
 - Guardrails (safety, budget) prevent damage but also surface integration
   friction.
 - Performance improves on reruns, but verification is required to trust gains.
+
+## Claude era vs Cursor era (summary)
+Definition used:
+- Claude era = commits before first cursor/ PR merge
+  (c5862f3 @ 2026-02-07T23:07:56-07:00).
+- Cursor era = commits from that merge onward.
+
+Speed (commit cadence):
+- Claude era: 30 commits, avg gap 3.94h, max gap 62.31h.
+- Cursor era: 54 commits, avg gap 0.26h, max gap 3.43h.
+
+Quality signals:
+- Claude era runtime metrics (2026-02-03): 45 sessions, avg quality 0.97,
+  success rate 82.22% (performance_history.json).
+- Cursor era: tests + quality gates + hardening commits, but no comparable
+  runtime metrics after 2026-02-03 in performance_history.json.
