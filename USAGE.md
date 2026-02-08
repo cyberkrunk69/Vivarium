@@ -167,6 +167,36 @@ rm task_locks/*.lock
 
 ---
 
+## Workflow 6: Control Panel UI (Web)
+
+Use the control panel for real-time monitoring, budgets, and spawner controls.
+
+### Step 1: Install UI dependencies
+```bash
+pip install -r requirements-groq.txt
+pip install watchdog
+```
+
+### Step 2: Start the UI
+```bash
+python control_panel.py
+```
+Open http://localhost:8421
+
+### Step 3: Use the UI
+- START launches the spawner with the current settings (sessions, budget, model).
+- PAUSE DAY toggles pause/resume for the spawner.
+- STOP triggers an emergency kill for the spawner process.
+- Budget & Model lets you adjust sessions/budget/model and Save Config.
+- The sidebar shows identities, collaboration requests, messages, chat rooms,
+  and bounties.
+
+### One-click scripts (bash/batch)
+- macOS/Linux: `./one_click_server.sh` (or `bash one_click_server.sh`)
+- Windows: `one_click_server.bat`
+
+---
+
 ## File Reference
 
 | File | Purpose |
