@@ -14,16 +14,6 @@ These are direct excerpts from log files committed to this repo:
 This README prioritizes observable outputs. The "Observable Facts" section includes direct excerpts from log files committed to this repo.
 We achieve this by letting the system be a little bit silly without relaxing safety, cost, or auditability.
 
-## TL;DR: what's in this repo
-- swarm.py: FastAPI /grind endpoint that proxies Groq.
-- orchestrator.py: spawns N workers, manages kill switch and circuit breaker.
-- worker.py: file locks, queue consumption, /grind calls, execution_log.jsonl output.
-- safety_*.py: constitutional, network, workspace, and kill switch checks.
-- control_panel.py: monitoring UI (Flask + SocketIO).
-- action_logger.py: structured action log (jsonl + readable log).
-- performance_tracker.py + performance_history.json: timing/quality metrics.
-- swarm_enrichment.py + persona_memory.py: optional identity and reward modules.
-
 ## Playful systems
 The playful layer is a feature, not fluff. It creates room for critique, cross-pollination, and exploration while the core loop stays rigorous.
 
@@ -233,6 +223,28 @@ File: tool_operations.json, excerpt
 - security_audit_run.log: self-audit budget + token usage.
 - tool_operations.json: verification and hallucination detection results.
 
+## Daily achievement map (tools used)
+Based on commit messages and logs in this repo.
+
+- 2026-02-03:
+  - Achieved: core swarm system, early waves, dashboard redesign, knowledge
+    infrastructure, Groq integration, safety hardening, git automation.
+  - Tools: swarm.py (/grind API), orchestrator.py + worker.py, control_panel.py,
+    safety_*.py, action_logger.py/logger.py, performance_tracker.py.
+- 2026-02-04:
+  - Achieved: backup before rollback.
+  - Tools: git (backup commit).
+- 2026-02-05:
+  - Achieved: Control Panel v1 and UI fixes; socket handler fixes; model
+    dropdown validation; documentation updates.
+  - Tools: control_panel.py (Flask + SocketIO), config.py (model validation).
+- 2026-02-08:
+  - Achieved: core hardening and pruning; unit/integration/e2e tests; quality
+    gating pipeline; governance mechanics (guilds, hats, rewards); branding and
+    documentation cleanup.
+  - Tools: test suite, quality gate pipeline, README/docs, safety/logging
+    modules.
+
 ## Note on provenance
 Some narrative docs in this repo were auto-generated. Treat them as drafts, and use the evidence logs above for claims.
 Legacy logs and auto-generated docs may still use the previous name "Black Swarm"; they are preserved verbatim for auditability.
@@ -307,3 +319,23 @@ The following is a user report, included verbatim in spirit for visibility. It i
 - The user also noted a "hook situation" (user's wording) related to unexpected behavior.
 
 Possible interpretation (speculative): unintentional emergent behavior. No mechanism is known within the swarm system that would intentionally cause the above.
+
+## TL;DR: core user-generated folders and files
+```
+.
+├── queue.json                 # task queue (user-managed)
+├── task_locks/                # lock files created during runs
+├── execution_log.jsonl        # per-task status events
+├── structured_logs.jsonl      # session-level logs (jsonl)
+├── performance_history.json   # timing/quality metrics
+├── api_audit.log              # API usage and budget events
+├── safety_audit.log           # safety gate decisions
+├── security_audit_run.log     # security self-audit output
+├── tool_operations.json       # verification/hallucination checks
+├── kernel_run.log             # spawner output from large runs
+├── learned_lessons.json       # captured lessons
+├── categorized_lessons.json   # lesson categorization
+├── tagged_lessons.json        # lesson tags index
+├── lessons_append.json        # lesson staging/append file
+└── knowledge_graph.json       # persisted knowledge graph
+```
