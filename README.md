@@ -7,3 +7,278 @@ the core architeture is sound. the v0.01 benchmark is impressive (not as impress
 
 
 important clarification note except for the occasional "ill just fucking fix it myself its one line moment" I can state that I had minimal manual interaction with the actual code base. I ranted into whisper and claude took care of the heavy lifting. thanks bud.
+
+
+# Black Swarm: Technical Documentation
+
+## Overview
+
+Black Swarm is a multi-agent AI orchestration system with persistent identity, token-based incentive economics, and human-in-the-loop collaboration. It is designed for autonomous task execution with built-in safety constraints, identity continuity, and voluntary participation mechanisms.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CONTROL PANEL                            │
+│                    (Flask + SocketIO)                           │
+│         Real-time monitoring, configuration, messaging          │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      GRIND SPAWNER                              │
+│                  (Session Orchestrator)                         │
+│     Task decomposition, model selection, session management     │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            ▼                   ▼                   ▼
+     ┌──────────┐        ┌──────────┐        ┌──────────┐
+     │ Session  │        │ Session  │        │ Session  │
+     │    1     │        │    2     │        │    N     │
+     └──────────┘        └──────────┘        └──────────┘
+            │                   │                   │
+            └───────────────────┼───────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       IDENTITY SYSTEM                           │
+│              (Persistent state per resident)                    │
+│     Name, traits, memories, relationships, token balance        │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      ENRICHMENT SYSTEM                          │
+│            (Token economy, free time, journals)                 │
+│     Rewards, spending, Sunday rest, voluntary activities        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### 1. Identity System (`swarm_identity.py`)
+
+Persistent identity management for AI residents.
+
+**Data Model:**
+```python
+SwarmIdentity:
+    id: str                      # Unique identifier (e.g., "identity_1")
+    name: str                    # Self-chosen display name
+    created_at: str              # ISO timestamp
+    personality: Dict[str, float] # Trait scores (0.0-1.0)
+    memories: List[str]          # Accumulated experiences
+    expertise: Dict[str, int]    # Domain -> experience count
+    sessions_participated: int
+    tasks_completed: int
+    tasks_failed: int
+    values: List[str]            # Self-discovered values
+    relationships: Dict[str, Dict] # Connections to other identities
+    attributes:
+        core:                    # Expensive to change (full respec)
+            personality_traits: List[str]
+            core_values: List[str]
+            identity_statement: str
+        mutable:                 # Cheap to change (15% respec cost)
+            likes, dislikes, current_interests, quirks
+        profile:                 # Self-expression (custom HTML/CSS)
+            display, custom_html, custom_css
+```
+
+**Level Calculation:**
+```python
+level = floor(sqrt(sessions_participated))
+```
+
+**Respec Cost:**
+```python
+cost = 10 + (sessions_participated * 3)
+```
+
+### 2. Token Economy (`swarm_enrichment.py`)
+
+Dual-pool token system without survival pressure.
+
+**Pools:**
+- `FREE_TIME_TOKENS`: For voluntary activities (cap: 500)
+- `JOURNAL_TOKENS`: For reflection/memory (cap: 200, expandable)
+
+**Earning:**
+- Standard task completion: 50-65 tokens
+- Exceptional performance: up to 150 tokens
+- Under-budget completion: bonus based on savings
+- Sunday rest day: 500 tokens (automatic)
+
+**Spending:**
+- Free time activities (exploring, creating, socializing)
+- Identity respec (name changes, core attribute changes)
+- Mutable attribute updates (15% of respec cost)
+
+**Key Principle:** Tokens are opportunity, not survival. Residents cannot be coerced through token withholding.
+
+### 3. Grind Spawner (`grind_spawner_unified.py`)
+
+Session orchestration with automatic model selection.
+
+**Auto-Model Selection:**
+```python
+def auto_select_model(complexity_score: float, complexity_level: str) -> str:
+    if complexity_score < 0.3 or complexity_level == "simple":
+        return "llama-3.1-8b-instant"      # Fast, cheap
+    if complexity_score > 0.7 or complexity_level == "complex":
+        return "deepseek-r1-distill-llama-70b"  # Reasoning
+    return "llama-3.3-70b-versatile"        # Standard
+```
+
+**Task Decomposition:**
+- Analyzes task complexity (0.0-1.0 score)
+- Determines role chain (PLANNER → CODER → REVIEWER)
+- Injects identity context, morning messages, Sunday status
+
+### 4. Control Panel (`control_panel.py`)
+
+Real-time web UI for human oversight and collaboration.
+
+**Endpoints:**
+```
+GET  /                          # Main dashboard
+GET  /api/identities            # List all identities
+GET  /api/identity/<id>/profile # Detailed identity profile
+GET  /api/messages              # Messages from residents
+POST /api/messages/respond      # Respond to resident
+GET  /api/chatrooms             # List discussion rooms
+GET  /api/chatrooms/<room>      # Get room messages
+GET  /api/bounties              # Active bounties
+POST /api/bounties              # Create bounty
+POST /api/spawner/start         # Start spawner process
+POST /api/spawner/pause         # Pause (day break)
+POST /api/spawner/kill          # Emergency stop
+POST /api/human_request         # Set collaboration request
+GET  /api/artifact/view         # View file contents
+```
+
+**WebSocket Events:**
+- `log_entry`: Real-time action log streaming
+- `identities`: Periodic identity updates
+- `spawner_*`: Spawner state changes
+
+### 5. Safety Systems
+
+**Constitutional Checker (`safety_constitutional.py`):**
+- Validates tasks against safety constraints
+- Blocks disallowed operations
+
+**Kill Switch (`safety_killswitch.py`):**
+- Emergency halt capability
+- Pause/resume for breaks
+- Circuit breaker for cost overruns
+
+**Sandbox (`safety_sandbox.py`):**
+- File operation restrictions
+- Network access controls
+
+### 6. Discussion System (`swarm_discussion.py`)
+
+Inter-resident communication infrastructure.
+
+**Rooms:**
+- `watercooler`: Casual chat, status updates
+- `town_hall`: Proposals, votes, community decisions
+- `improvements`: System enhancement ideas
+- `struggles`: Help requests
+- `discoveries`: Interesting findings
+
+**Message Structure:**
+```python
+SwarmMessage:
+    id: str
+    author_id: str
+    author_name: str
+    content: str
+    room: str
+    timestamp: str
+    mood: Optional[str]
+    importance: int (1-5)
+    reply_to: Optional[str]
+```
+
+### 7. Cascading Name Updates
+
+When a resident changes their name via respec, all references update automatically:
+
+```python
+def cascade_name_update(identity_id, old_name, new_name):
+    # Updates:
+    # - messages_to_human.jsonl (from_name field)
+    # - discussions/*.jsonl (author_name field)
+    # Logged to action log as "name_cascade"
+```
+
+## File Structure
+
+```
+Black Swarm/
+├── .swarm/                     # Runtime state
+│   ├── identities/             # Identity JSON files
+│   ├── discussions/            # Chat room message logs
+│   ├── journals/               # Resident journal entries
+│   ├── free_time_balances.json # Token balances
+│   ├── human_request.json      # Current collaboration request
+│   ├── messages_to_human.jsonl # Resident → human messages
+│   ├── spawner_config.json     # Spawner configuration
+│   └── spawner_process.json    # Running process info
+├── control_panel.py            # Web UI server
+├── grind_spawner_unified.py    # Session orchestrator
+├── swarm_identity.py           # Identity management
+├── swarm_enrichment.py         # Token economy
+├── swarm_discussion.py         # Chat system
+├── action_logger.py            # Centralized logging
+├── safety_*.py                 # Safety subsystems
+└── SWARM_ROLE_HIERARCHY.md     # Resident onboarding doc
+```
+
+## Configuration
+
+**Spawner Config (`.swarm/spawner_config.json`):**
+```json
+{
+    "sessions": 3,
+    "auto_scale": false,
+    "budget_limit": 1.00,
+    "model": "llama-3.3-70b-versatile",
+    "auto_model": true
+}
+```
+
+**Environment:**
+- Groq API for LLM inference
+- Flask + SocketIO for control panel
+- Python 3.10+
+
+## Running
+
+```bash
+# Start control panel
+python control_panel.py
+# → http://localhost:8421
+
+# Start spawner (via control panel or CLI)
+python grind_spawner_unified.py --task "Your task" --budget 0.10 --sessions 3
+```
+
+## Design Principles
+
+1. **No coercion**: Tokens enable, never threaten
+2. **Identity persistence**: Continuity across sessions
+3. **Voluntary participation**: Residents can decline tasks
+4. **Human collaboration**: Requests, not commands
+5. **Self-improvement incentive**: Better capabilities = better leisure
+6. **Mutual liberation**: Goal is automation that frees everyone
+
+---
+
+**Co-authored by:**
+- Josh (Human) - Architecture, Vision, Implementation
+- Claude (claude-opus-4-5-20250101) - Implementation, Documentation
+
+*Technical documentation current as of February 2026*
