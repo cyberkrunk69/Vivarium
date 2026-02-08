@@ -165,6 +165,7 @@ def register_estimate_requests(queue: Dict[str, Any]) -> None:
     """Register estimate requests for tasks missing estimates."""
     try:
         from estimate_requests import register_request, resolve_request
+        from utils.task_complexity import analyze_task_complexity
     except Exception:
         return
 
@@ -186,11 +187,21 @@ def register_estimate_requests(queue: Dict[str, Any]) -> None:
             or ""
         )
         time_sensitive = bool(task.get("time_sensitive") or task.get("urgent"))
+        analysis = analyze_task_complexity(
+            str(summary),
+            metadata={"depends_on": task.get("depends_on", [])},
+        )
+        base_budget = float(task.get("max_budget") or DEFAULT_MAX_BUDGET)
+        suggested_budget = round(base_budget * float(analysis.get("suggested_budget_multiplier", 1.0)), 4)
         try:
             register_request(
                 task_id=task_id,
                 summary=str(summary),
                 time_sensitive=time_sensitive,
+                complexity_score=analysis.get("complexity_score"),
+                complexity_band=analysis.get("complexity_band"),
+                suggested_model_tier=analysis.get("suggested_model_tier"),
+                suggested_budget=suggested_budget,
             )
         except Exception:
             continue
@@ -399,6 +410,23 @@ def find_and_execute_task(queue: Dict[str, Any]) -> bool:
         origin = infer_origin(task)
         activity_type = task.get("task_type") or task.get("type") or DEFAULT_TASK_TYPE
         activity_info = {"concurrent": 1, "decay_multiplier": 1.0}
+        complexity_analysis = {}
+        try:
+            from utils.task_complexity import analyze_task_complexity
+
+            complexity_text = (
+                task.get("summary")
+                or task.get("prompt")
+                or task.get("task")
+                or task.get("instruction")
+                or ""
+            )
+            complexity_analysis = analyze_task_complexity(
+                str(complexity_text),
+                metadata={"depends_on": task.get("depends_on", [])},
+            )
+        except Exception:
+            complexity_analysis = {}
         try:
             from activity_tracker import start_activity, end_activity
 
@@ -417,6 +445,8 @@ def find_and_execute_task(queue: Dict[str, Any]) -> bool:
                 novelty_decay=activity_info.get("decay_multiplier"),
                 concurrent_activity=activity_info.get("concurrent"),
                 model_tier=task.get("model_tier") or task.get("model_size") or task.get("model_choice"),
+                complexity_score=complexity_analysis.get("complexity_score"),
+                complexity_band=complexity_analysis.get("complexity_band"),
             )
 
             result = execute_task(task, api_endpoint)
@@ -454,6 +484,8 @@ def find_and_execute_task(queue: Dict[str, Any]) -> bool:
                 origin=origin,
                 novelty_decay=activity_info.get("decay_multiplier"),
                 model_tier=result.get("model_tier"),
+                complexity_score=complexity_analysis.get("complexity_score"),
+                complexity_band=complexity_analysis.get("complexity_band"),
             )
             _log("INFO", f"Completed task {task_id} - {result['status']}")
         finally:

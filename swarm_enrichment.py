@@ -5175,7 +5175,15 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 bounty = alert.get("current_bounty", 0)
                 summary = alert.get("summary", "")
                 urgency = "URGENT" if alert.get("time_sensitive") else "OPEN"
-                lines.append(f"  [{urgency}] {task_id}: {summary[:60]} (bounty {bounty} tokens)")
+                band = alert.get("complexity_band") or "unknown"
+                tier = alert.get("suggested_model_tier")
+                budget = alert.get("suggested_budget")
+                tier_hint = f", tier {tier}" if tier else ""
+                budget_hint = f", ~${budget:.2f}" if isinstance(budget, (int, float)) else ""
+                lines.append(
+                    f"  [{urgency}] {task_id}: {summary[:60]} "
+                    f"(bounty {bounty} tokens, complexity {band}{tier_hint}{budget_hint})"
+                )
             lines.append("")
 
         # Gift Economy section

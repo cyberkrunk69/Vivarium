@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Type, Optional
 from enum import Enum
 from pydantic import BaseModel, ValidationError
+from utils.task_complexity import analyze_task_complexity
 
 # Import artifact schemas
 try:
@@ -233,60 +234,16 @@ def decompose_task(task: str) -> Dict[str, Any]:
 
     Returns complexity_score as float 0.0-1.0 for fine-grained adaptation.
     """
-    task_lower = task.lower()
-    words = task.split()
-    word_count = len(words)
-
-    # Base score from word count (longer tasks tend to be more complex)
-    # Normalize: 0-50 words = 0.1, 50+ words = 0.3
-    word_count_score = min(word_count / 50.0 * 0.3, 0.3)
-
-    # High-complexity keywords (indicate significant implementation)
-    high_complexity_keywords = ["create", "implement", "design", "architecture", "build", "refactor"]
-    high_complexity_score = len([kw for kw in high_complexity_keywords if kw in task_lower]) * 0.15
-
-    # Low-complexity keywords (indicate minor fixes)
-    low_complexity_keywords = ["fix", "update", "add", "change", "modify"]
-    low_complexity_penalty = len([kw for kw in low_complexity_keywords if kw in task_lower]) * 0.08
-
-    # Multi-word complexity phrases
-    complexity_phrases = ["multiple", "several", "various", "integrate", "coordinate", "complex"]
-    phrase_score = len([phrase for phrase in complexity_phrases if phrase in task_lower]) * 0.12
-
-    # File references (count file paths, extensions, or mentions like "file X", "files")
-    file_indicators = task_lower.count("file") + task_lower.count(".py") + task_lower.count(".js") + \
-                      task_lower.count(".ts") + task_lower.count(".jsx") + task_lower.count(".tsx")
-    file_score = min(file_indicators * 0.05, 0.2)
-
-    # Paper/architecture references (indicates research or significant design)
-    paper_keywords = ["arxiv", "paper", "algorithm", "framework", "architecture", "pattern", "design pattern"]
-    paper_score = len([kw for kw in paper_keywords if kw in task_lower]) * 0.1
-
-    # Calculate final complexity score
-    complexity_score = min(
-        word_count_score + high_complexity_score - low_complexity_penalty + phrase_score + file_score + paper_score,
-        1.0
-    )
-    # Floor at 0.0
-    complexity_score = max(complexity_score, 0.0)
-
+    analysis = analyze_task_complexity(task)
+    complexity_score = analysis.get("complexity_score", 0.0)
     # Determine simple vs complex using threshold
-    # Use 0.35 as threshold for classification
     is_complex = complexity_score >= 0.35
 
     return {
         "complexity": "complex" if is_complex else "simple",
         "assigned_to": "PLANNER" if is_complex else "CODER",
-        "complexity_score": round(complexity_score, 3),  # 3 decimal places
-        "analysis": {
-            "word_count": word_count,
-            "word_count_signal": round(word_count_score, 3),
-            "high_complexity_signals": round(high_complexity_score, 3),
-            "low_complexity_signals": round(low_complexity_penalty, 3),
-            "phrase_signals": round(phrase_score, 3),
-            "file_reference_signals": round(file_score, 3),
-            "paper_reference_signals": round(paper_score, 3)
-        }
+        "complexity_score": complexity_score,
+        "analysis": analysis.get("analysis", {}),
     }
 
 

@@ -81,6 +81,10 @@ def register_request(
     summary: str,
     time_sensitive: bool = False,
     escalation_rate: Optional[float] = None,
+    complexity_score: Optional[float] = None,
+    complexity_band: Optional[str] = None,
+    suggested_model_tier: Optional[str] = None,
+    suggested_budget: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Create or update an estimate request."""
     with _estimate_lock():
@@ -99,6 +103,10 @@ def register_request(
                 "escalation_rate": escalation_rate if escalation_rate is not None else ESCALATION_RATE,
                 "max_bounty": MAX_BOUNTY,
                 "status": "open",
+                "complexity_score": complexity_score,
+                "complexity_band": complexity_band,
+                "suggested_model_tier": suggested_model_tier,
+                "suggested_budget": suggested_budget,
             }
             requests[task_id] = req
 
@@ -250,6 +258,10 @@ def get_estimate_alerts(limit: int = 3) -> List[Dict[str, Any]]:
                 "summary": req.get("summary"),
                 "current_bounty": req.get("current_bounty", 0),
                 "time_sensitive": req.get("time_sensitive", False),
+                "complexity_score": req.get("complexity_score"),
+                "complexity_band": req.get("complexity_band"),
+                "suggested_model_tier": req.get("suggested_model_tier"),
+                "suggested_budget": req.get("suggested_budget"),
             }
         )
     return results
