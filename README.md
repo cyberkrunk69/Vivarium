@@ -1,8 +1,18 @@
-# Black Swarm
+# Vivarium
+*A living lab for multi-agent systems that improve in spurts.*
 
-Black Swarm is an early-stage, multi-worker task execution system for LLM workloads. It focuses on orchestration, safety checks, and audit-friendly logging.
+## Thesis (lead with the concept)
+Vivarium explores a simple idea: if AI workers have persistent identity, feedback loops, and room to play, their output can compound. Under the hood it is still a concrete execution system - queue -> worker -> API call -> logged result - but the social layer is intentional, not decoration.
+
+## Hook: the performance spurts are visible in the logs
+These are direct excerpts from log files committed to this repo:
+
+- 210/210 tasks passed safety validation; 74 tasks launched in parallel (kernel_run.log).
+- Same task run at 2026-02-03T06:22:39 took 43.310875s; rerun at 06:22:54 took 12.959601s; subsequent runs stayed in the 15-17s band (performance_history.json).
+- Budget enforcement is automatic: BUDGET_EXCEEDED with remaining 0.01912455 and requested 0.026945 (api_audit.log).
 
 This README prioritizes observable outputs. The "Observable Facts" section includes direct excerpts from log files committed to this repo.
+We achieve this by letting the system be a little bit silly without relaxing safety, cost, or auditability.
 
 ## TL;DR (what is actually in this repo)
 - swarm.py: FastAPI /grind endpoint that proxies Groq.
@@ -14,7 +24,8 @@ This README prioritizes observable outputs. The "Observable Facts" section inclu
 - performance_tracker.py + performance_history.json: timing/quality metrics.
 - swarm_enrichment.py + persona_memory.py: optional identity and reward modules.
 
-## Gameplay + community systems (highlights)
+## Playful systems (deliberately a little silly)
+The playful layer is a feature, not fluff. It creates room for critique, cross-pollination, and exploration while the core loop stays rigorous.
 
 **Hats (prompt overlays, infinite resource)**
 - Hats augment behavior without changing identity.
@@ -224,6 +235,7 @@ File: tool_operations.json (excerpt)
 
 ## Note on provenance
 Some narrative docs in this repo were auto-generated. Treat them as drafts, and use the evidence logs above for claims.
+Legacy logs and auto-generated docs may still use the previous name "Black Swarm"; they are preserved verbatim for auditability.
 
 ## Safety note
 This repo is a prototype. Run it in an isolated environment and review the safety modules before enabling any external access.
@@ -264,3 +276,20 @@ git push -u origin <branch>
 - Swarm (multi-agent) - Implementation and documentation
 - Cursor - Heavy lifting and cleanup
 - Claude 4.5 Opus - Everything else
+
+## Productivity timeline (facts only)
+Raw data from performance_history.json. Timestamps are as recorded. Tasks vary; no causal claims.
+
+- 2026-02-03T05:26:42.611004 - 120.5s (success)
+- 2026-02-03T06:15:12.943754 - 283.236662s (success)
+- 2026-02-03T06:22:39.682988 - 43.310875s (success, Knowledge Graph: Path Tracking Enhancement)
+- 2026-02-03T06:22:54.835440 - 12.959601s (success, same task)
+- 2026-02-03T06:24:33.518029 - 15.479648s (success, same task)
+- 2026-02-03T06:30:00.531144 - 184.14458s (success)
+- 2026-02-03T07:46:31.801794 - 13.271215s (failure)
+- 2026-02-03T08:45:02.825029 - 21.858283s (success)
+- 2026-02-03T09:16:45.682938 - 304.395678s (success)
+- 2026-02-03T09:29:25.782795 - 374.406098s (success)
+- 2026-02-03T09:35:53.963772 - 12.400989s (failure)
+
+Full log: performance_history.json

@@ -1,8 +1,8 @@
-# Black Swarm: Technical Documentation
+# Vivarium: Technical Documentation
 
 ## Overview
 
-Black Swarm is a multi-agent AI orchestration system with persistent identity, token-based incentive economics, and human-in-the-loop collaboration. It is designed for autonomous task execution with built-in safety constraints, identity continuity, and voluntary participation mechanisms.
+Vivarium is a multi-agent AI orchestration system with persistent identity, token-based incentive economics, and human-in-the-loop collaboration. It is designed for autonomous task execution with built-in safety constraints, identity continuity, and voluntary participation mechanisms.
 
 ## Architecture
 
@@ -239,7 +239,7 @@ def cascade_name_update(identity_id, old_name, new_name):
 ## File Structure
 
 ```
-Black Swarm/
+Vivarium/
 ├── .swarm/                     # Runtime state
 │   ├── identities/             # Identity JSON files
 │   ├── discussions/            # Chat room message logs
