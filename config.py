@@ -27,6 +27,10 @@ DEFAULT_MIN_BUDGET = 0.05
 # Default maximum budget for each agent task
 DEFAULT_MAX_BUDGET = 0.10
 
+# Groq cost estimates (USD per 1K tokens) for budget_used calculation
+GROQ_COST_PER_1K_INPUT = float(os.environ.get("GROQ_COST_PER_1K_INPUT", "0.0002"))
+GROQ_COST_PER_1K_OUTPUT = float(os.environ.get("GROQ_COST_PER_1K_OUTPUT", "0.0006"))
+
 # Timeout in seconds for acquiring locks before operation fails
 LOCK_TIMEOUT_SECONDS = 300
 

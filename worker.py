@@ -101,6 +101,32 @@ def append_execution_event(task_id: str, status: str, **fields: Any) -> None:
     append_jsonl(EXECUTION_LOG, record)
 
 
+def infer_identity(task: Dict[str, Any]) -> Dict[str, str]:
+    """Infer identity metadata for task attribution."""
+    identity_id = (
+        task.get("identity_id")
+        or task.get("resident_id")
+        or task.get("author_id")
+        or WORKER_ID
+    )
+    identity_name = task.get("identity_name") or task.get("author_name") or identity_id
+    return {"identity_id": identity_id, "identity_name": identity_name}
+
+
+def infer_origin(task: Dict[str, Any]) -> str:
+    """Infer task origin for balanced action paths."""
+    if task.get("origin"):
+        return task["origin"]
+    if task.get("bounty_id") or task.get("is_bounty"):
+        return "bounty"
+    if task.get("request_id") or task.get("user_request"):
+        return "user_request"
+    task_type = (task.get("task_type") or task.get("type") or "").lower()
+    if "maint" in task_type:
+        return "maintenance"
+    return "explore"
+
+
 def get_lock_path(task_id: str) -> Path:
     """Get the lock file path for a task."""
     return LOCKS_DIR / f"{task_id}.lock"
@@ -225,6 +251,8 @@ def execute_task(task: Dict[str, Any], api_endpoint: str) -> Dict[str, Any]:
                 "result_summary": result.get("result", "Task completed"),
                 "errors": None,
                 "model": result.get("model"),
+                "budget_used": result.get("budget_used"),
+                "usage": result.get("usage"),
             }
 
         error_msg = f"API returned {response.status_code}: {response.text}"
@@ -280,10 +308,51 @@ def find_and_execute_task(queue: Dict[str, Any]) -> bool:
             continue
 
         _log("INFO", f"Acquired lock for {task_id}")
+        identity = infer_identity(task)
+        origin = infer_origin(task)
+        activity_type = task.get("task_type") or task.get("type") or DEFAULT_TASK_TYPE
+        activity_info = {"concurrent": 1, "decay_multiplier": 1.0}
         try:
-            append_execution_event(task_id, "in_progress", started_at=get_timestamp())
+            from activity_tracker import start_activity, end_activity
+
+            activity_info = start_activity(identity["identity_id"], activity_type)
+        except Exception:
+            end_activity = None
+        try:
+            append_execution_event(
+                task_id,
+                "in_progress",
+                started_at=get_timestamp(),
+                identity_id=identity["identity_id"],
+                identity_name=identity["identity_name"],
+                origin=origin,
+                activity_type=activity_type,
+                novelty_decay=activity_info.get("decay_multiplier"),
+                concurrent_activity=activity_info.get("concurrent"),
+            )
 
             result = execute_task(task, api_endpoint)
+            estimated_budget = task.get("estimated_budget", task.get("max_budget", DEFAULT_MAX_BUDGET))
+            submission_id = None
+            if result.get("status") == "completed":
+                try:
+                    from jury_duty import submit_change
+
+                    submission = submit_change(
+                        task_id=task_id,
+                        author_id=identity["identity_id"],
+                        author_name=identity["identity_name"],
+                        summary=str(result.get("result_summary") or "")[:500],
+                        task_type=activity_type,
+                        origin=origin,
+                        estimated_budget=estimated_budget,
+                        actual_cost=result.get("budget_used"),
+                        novelty_decay=activity_info.get("decay_multiplier", 1.0),
+                    )
+                    submission_id = submission.get("submission_id")
+                except Exception as e:
+                    _log("WARN", f"Jury submission failed for {task_id}: {e}")
+
             append_execution_event(
                 task_id,
                 result["status"],
@@ -291,9 +360,19 @@ def find_and_execute_task(queue: Dict[str, Any]) -> bool:
                 result_summary=result.get("result_summary"),
                 errors=result.get("errors"),
                 model=result.get("model"),
+                estimated_budget=estimated_budget,
+                budget_used=result.get("budget_used"),
+                submission_id=submission_id,
+                origin=origin,
+                novelty_decay=activity_info.get("decay_multiplier"),
             )
             _log("INFO", f"Completed task {task_id} - {result['status']}")
         finally:
+            if "end_activity" in locals() and end_activity:
+                try:
+                    end_activity(identity["identity_id"], activity_type)
+                except Exception:
+                    pass
             release_lock(task_id)
             _log("INFO", f"Released lock for {task_id}")
 

@@ -17,7 +17,7 @@ import os
 import time
 import threading
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO, emit
 from watchdog.observers import Observer
@@ -33,6 +33,8 @@ ACTION_LOG = WORKSPACE / "action_log.jsonl"
 KILL_SWITCH = WORKSPACE / ".swarm" / "kill_switch.json"
 FREE_TIME_BALANCES = WORKSPACE / ".swarm" / "free_time_balances.json"
 IDENTITIES_DIR = WORKSPACE / ".swarm" / "identities"
+EXECUTION_LOG = WORKSPACE / "execution_log.json"
+STATS_EXPORT_DIR = WORKSPACE / ".swarm" / "exports"
 
 # Track last read position
 last_log_position = 0
@@ -2042,6 +2044,150 @@ def calculate_respec_cost(sessions: int) -> int:
     return RESPEC_BASE_COST + (sessions * RESPEC_SCALE_PER_SESSION)
 
 
+def _parse_iso_timestamp(value: str) -> datetime | None:
+    """Parse ISO timestamps, returning None on failure."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_execution_log() -> dict:
+    if EXECUTION_LOG.exists():
+        try:
+            with open(EXECUTION_LOG, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def _collect_task_stats(now: datetime) -> dict:
+    """Aggregate task metrics from execution_log.json."""
+    log = _load_execution_log()
+    tasks = log.get("tasks", {}) if isinstance(log, dict) else {}
+
+    unique_workers = set()
+    in_progress = 0
+    completed_last_minute = 0
+    completed_last_hour = 0
+    failed_last_hour = 0
+    cost_last_hour = 0.0
+
+    for task in tasks.values():
+        worker_id = task.get("worker_id")
+        if worker_id:
+            unique_workers.add(worker_id)
+
+        status = task.get("status")
+        if status == "in_progress":
+            in_progress += 1
+
+        completed_at = _parse_iso_timestamp(task.get("completed_at"))
+        if not completed_at:
+            continue
+
+        if now - completed_at <= timedelta(minutes=1) and status == "completed":
+            completed_last_minute += 1
+
+        if now - completed_at <= timedelta(hours=1):
+            if status == "completed":
+                completed_last_hour += 1
+                cost_last_hour += float(task.get("budget_used", 0.0) or 0.0)
+            elif status == "failed":
+                failed_last_hour += 1
+
+    total_recent = completed_last_hour + failed_last_hour
+    error_rate = (failed_last_hour / total_recent) if total_recent else 0.0
+
+    return {
+        "unique_workers": len(unique_workers),
+        "in_progress": in_progress,
+        "tasks_per_minute": completed_last_minute,
+        "cost_per_hour": cost_last_hour,
+        "error_rate": error_rate,
+    }
+
+
+def get_stats_snapshot() -> dict:
+    """Health-panel stats for /api/stats."""
+    now = datetime.now()
+    task_stats = _collect_task_stats(now)
+
+    total_workers = task_stats["unique_workers"]
+    if total_workers == 0 and SPAWNER_CONFIG_FILE.exists():
+        try:
+            with open(SPAWNER_CONFIG_FILE) as f:
+                total_workers = int(json.load(f).get("sessions", 0))
+        except Exception:
+            total_workers = 0
+
+    checkpoint_file = WORKSPACE / "swarm_checkpoint.json"
+    checkpoint_age_minutes = 0.0
+    if checkpoint_file.exists():
+        try:
+            checkpoint_age_seconds = time.time() - checkpoint_file.stat().st_mtime
+            checkpoint_age_minutes = max(checkpoint_age_seconds / 60.0, 0.0)
+        except Exception:
+            checkpoint_age_minutes = 0.0
+
+    return {
+        "total_workers": total_workers,
+        "active_workers": task_stats["in_progress"],
+        "tasks_per_minute": task_stats["tasks_per_minute"],
+        "cost_per_hour": round(task_stats["cost_per_hour"], 4),
+        "api_error_rate": round(task_stats["error_rate"], 4),
+        "checkpoint_freshness_minutes": round(checkpoint_age_minutes, 2),
+    }
+
+
+def _archive_logs() -> dict:
+    """Move logs to archive folder and truncate hot files."""
+    import shutil
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_dir = WORKSPACE / ".swarm" / "log_archive" / timestamp
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    log_files = [
+        ACTION_LOG,
+        WORKSPACE / "server.log",
+        WORKSPACE / "security_audit_run.log",
+        WORKSPACE / "safety_audit.log",
+        WORKSPACE / "execution_log.json",
+    ]
+    archived = []
+    for log_path in log_files:
+        if log_path.exists():
+            try:
+                shutil.move(str(log_path), str(archive_dir / log_path.name))
+                archived.append(log_path.name)
+            except Exception:
+                try:
+                    log_path.write_text("")
+                except Exception:
+                    pass
+
+    return {"archive_dir": str(archive_dir), "archived": archived}
+
+
+def _export_stats_snapshot() -> dict:
+    STATS_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    snapshot = get_stats_snapshot()
+    payload = {
+        "generated_at": datetime.now().isoformat(),
+        "stats": snapshot,
+        "spawner": get_spawner_status(),
+    }
+    filename = f"stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    path = STATS_EXPORT_DIR / filename
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    payload["file"] = str(path)
+    return payload
+
+
 def get_identities():
     """Get all identity info with token balances and profile snippets."""
     identities = []
@@ -2260,6 +2406,12 @@ def api_toggle_stop():
     return jsonify({'stopped': new_status})
 
 
+@app.route('/api/stats')
+def api_stats():
+    """Stats feed for health panels."""
+    return jsonify(get_stats_snapshot())
+
+
 # Spawner process tracking
 SPAWNER_PROCESS_FILE = WORKSPACE / ".swarm" / "spawner_process.json"
 SPAWNER_CONFIG_FILE = WORKSPACE / ".swarm" / "spawner_config.json"
@@ -2337,6 +2489,103 @@ def save_spawner_config(config: dict):
         json.dump(config, f, indent=2)
 
 
+def _start_spawner_process(config: dict) -> dict:
+    """Start spawner process with provided config."""
+    import subprocess
+    import sys
+
+    spawner_script = WORKSPACE / "grind_spawner_unified.py"
+    if not spawner_script.exists():
+        return {'success': False, 'error': 'grind_spawner_unified.py not found'}
+
+    sessions = config.get('sessions', 3)
+    budget_limit = config.get('budget_limit', 1.0)
+    model = config.get('model', 'llama-3.3-70b-versatile')
+
+    cmd = [
+        sys.executable,
+        str(spawner_script),
+        '--sessions', str(sessions),
+        '--budget', str(budget_limit / sessions) if sessions else str(budget_limit),
+        '--workspace', str(WORKSPACE),
+        '--model', model
+    ]
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(WORKSPACE),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as exc:
+        return {'success': False, 'error': str(exc)}
+
+    save_spawner_process(process.pid, True, config)
+    socketio.emit('spawner_started', {'pid': process.pid})
+    return {'success': True, 'pid': process.pid}
+
+
+def _kill_spawner_process(reason: str = "Emergency stop from control panel") -> dict:
+    """Kill spawner process if running."""
+    import subprocess
+
+    status = get_spawner_status()
+    pid = status.get('pid')
+
+    halt_file = WORKSPACE / "HALT"
+    halt_file.write_text(json.dumps({
+        'halted': True,
+        'timestamp': datetime.now().isoformat(),
+        'reason': reason
+    }, indent=2))
+
+    if pid:
+        try:
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True)
+            else:
+                subprocess.run(['kill', '-9', str(pid)], capture_output=True)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc), 'killed_pid': pid}
+
+    save_spawner_process(pid, False)
+    socketio.emit('spawner_killed')
+    return {'success': True, 'killed_pid': pid}
+
+
+def _pause_spawner(reason: str = "Paused from control panel") -> dict:
+    try:
+        from safety_killswitch import KillSwitch
+        ks = KillSwitch(str(WORKSPACE))
+        ks.pause_all(reason)
+        socketio.emit('spawner_paused')
+        return {'success': True}
+    except Exception:
+        pause_file = WORKSPACE / "PAUSE"
+        pause_file.write_text(json.dumps({
+            'paused': True,
+            'timestamp': datetime.now().isoformat(),
+            'reason': reason
+        }, indent=2))
+        return {'success': True}
+
+
+def _resume_spawner() -> dict:
+    try:
+        from safety_killswitch import KillSwitch
+        ks = KillSwitch(str(WORKSPACE))
+        ks.resume()
+        socketio.emit('spawner_resumed')
+        return {'success': True}
+    except Exception:
+        pause_file = WORKSPACE / "PAUSE"
+        if pause_file.exists():
+            pause_file.unlink()
+        return {'success': True}
+
+
 @app.route('/api/spawner/status')
 def api_spawner_status():
     """Get spawner status."""
@@ -2346,9 +2595,6 @@ def api_spawner_status():
 @app.route('/api/spawner/start', methods=['POST'])
 def api_start_spawner():
     """Start the spawner process."""
-    import subprocess
-    import sys
-
     status = get_spawner_status()
     if status['running']:
         return jsonify({'success': False, 'error': 'Spawner already running', 'pid': status['pid']})
@@ -2384,109 +2630,26 @@ def api_start_spawner():
     if pause_file.exists():
         pause_file.unlink()
 
-    # Start spawner process
-    try:
-        spawner_script = WORKSPACE / "grind_spawner_unified.py"
-        if not spawner_script.exists():
-            return jsonify({'success': False, 'error': 'grind_spawner_unified.py not found'})
-
-        # Build command
-        cmd = [
-            sys.executable,
-            str(spawner_script),
-            '--sessions', str(sessions),
-            '--budget', str(budget_limit / sessions),  # Per-session budget
-            '--workspace', str(WORKSPACE),
-            '--model', model
-        ]
-
-        # Start process (detached on Windows)
-        process = subprocess.Popen(
-            cmd,
-            cwd=str(WORKSPACE),
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-
-        save_spawner_process(process.pid, True, config)
-        socketio.emit('spawner_started', {'pid': process.pid})
-
-        return jsonify({'success': True, 'pid': process.pid})
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    result = _start_spawner_process(config)
+    return jsonify(result)
 
 
 @app.route('/api/spawner/pause', methods=['POST'])
 def api_pause_spawner():
     """Pause the spawner (creates PAUSE file)."""
-    try:
-        from safety_killswitch import KillSwitch
-        ks = KillSwitch(str(WORKSPACE))
-        ks.pause_all("Paused from control panel")
-        socketio.emit('spawner_paused')
-        return jsonify({'success': True})
-    except Exception as e:
-        # Fallback: create pause file directly
-        pause_file = WORKSPACE / "PAUSE"
-        pause_file.write_text(json.dumps({
-            'paused': True,
-            'timestamp': datetime.now().isoformat(),
-            'reason': 'Paused from control panel'
-        }, indent=2))
-        return jsonify({'success': True})
+    return jsonify(_pause_spawner("Paused from control panel"))
 
 
 @app.route('/api/spawner/resume', methods=['POST'])
 def api_resume_spawner():
     """Resume the spawner (removes PAUSE file)."""
-    try:
-        from safety_killswitch import KillSwitch
-        ks = KillSwitch(str(WORKSPACE))
-        ks.resume()
-        socketio.emit('spawner_resumed')
-        return jsonify({'success': True})
-    except Exception as e:
-        # Fallback: remove pause file directly
-        pause_file = WORKSPACE / "PAUSE"
-        if pause_file.exists():
-            pause_file.unlink()
-        return jsonify({'success': True})
+    return jsonify(_resume_spawner())
 
 
 @app.route('/api/spawner/kill', methods=['POST'])
 def api_kill_spawner():
     """Kill the spawner process."""
-    import subprocess
-
-    status = get_spawner_status()
-    pid = status.get('pid')
-
-    # Create HALT file as backup
-    halt_file = WORKSPACE / "HALT"
-    halt_file.write_text(json.dumps({
-        'halted': True,
-        'timestamp': datetime.now().isoformat(),
-        'reason': 'Emergency stop from control panel'
-    }, indent=2))
-
-    if pid:
-        try:
-            # Windows: taskkill
-            if os.name == 'nt':
-                subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True)
-            else:
-                # Unix: kill
-                subprocess.run(['kill', '-9', str(pid)], capture_output=True)
-        except Exception as e:
-            print(f"Error killing process {pid}: {e}")
-
-    # Update process file
-    save_spawner_process(pid, False)
-    socketio.emit('spawner_killed')
-
-    return jsonify({'success': True, 'killed_pid': pid})
+    return jsonify(_kill_spawner_process())
 
 
 @app.route('/api/spawner/config', methods=['POST'])
@@ -2502,6 +2665,108 @@ def api_update_spawner_config():
     save_spawner_config(config)
     socketio.emit('config_updated', config)
     return jsonify({'success': True, 'config': config})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN COMMANDS - used by admin_palette.js
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.route('/api/admin/restart-swarm', methods=['POST'])
+def api_admin_restart_swarm():
+    """Restart spawner using last saved configuration."""
+    status = get_spawner_status()
+    if status.get('running'):
+        kill_result = _kill_spawner_process("Admin restart")
+        if not kill_result.get("success"):
+            return jsonify(kill_result)
+
+    config = status.get("config")
+    if not config and SPAWNER_CONFIG_FILE.exists():
+        try:
+            with open(SPAWNER_CONFIG_FILE) as f:
+                config = json.load(f)
+        except Exception:
+            config = None
+
+    if not config:
+        config = {'sessions': 3, 'auto_scale': False, 'budget_limit': 1.0, 'model': 'llama-3.3-70b-versatile'}
+
+    result = _start_spawner_process(config)
+    result["restarted"] = True
+    return jsonify(result)
+
+
+@app.route('/api/admin/clear-logs', methods=['POST'])
+def api_admin_clear_logs():
+    """Archive logs and clear current files."""
+    result = _archive_logs()
+    return jsonify({'success': True, **result})
+
+
+@app.route('/api/admin/export-stats', methods=['POST'])
+def api_admin_export_stats():
+    """Export stats snapshot to file."""
+    payload = _export_stats_snapshot()
+    return jsonify({'success': True, **payload})
+
+
+@app.route('/api/admin/pause-workers', methods=['POST'])
+def api_admin_pause_workers():
+    """Pause active workers/spawner."""
+    return jsonify(_pause_spawner("Paused via admin palette"))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# JURY DUTY - blind voting endpoints (no vote counts surfaced)
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.route('/api/jury/assignments')
+def api_jury_assignments():
+    voter_id = request.args.get('voter_id')
+    if not voter_id:
+        return jsonify({"error": "missing_voter_id"}), 400
+    from jury_duty import get_assignments
+    return jsonify({"assignments": get_assignments(voter_id)})
+
+
+@app.route('/api/jury/vote', methods=['POST'])
+def api_jury_vote():
+    data = request.json or {}
+    submission_id = data.get("submission_id")
+    voter_id = data.get("voter_id")
+    vote = data.get("vote")
+    justification = data.get("justification", "")
+    if not submission_id or not voter_id or not vote:
+        return jsonify({"success": False, "error": "missing_fields"}), 400
+    from jury_duty import cast_vote
+    result = cast_vote(
+        submission_id=submission_id,
+        voter_id=voter_id,
+        vote=vote,
+        justification=justification,
+    )
+    status = 200 if result.get("success") else 400
+    return jsonify(result), status
+
+
+@app.route('/api/jury/rewards')
+def api_jury_rewards():
+    voter_id = request.args.get('voter_id')
+    if not voter_id:
+        return jsonify({"error": "missing_voter_id"}), 400
+    from jury_duty import get_voter_rewards
+    return jsonify({"rewards": get_voter_rewards(voter_id)})
+
+
+@app.route('/api/jury/author_feedback')
+def api_jury_author_feedback():
+    identity_id = request.args.get('identity_id')
+    if not identity_id:
+        return jsonify({"error": "missing_identity_id"}), 400
+    from jury_duty import get_author_feedback
+    return jsonify({"feedback": get_author_feedback(identity_id)})
 
 
 # Human request storage

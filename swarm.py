@@ -16,6 +16,8 @@ from config import (
     GROQ_API_KEY,
     GROQ_API_URL,
     DEFAULT_GROQ_MODEL,
+    GROQ_COST_PER_1K_INPUT,
+    GROQ_COST_PER_1K_OUTPUT,
     validate_model_id,
     validate_config,
 )
@@ -58,6 +60,7 @@ class GrindResponse(BaseModel):
     model: str
     task_id: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
+    budget_used: Optional[float] = None
 
 
 @app.post("/grind", response_model=GrindResponse)
@@ -99,10 +102,24 @@ async def grind(req: GrindRequest) -> GrindResponse:
     except (KeyError, IndexError) as e:
         raise HTTPException(status_code=500, detail=f"Invalid Groq response: {e}") from e
 
+    usage = data.get("usage") or {}
+    prompt_tokens = usage.get("prompt_tokens", 0) or 0
+    completion_tokens = usage.get("completion_tokens", 0) or 0
+    budget_used = (
+        (prompt_tokens / 1000.0) * GROQ_COST_PER_1K_INPUT
+        + (completion_tokens / 1000.0) * GROQ_COST_PER_1K_OUTPUT
+    )
+
+    if req.min_budget is not None:
+        budget_used = max(req.min_budget, budget_used)
+    if req.max_budget is not None:
+        budget_used = min(req.max_budget, budget_used)
+
     return GrindResponse(
         status="completed",
         result=result_text,
         model=model,
         task_id=req.task_id,
-        usage=data.get("usage"),
+        usage=usage,
+        budget_used=round(budget_used, 6),
     )

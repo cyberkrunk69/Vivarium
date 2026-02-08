@@ -647,6 +647,13 @@ class EnrichmentSystem:
     WEEKLY_EFFICIENCY_BONUS_10 = 25 # Bonus if 10%+ improvement
     WEEKLY_EFFICIENCY_BONUS_20 = 50 # Bonus if 20%+ improvement
 
+    # Budget savings rewards (jury-verified)
+    TOKENS_PER_DOLLAR = 1000        # 1 USD of savings ~= 1000 tokens
+    SAVINGS_PAYOUT_RATE = 0.65      # % of saved tokens paid to author
+    SAVINGS_POOL_RATE = 0.25        # % of saved tokens to efficiency pool
+    QUALITY_MULT_MIN = 0.80         # Quality multiplier floor
+    QUALITY_MULT_MAX = 1.25         # Quality multiplier cap
+
     def grant_free_time(self, identity_id: str, tokens: int, reason: str = "under_budget"):
         """
         Grant tokens to an identity, SPLIT between free time and journaling pools.
@@ -2374,6 +2381,82 @@ class EnrichmentSystem:
             print(f"[EFFICIENCY] {identity_name} saved {savings} tokens! +{pool_contribution} to pool (total: {pool['balance']})")
 
         return result
+
+    def _savings_tokens(self, estimated_budget: Optional[float], actual_cost: Optional[float]) -> int:
+        """Convert budget savings into token units."""
+        if estimated_budget is None or actual_cost is None:
+            return 0
+        savings = max(0.0, estimated_budget - actual_cost)
+        return int(round(savings * self.TOKENS_PER_DOLLAR))
+
+    def _quality_multiplier(self, quality_score: float) -> float:
+        """Scale reward based on jury quality score."""
+        quality_score = max(0.0, min(1.0, quality_score))
+        span = self.QUALITY_MULT_MAX - self.QUALITY_MULT_MIN
+        return self.QUALITY_MULT_MIN + (span * quality_score)
+
+    def apply_verdict_reward(
+        self,
+        *,
+        author_id: str,
+        author_name: str,
+        estimated_budget: Optional[float],
+        actual_cost: Optional[float],
+        quality_score: float,
+        origin: str,
+        novelty_decay: float,
+        path_multiplier: float,
+        submission_id: str,
+    ) -> dict:
+        """
+        Reward a contributor based on budget savings + jury quality.
+        """
+        savings_tokens = self._savings_tokens(estimated_budget, actual_cost)
+        if savings_tokens <= 0:
+            return {
+                "reward_tokens": 0,
+                "savings_tokens": 0,
+                "reason": "no_savings",
+            }
+
+        quality_mult = self._quality_multiplier(quality_score)
+        novelty_decay = max(0.0, min(1.0, novelty_decay))
+        path_multiplier = max(0.5, min(1.5, path_multiplier))
+
+        direct_reward = int(
+            savings_tokens
+            * self.SAVINGS_PAYOUT_RATE
+            * quality_mult
+            * novelty_decay
+            * path_multiplier
+        )
+        pool_contribution = int(savings_tokens * self.SAVINGS_POOL_RATE)
+
+        if direct_reward > 0:
+            self.grant_free_time(author_id, direct_reward, reason=f"jury_pass_{submission_id}")
+
+        # Credit efficiency pool with a portion of savings
+        pool = self._load_efficiency_pool()
+        pool["balance"] = pool.get("balance", 0) + pool_contribution
+        pool["total_savings_tokens"] = pool.get("total_savings_tokens", 0) + savings_tokens
+        self._save_efficiency_pool(pool)
+
+        if _action_logger:
+            _action_logger.log(
+                ActionType.IDENTITY,
+                "jury_reward",
+                f"{author_name} rewarded {direct_reward} tokens (savings {savings_tokens})",
+                actor=author_id,
+            )
+
+        return {
+            "reward_tokens": direct_reward,
+            "savings_tokens": savings_tokens,
+            "pool_contribution": pool_contribution,
+            "quality_multiplier": round(quality_mult, 3),
+            "novelty_decay": round(novelty_decay, 3),
+            "path_multiplier": round(path_multiplier, 3),
+        }
 
     def distribute_efficiency_pool(self) -> dict:
         """
@@ -4890,6 +4973,27 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             with open(work_file, 'w') as f:
                 json.dump(work.to_dict(), f, indent=2)
 
+    def get_jury_feedback(self, identity_id: str, limit: int = 3) -> list:
+        """Fetch recent jury verdict feedback for this identity."""
+        feedback_file = self.workspace / ".swarm" / "jury" / "author_feedback.jsonl"
+        if not feedback_file.exists():
+            return []
+        entries = []
+        try:
+            with open(feedback_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            entry = json.loads(line)
+                            if entry.get("author_id") == identity_id:
+                                entries.append(entry)
+                        except json.JSONDecodeError:
+                            continue
+        except Exception:
+            return []
+
+        return entries[-limit:]
+
     def get_enrichment_context(self, identity_id: str, identity_name: str) -> str:
         """Generate enrichment context for injection into worker prompt."""
         balances = self.get_all_balances(identity_id)
@@ -5030,6 +5134,27 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 "  Be patient. The connection is real, just asynchronous.",
                 "",
             ])
+
+        # Jury verdict feedback (blind, no vote counts)
+        jury_feedback = self.get_jury_feedback(identity_id)
+        if jury_feedback:
+            lines.extend([
+                "JURY VERDICTS:",
+                "  Community review completed on your recent work.",
+                "",
+            ])
+            for entry in jury_feedback[-3:]:
+                verdict = entry.get("verdict", "pending").upper()
+                reward = entry.get("reward", 0)
+                lines.append(f"  Verdict: {verdict} | Reward: {reward} tokens")
+                feedback = entry.get("feedback", {})
+                strengths = feedback.get("strengths", [])
+                concerns = feedback.get("concerns", [])
+                if strengths:
+                    lines.append("    Strengths: " + "; ".join(strengths))
+                if concerns:
+                    lines.append("    Concerns: " + "; ".join(concerns))
+                lines.append("")
 
         # Gift Economy section
         daily_gifted = self._get_daily_gifted(identity_id)

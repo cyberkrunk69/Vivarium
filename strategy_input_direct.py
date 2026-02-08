@@ -5,8 +5,9 @@ Quick strategic input from the swarm
 import os
 from groq_client import execute_with_groq
 
-# Set API key
-os.environ['GROQ_API_KEY'] = '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'
+# Require API key from environment (do not hardcode secrets)
+if not os.environ.get("GROQ_API_KEY"):
+    raise RuntimeError("GROQ_API_KEY must be set in environment")
 
 prompt = """You are the autonomous AI swarm analyzing your own strategic position.
 
