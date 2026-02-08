@@ -1,4 +1,4 @@
-3500 linux kernal lines - 5s - 0.02c
+3500 linux kernal lines - 5s - 2c
 output > a really well structured plausable sounding analysis with 3 critial bugs found. Ive been told its inaccurate *shrug* beats me. Pretty good for a floor though. Cant wait to test the new incentive system for honesty and quality now. I just cant seem to get past that darn last mile. Final wiring up is always the hardest part though right?
 
 EXTREME WARNING!
