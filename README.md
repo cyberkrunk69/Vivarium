@@ -198,6 +198,37 @@ Some narrative docs in this repo were auto-generated. Treat them as drafts, and 
 ## Safety note
 This repo is a prototype. Run it in an isolated environment and review the safety modules before enabling any external access.
 
+## Troubleshooting: unexpected `git` output (hooks, wrappers, missing remotes)
+If `git commit` prints lines that don’t look like normal Git output (for example `tr: Illegal byte sequence`, “Automatic Checkpoint …”, “Running pytest …”, etc.), that’s almost always coming from **a hook or wrapper script** running *around* Git (repo hooks, global hooks, or a shell alias/function).
+
+Quick checks (run inside the repo):
+
+```bash
+# Is git an alias/function/script?
+type -a git
+
+# Are hooks redirected somewhere?
+git config --show-origin --get core.hooksPath
+git config --global --show-origin --get core.hooksPath
+git config --system --show-origin --get core.hooksPath
+
+# What hooks exist locally for this repo?
+ls -la .git/hooks
+```
+
+Quick bypass (use only to confirm it’s a hook/wrapper issue):
+
+```bash
+git --no-verify commit -m "test"
+```
+
+If `git push` says “No configured push destination”, that usually means the repo was copied/downloaded without a remote (common with ZIP downloads). Fix by cloning, or adding a remote:
+
+```bash
+git remote add origin <repo-url>
+git push -u origin <branch>
+```
+
 ## Credits
 - Josh (Human) - Architecture, vision, implementation
 - Swarm (multi-agent) - Implementation and documentation
