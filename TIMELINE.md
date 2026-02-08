@@ -71,6 +71,15 @@ The following are commit messages recorded in git log; included verbatim:
   blocked writes, encoding errors, or verification mismatches.
 - Failures cluster around integration steps (safety wiring, file operations),
   suggesting these are the highest-friction points to stabilize.
+- User-reported environment anomalies (macOS) and adversarial model behavior
+  across platforms were cited as blockers; the response included large-scale
+  cleanup, malware scanning, and file corruption repair during the Cursor era.
+  The user also reported anomalous behavior observations after a repo download.
+  Treat this as user-reported context, not verified by logs.
+- Inference noted by the developer: running the swarm in an anomalous
+  environment could plausibly lead to data destruction or file corruption.
+  As a result, the developer prioritized tech-debt cleanup and crowd-sourced
+  analysis of the anomaly.
 
 ## Claude era vs Cursor era (speed + quality comparison)
 Definition used for this comparison:

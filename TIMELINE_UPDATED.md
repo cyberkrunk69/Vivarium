@@ -39,6 +39,14 @@ Commit messages recorded in git log:
 - Guardrails (safety, budget) prevent damage but also surface integration
   friction.
 - Performance improves on reruns, but verification is required to trust gains.
+- User-reported anomalies: the developer noted adversarial LLM behavior across
+  platforms on macOS, followed by a large cleanup/malware scan and file
+  corruption repair effort during the Cursor era. The developer also reported
+  anomalous behavior after downloading the repo. This is user-reported context,
+  not independently verified by logs.
+- Developer inference: an anomalous environment could plausibly produce data
+  destruction or file corruption. This led to a decision to tackle tech debt
+  and crowd-source analysis of the anomaly.
 
 ## Claude era vs Cursor era (summary)
 Definition used:
