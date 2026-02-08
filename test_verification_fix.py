@@ -30,15 +30,19 @@ def test_hallucination_detection():
 
     # Create a temporary directory to simulate workspace
     with tempfile.TemporaryDirectory() as temp_dir:
+        prev_cwd = os.getcwd()
         os.chdir(temp_dir)
 
-        # Don't actually create the files - simulate hallucination
-        verification = verify_grind_completion(
-            session_id=999,
-            run_num=1,
-            output=output_with_claims,
-            returncode=0
-        )
+        try:
+            # Don't actually create the files - simulate hallucination
+            verification = verify_grind_completion(
+                session_id=999,
+                run_num=1,
+                output=output_with_claims,
+                returncode=0
+            )
+        finally:
+            os.chdir(prev_cwd)
 
         print(f"Verification result: {verification['verification_status']}")
         print(f"Hallucination detected: {verification.get('hallucination_detected', False)}")
@@ -106,18 +110,22 @@ def test_legitimate_file_creation():
     })
 
     with tempfile.TemporaryDirectory() as temp_dir:
+        prev_cwd = os.getcwd()
         os.chdir(temp_dir)
 
-        # Actually create the file
-        test_file = Path("new_file.py")
-        test_file.write_text("print('Hello, World!')")
+        try:
+            # Actually create the file
+            test_file = Path("new_file.py")
+            test_file.write_text("print('Hello, World!')")
 
-        verification = verify_grind_completion(
-            session_id=888,
-            run_num=1,
-            output=output_with_creation,
-            returncode=0
-        )
+            verification = verify_grind_completion(
+                session_id=888,
+                run_num=1,
+                output=output_with_creation,
+                returncode=0
+            )
+        finally:
+            os.chdir(prev_cwd)
 
         print(f"Verification result: {verification['verification_status']}")
         print(f"Hallucination detected: {verification.get('hallucination_detected', False)}")
