@@ -67,18 +67,23 @@ def _validate_workflow_doc(doc, path: Path) -> List[ScanResult]:
         )
         return results
 
-    if "on" not in doc:
-        results.append(ScanResult(str(path), "workflow_missing_on", "Missing required `on` key."))
-    else:
+    on_value = None
+    if "on" in doc:
         on_value = doc.get("on")
-        if not isinstance(on_value, (dict, list, str)):
-            results.append(
-                ScanResult(
-                    str(path),
-                    "workflow_invalid_on",
-                    "`on` must be mapping, list, or string.",
-                )
+    elif True in doc:
+        # PyYAML (YAML 1.1) may parse `on` as boolean True.
+        on_value = doc.get(True)
+    else:
+        results.append(ScanResult(str(path), "workflow_missing_on", "Missing required `on` key."))
+
+    if on_value is not None and not isinstance(on_value, (dict, list, str)):
+        results.append(
+            ScanResult(
+                str(path),
+                "workflow_invalid_on",
+                "`on` must be mapping, list, or string.",
             )
+        )
 
     jobs = doc.get("jobs")
     if jobs is None:
