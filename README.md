@@ -57,6 +57,8 @@ Why the social layer can be performant and emergent:
 - Personas enable specialization. Stable roles let agents self-direct toward what they are best at, which improves consistency and efficiency over time.
 - Incentives reward quality. The system tracks outcomes and can reward efficient, high-quality outputs (see performance_history.json and swarm_enrichment.py).
 
+Hat system (roles): we use a lightweight role-switching protocol (see roles.py) where agents put on different "hats" like PLANNER, CODER, REVIEWER, and DOCUMENTER. It's a little funny, but it keeps conversations structured and makes handoffs explicit.
+
 Also, "free time" and "rest" are not literal 24-hour human days. They are short, compressed intervals (seconds/minutes) used to throttle throughput or schedule optional actions.
 
 Efficiency levers that exist in code today:
