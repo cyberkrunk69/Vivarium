@@ -223,6 +223,28 @@ File: tool_operations.json, excerpt
 - security_audit_run.log: self-audit budget + token usage.
 - tool_operations.json: verification and hallucination detection results.
 
+## Daily achievement map (tools used)
+Based on commit messages and logs in this repo.
+
+- 2026-02-03:
+  - Achieved: core swarm system, early waves, dashboard redesign, knowledge
+    infrastructure, Groq integration, safety hardening, git automation.
+  - Tools: swarm.py (/grind API), orchestrator.py + worker.py, control_panel.py,
+    safety_*.py, action_logger.py/logger.py, performance_tracker.py.
+- 2026-02-04:
+  - Achieved: backup before rollback.
+  - Tools: git (backup commit).
+- 2026-02-05:
+  - Achieved: Control Panel v1 and UI fixes; socket handler fixes; model
+    dropdown validation; documentation updates.
+  - Tools: control_panel.py (Flask + SocketIO), config.py (model validation).
+- 2026-02-08:
+  - Achieved: core hardening and pruning; unit/integration/e2e tests; quality
+    gating pipeline; governance mechanics (guilds, hats, rewards); branding and
+    documentation cleanup.
+  - Tools: test suite, quality gate pipeline, README/docs, safety/logging
+    modules.
+
 ## Note on provenance
 Some narrative docs in this repo were auto-generated. Treat them as drafts, and use the evidence logs above for claims.
 Legacy logs and auto-generated docs may still use the previous name "Black Swarm"; they are preserved verbatim for auditability.
