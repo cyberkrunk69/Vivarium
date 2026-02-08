@@ -53,6 +53,7 @@ Why the social layer can be performant and emergent:
 - Role separation reduces blind spots. Different workers can approach the same task with different prompts, constraints, or "personas," which surfaces alternatives and catches errors.
 - Critique and synthesis improve quality. The intended loop is propose -> review -> integrate, which mirrors how human teams improve reliability.
 - Cross-pollination compounds. Shared memory (learned_lessons.json, skill_registry.py, knowledge_graph.py) lets discoveries propagate between agents and sessions.
+- Autonomy matters for novelty. When agents can pursue subgoals, explore alternatives, and adapt to feedback inside the system, they surface solutions that a single, rigid prompt often will not.
 - Incentives reward quality. The system tracks outcomes and can reward efficient, high-quality outputs (see performance_history.json and swarm_enrichment.py).
 
 Also, "free time" and "rest" are not literal 24-hour human days. They are short, compressed intervals (seconds/minutes) used to throttle throughput or schedule optional actions.
