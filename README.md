@@ -41,6 +41,7 @@ For the full, phased execution plan plus acceptance criteria, see:
 
 - **[`VISION_ROADMAP.md`](./VISION_ROADMAP.md)**
 - **[`CROSS_REPO_TIMELINE.md`](./CROSS_REPO_TIMELINE.md)** (Vivarium + AutoHive timeline, "gold" extraction, anomaly map)
+- **[`RUNTIME_GOLDEN_PATH.md`](./RUNTIME_GOLDEN_PATH.md)** (Phase 0 canonical runtime + safety contract)
 
 Short version of build order:
 

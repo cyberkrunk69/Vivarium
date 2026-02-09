@@ -11,22 +11,24 @@ from typing import Optional, Any, Dict, List
 
 import json
 import os
+import re
+import shlex
 import subprocess
 import time
 from pathlib import Path
 
-import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from config import (
-    GROQ_API_KEY,
-    GROQ_API_URL,
     DEFAULT_GROQ_MODEL,
     validate_model_id,
     validate_config,
 )
+from runtime_contract import normalize_queue, normalize_task
+from safety_gateway import SafetyGateway
+from secure_api_wrapper import SecureAPIWrapper, create_admin_context
 from utils import read_json, write_json
 
 load_dotenv()
@@ -45,6 +47,88 @@ IGNORE_DIRS = {
     ".checkpoints",
     ".grind_cache",
 }
+
+LOCAL_COMMAND_ALLOWLIST = {
+    "python",
+    "python3",
+    "pytest",
+    "pip",
+    "pip3",
+    "uv",
+    "ruff",
+    "mypy",
+    "git",
+    "ls",
+    "pwd",
+    "echo",
+    "cat",
+    "sed",
+    "awk",
+    "rg",
+    "cp",
+    "mv",
+    "mkdir",
+    "touch",
+    "chmod",
+    "node",
+    "npm",
+    "pnpm",
+    "yarn",
+    "make",
+    "go",
+    "cargo",
+}
+
+LOCAL_COMMAND_DENYLIST = [
+    (re.compile(r"\bcurl\b[^|]*\|\s*(bash|sh)\b", re.IGNORECASE), "piping curl output into shell"),
+    (re.compile(r"\bwget\b[^|]*\|\s*(bash|sh)\b", re.IGNORECASE), "piping wget output into shell"),
+    (re.compile(r"\brm\s+-rf\b", re.IGNORECASE), "destructive recursive delete"),
+    (re.compile(r"\bmkfs(\.[a-z0-9]+)?\b", re.IGNORECASE), "disk formatting command"),
+    (re.compile(r"\bdd\s+if=", re.IGNORECASE), "raw disk write command"),
+    (re.compile(r"\b(shutdown|reboot|poweroff)\b", re.IGNORECASE), "host power control command"),
+    (re.compile(r"/etc/(passwd|shadow)", re.IGNORECASE), "system credential file access"),
+]
+
+ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+
+
+def _safe_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _safe_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _build_safety_gateway() -> Optional[SafetyGateway]:
+    try:
+        return SafetyGateway(WORKSPACE)
+    except Exception:
+        return None
+
+
+def _build_secure_wrapper() -> SecureAPIWrapper:
+    return SecureAPIWrapper(
+        context=create_admin_context(user_id="swarm_api"),
+        budget_limit=_safe_float_env("SWARM_BUDGET_LIMIT", 5.0),
+        rate_limit=_safe_int_env("SWARM_RATE_LIMIT", 60),
+    )
+
+
+SWARM_SAFETY_GATEWAY = _build_safety_gateway()
+SECURE_API_WRAPPER = _build_secure_wrapper()
 
 
 class GrindRequest(BaseModel):
@@ -87,6 +171,55 @@ class GrindResponse(BaseModel):
     output: Optional[str] = None
     budget_used: Optional[float] = None
     exit_code: Optional[int] = None
+    safety_report: Optional[Dict[str, Any]] = None
+
+
+def _pre_execute_safety_report(task_text: str, task_id: Optional[str]) -> Dict[str, Any]:
+    if not task_text.strip():
+        return {
+            "passed": False,
+            "blocked_reason": "Task text is empty",
+            "checks": {},
+            "task_id": task_id,
+        }
+    if SWARM_SAFETY_GATEWAY is None:
+        return {
+            "passed": False,
+            "blocked_reason": "Safety gateway unavailable",
+            "checks": {},
+            "task_id": task_id,
+        }
+    passed, report = SWARM_SAFETY_GATEWAY.pre_execute_safety_check(task_text)
+    report["task_id"] = task_id
+    report["passed"] = passed
+    return report
+
+
+def _extract_primary_command(command: str) -> Optional[str]:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+
+    while tokens and ENV_ASSIGNMENT_RE.match(tokens[0]):
+        tokens.pop(0)
+
+    if not tokens:
+        return None
+    return Path(tokens[0]).name
+
+
+def _validate_local_command(command: str) -> Optional[str]:
+    for pattern, reason in LOCAL_COMMAND_DENYLIST:
+        if pattern.search(command):
+            return f"Local command blocked: {reason}"
+
+    primary = _extract_primary_command(command)
+    if not primary:
+        return "Local command blocked: unable to parse executable"
+    if primary not in LOCAL_COMMAND_ALLOWLIST:
+        return f"Local command blocked: '{primary}' is not in allowlist"
+    return None
 
 
 @app.post("/grind", response_model=GrindResponse)
@@ -102,13 +235,22 @@ async def grind(req: GrindRequest) -> GrindResponse:
     if mode and mode not in {"llm", "local"}:
         raise HTTPException(status_code=400, detail="mode must be 'llm' or 'local'")
 
+    safety_target = (req.task or req.prompt or "").strip()
+    safety_report = _pre_execute_safety_report(safety_target, req.task_id)
+    if not safety_report.get("passed"):
+        blocked_reason = safety_report.get("blocked_reason", "blocked by safety gateway")
+        raise HTTPException(status_code=403, detail=f"Safety check failed: {blocked_reason}")
+
     if mode == "local" or (not mode and req.task and not req.prompt):
-        return _run_local_task(req)
+        return _run_local_task(req, safety_report=safety_report)
 
-    return await _run_groq_task(req)
+    return await _run_groq_task(req, safety_report=safety_report)
 
 
-async def _run_groq_task(req: GrindRequest) -> GrindResponse:
+async def _run_groq_task(
+    req: GrindRequest,
+    safety_report: Optional[Dict[str, Any]] = None,
+) -> GrindResponse:
     if not req.prompt:
         raise HTTPException(status_code=400, detail="llm mode requires prompt")
     validate_config(require_groq_key=True)
@@ -116,47 +258,69 @@ async def _run_groq_task(req: GrindRequest) -> GrindResponse:
     model = req.model or DEFAULT_GROQ_MODEL
     validate_model_id(model)
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": req.prompt}],
-        "temperature": req.temperature,
-        "max_tokens": req.max_tokens,
-    }
+    estimated_cost = SECURE_API_WRAPPER._estimate_cost(req.prompt, model)
+    if req.max_budget is not None and estimated_cost > req.max_budget:
+        SECURE_API_WRAPPER.auditor.log({
+            "event": "TASK_BUDGET_EXCEEDED",
+            "task_id": req.task_id,
+            "model": model,
+            "estimated_cost": estimated_cost,
+            "task_max_budget": req.max_budget,
+        })
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Estimated cost ${estimated_cost:.6f} exceeds task max budget "
+                f"${req.max_budget:.6f}"
+            ),
+        )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(GROQ_API_URL, headers=headers, json=payload)
-    except httpx.TimeoutException as e:
-        raise HTTPException(status_code=500, detail=f"Groq timeout: {e}") from e
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"Groq request error: {e}") from e
+        result = SECURE_API_WRAPPER.call_llm(
+            prompt=req.prompt,
+            model=model,
+            max_tokens=req.max_tokens,
+            temperature=req.temperature,
+            timeout=60,
+        )
+    except PermissionError as exc:
+        detail = str(exc)
+        status_code = 429 if "Rate limit" in detail else 403
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Secure Groq execution failed: {exc}") from exc
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail=f"Groq API error: {response.text}")
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=f"Groq API error: {result['error']}")
 
-    data = response.json()
-    try:
-        result_text = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as e:
-        raise HTTPException(status_code=500, detail=f"Invalid Groq response: {e}") from e
+    result_text = result.get("result", "")
+    usage = {
+        "prompt_tokens": result.get("input_tokens", 0),
+        "completion_tokens": result.get("output_tokens", 0),
+    }
+    budget_used = result.get("cost")
 
     return GrindResponse(
         status="completed",
         result=result_text,
-        model=model,
+        model=result.get("model", model),
         task_id=req.task_id,
-        usage=data.get("usage"),
+        usage=usage,
+        budget_used=round(budget_used, 6) if isinstance(budget_used, (int, float)) else None,
+        safety_report=safety_report,
     )
 
 
-def _run_local_task(req: GrindRequest) -> GrindResponse:
+def _run_local_task(
+    req: GrindRequest,
+    safety_report: Optional[Dict[str, Any]] = None,
+) -> GrindResponse:
     task = (req.task or "").strip()
     if not task:
         raise HTTPException(status_code=400, detail="local mode requires task")
+    policy_error = _validate_local_command(task)
+    if policy_error:
+        raise HTTPException(status_code=403, detail=policy_error)
 
     start_time = time.time()
     try:
@@ -193,6 +357,7 @@ def _run_local_task(req: GrindRequest) -> GrindResponse:
         task_id=req.task_id,
         budget_used=round(budget_used, 4) if budget_used is not None else None,
         exit_code=process.returncode,
+        safety_report=safety_report,
     )
 
 
@@ -296,25 +461,22 @@ Return a JSON array of tasks. Each task should have:
 
 Return ONLY valid JSON array, no other text."""
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": DEFAULT_GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 1024,
-        "temperature": 0.4,
-    }
+    try:
+        result = SECURE_API_WRAPPER.call_llm(
+            prompt=prompt,
+            model=DEFAULT_GROQ_MODEL,
+            max_tokens=1024,
+            temperature=0.4,
+            timeout=60,
+        )
+    except PermissionError as exc:
+        detail = str(exc)
+        status_code = 429 if "Rate limit" in detail else 403
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Secure Groq planning failed: {exc}") from exc
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(GROQ_API_URL, headers=headers, json=payload)
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail=f"Groq API error: {response.text}")
-
-    result = response.json()
-    content = result["choices"][0]["message"]["content"]
+    content = result.get("result", "")
 
     try:
         if "```json" in content:
@@ -359,13 +521,11 @@ Return ONLY valid JSON array, no other text."""
 
 def write_tasks_to_queue(tasks: List[Dict[str, Any]]) -> None:
     """Write tasks to queue.json."""
-    queue = {
-        "version": "1.0",
-        "api_endpoint": "http://127.0.0.1:8420",
-        "tasks": tasks,
+    queue = normalize_queue({
+        "tasks": [normalize_task(task) for task in tasks],
         "completed": [],
         "failed": [],
-    }
+    })
     write_json(QUEUE_FILE, queue)
 
 
@@ -373,7 +533,7 @@ def write_tasks_to_queue(tasks: List[Dict[str, Any]]) -> None:
 async def status() -> Dict[str, int]:
     """Get current queue status."""
     if QUEUE_FILE.exists():
-        queue = read_json(QUEUE_FILE, default={})
+        queue = normalize_queue(read_json(QUEUE_FILE, default={}))
         if queue:
             return {
                 "tasks": len(queue.get("tasks", [])),

@@ -20,7 +20,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
-from utils import read_json, append_jsonl, read_jsonl, get_timestamp, ensure_dir, format_error
+from utils import (
+    read_json,
+    write_json,
+    append_jsonl,
+    read_jsonl,
+    get_timestamp,
+    ensure_dir,
+    format_error,
+)
 from config import (
     LOCK_TIMEOUT_SECONDS,
     API_TIMEOUT_SECONDS,
@@ -29,6 +37,7 @@ from config import (
     validate_model_id,
     validate_config,
 )
+from runtime_contract import normalize_queue, normalize_task, is_known_execution_status
 try:
     from resident_onboarding import spawn_resident, ResidentContext
 except ImportError:
@@ -43,6 +52,10 @@ try:
 except ImportError:
     HAT_LIBRARY = None
     apply_hat = None
+try:
+    from safety_gateway import SafetyGateway
+except ImportError:
+    SafetyGateway = None
 
 # ============================================================================
 # CONSTANTS
@@ -77,6 +90,7 @@ _SCAN_CURSOR: int = 0
 # Generate unique resident ID (keep worker_id for compatibility in logs)
 RESIDENT_ID: str = f"resident_{uuid.uuid4().hex[:8]}"
 WORKER_ID: str = RESIDENT_ID
+WORKER_SAFETY_GATEWAY = None
 
 
 # ============================================================================
@@ -94,6 +108,20 @@ def _log(level: str, message: str) -> None:
     print(f"[{timestamp}] [{level}] [{RESIDENT_ID}] {message}")
 
 
+def _init_worker_safety_gateway():
+    if SafetyGateway is None:
+        _log("ERROR", "safety_gateway module unavailable; worker will fail closed.")
+        return None
+    try:
+        return SafetyGateway(WORKSPACE)
+    except Exception as exc:
+        _log("ERROR", f"Failed to initialize worker safety gateway: {exc}")
+        return None
+
+
+WORKER_SAFETY_GATEWAY = _init_worker_safety_gateway()
+
+
 
 
 def ensure_directories() -> None:
@@ -108,9 +136,7 @@ def ensure_directories() -> None:
 def read_queue() -> Dict[str, Any]:
     """Read the shared queue file (never write to it from residents)."""
     data = read_json(QUEUE_FILE, default=None)
-    if not data:
-        return {"tasks": [], "completed": [], "failed": []}
-    return data
+    return normalize_queue(data)
 
 
 def read_execution_log() -> Dict[str, Any]:
@@ -163,6 +189,8 @@ def read_execution_log() -> Dict[str, Any]:
 
 def append_execution_event(task_id: str, status: str, **fields: Any) -> None:
     """Append an execution event to the JSONL log."""
+    if not is_known_execution_status(status):
+        _log("WARN", f"Unknown execution status '{status}' (outside canonical contract)")
     record = {
         "task_id": task_id,
         "resident_id": RESIDENT_ID,
@@ -342,6 +370,40 @@ def _apply_hat_overlay(prompt: str, focus: Optional[str]) -> str:
     return apply_hat(prompt, hat)
 
 
+def _resolve_safety_task_text(prompt: Optional[str], command: Optional[str], mode: Optional[str]) -> str:
+    if mode == "local" and command:
+        return command
+    return prompt or command or ""
+
+
+def _run_worker_safety_check(
+    task_id: str,
+    prompt: Optional[str],
+    command: Optional[str],
+    mode: Optional[str],
+) -> Tuple[bool, Dict[str, Any]]:
+    task_text = _resolve_safety_task_text(prompt, command, mode)
+    if not task_text:
+        return False, {
+            "passed": False,
+            "blocked_reason": "Task missing prompt/command for safety checks",
+            "task_id": task_id,
+            "checks": {},
+        }
+
+    if WORKER_SAFETY_GATEWAY is None:
+        return False, {
+            "passed": False,
+            "blocked_reason": "Safety gateway unavailable",
+            "task_id": task_id,
+            "checks": {},
+        }
+
+    passed, report = WORKER_SAFETY_GATEWAY.pre_execute_safety_check(task_text)
+    report["task_id"] = task_id
+    return passed, report
+
+
 def _execute_delegated_subtasks(
     task_id: str,
     plan: Any,
@@ -373,6 +435,30 @@ def _execute_delegated_subtasks(
         identity_fields = {}
         if resident_ctx:
             identity_fields["identity_id"] = resident_ctx.identity.identity_id
+
+        safety_passed, safety_report = _run_worker_safety_check(
+            task_id=f"{task_id}:{subtask_id}",
+            prompt=sub_prompt,
+            command=None,
+            mode="llm",
+        )
+        if not safety_passed:
+            error_msg = f"Safety check failed: {safety_report.get('blocked_reason', 'blocked')}"
+            append_execution_event(
+                task_id,
+                "subtask_failed",
+                subtask_id=subtask_id,
+                focus=focus,
+                errors=error_msg,
+                safety_report=safety_report,
+                **identity_fields,
+            )
+            return {
+                "status": "failed",
+                "error": error_msg,
+                "subtask_id": subtask_id,
+                "index": index,
+            }
 
         append_execution_event(
             task_id,
@@ -515,7 +601,25 @@ def execute_task(
         return {
             "status": "failed",
             "result_summary": None,
-            "errors": "Task missing prompt/command"
+            "errors": "Task missing prompt/command",
+            "safety_passed": False,
+            "safety_report": {
+                "passed": False,
+                "blocked_reason": "Task missing prompt/command",
+                "task_id": task_id,
+                "checks": {},
+            },
+        }
+
+    safety_passed, safety_report = _run_worker_safety_check(task_id, prompt, command, mode)
+    if not safety_passed:
+        blocked_reason = safety_report.get("blocked_reason", "blocked by worker safety gateway")
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": f"Safety check failed: {blocked_reason}",
+            "safety_passed": False,
+            "safety_report": safety_report,
         }
 
     _log("INFO", f"Executing task {task_id} (budget: ${min_budget}-${max_budget}, intensity: {intensity})")
@@ -539,7 +643,7 @@ def execute_task(
 
     if plan and should_delegate:
         subtask_parallelism = task.get("subtask_parallelism")
-        return _execute_delegated_subtasks(
+        delegated_result = _execute_delegated_subtasks(
             task_id=task_id,
             plan=plan,
             api_endpoint=api_endpoint,
@@ -550,6 +654,9 @@ def execute_task(
             model=model,
             parallelism=subtask_parallelism,
         )
+        delegated_result["safety_passed"] = safety_passed
+        delegated_result["safety_report"] = safety_report
+        return delegated_result
 
     if plan and should_decompose:
         prompt = f"{prompt}\n\n{_build_facet_plan_text(plan)}"
@@ -579,11 +686,14 @@ def execute_task(
 
         if response.status_code == 200:
             result = response.json()
+            api_safety_report = result.get("safety_report")
             return {
                 "status": "completed",
                 "result_summary": result.get("result", "Task completed"),
                 "errors": None,
                 "model": result.get("model"),
+                "safety_passed": bool((api_safety_report or safety_report).get("passed", True)),
+                "safety_report": api_safety_report or safety_report,
             }
 
         error_msg = f"API returned {response.status_code}: {response.text}"
@@ -591,7 +701,9 @@ def execute_task(
         return {
             "status": "failed",
             "result_summary": None,
-            "errors": error_msg
+            "errors": error_msg,
+            "safety_passed": safety_passed,
+            "safety_report": safety_report,
         }
     except httpx.ConnectError as e:
         error_msg = f"Cannot connect to API at {api_endpoint}: {e}"
@@ -599,7 +711,9 @@ def execute_task(
         return {
             "status": "failed",
             "result_summary": None,
-            "errors": error_msg
+            "errors": error_msg,
+            "safety_passed": safety_passed,
+            "safety_report": safety_report,
         }
     except httpx.TimeoutException as e:
         error_msg = f"API request timeout: {e}"
@@ -607,7 +721,9 @@ def execute_task(
         return {
             "status": "failed",
             "result_summary": None,
-            "errors": error_msg
+            "errors": error_msg,
+            "safety_passed": safety_passed,
+            "safety_report": safety_report,
         }
     except json.JSONDecodeError as e:
         error_msg = f"Invalid API response: {e}"
@@ -615,7 +731,9 @@ def execute_task(
         return {
             "status": "failed",
             "result_summary": None,
-            "errors": error_msg
+            "errors": error_msg,
+            "safety_passed": safety_passed,
+            "safety_report": safety_report,
         }
 
 
@@ -689,6 +807,8 @@ def find_and_execute_task(
                 result_summary=result.get("result_summary"),
                 errors=result.get("errors"),
                 model=result.get("model"),
+                safety_passed=result.get("safety_passed"),
+                safety_report=result.get("safety_report"),
                 **identity_fields,
             )
             _log("INFO", f"Completed task {task_id} - {result['status']}")
@@ -779,7 +899,7 @@ def add_task(
     try:
         queue = read_queue()
 
-        task: Dict[str, Any] = {
+        task: Dict[str, Any] = normalize_task({
             "id": task_id,
             "type": task_type,
             "prompt": prompt,
@@ -789,11 +909,11 @@ def add_task(
             "depends_on": depends_on or [],
             "parallel_safe": True,
             "model": model,
-        }
+        })
 
         queue["tasks"].append(task)
 
-        write_json(QUEUE_FILE, queue)
+        write_json(QUEUE_FILE, normalize_queue(queue))
 
         _log("INFO", f"Added task: {task_id}")
     except (IOError, TypeError) as e:
@@ -818,8 +938,8 @@ if __name__ == "__main__":
                     sys.exit(1)
             else:
                 print("Usage:")
-            print("  python worker.py run [max_iterations]  - Start resident runtime")
-            print("  python worker.py add <id> <instruction> [deps]  - Add task")
+                print("  python worker.py run [max_iterations]  - Start resident runtime")
+                print("  python worker.py add <id> <instruction> [deps]  - Add task")
                 sys.exit(1)
         else:
             worker_loop()
