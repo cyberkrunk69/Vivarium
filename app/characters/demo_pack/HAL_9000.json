@@ -1,6 +1,0 @@
-{
-    "name": "HAL 9000",
-    "type": "AI",
-    "voice_ref": "https://example.com/voice_refs/hal9000.mp3",
-    "description": "Heuristically programmed ALgorithmic computer from 2001: A Space Odyssey."
-}

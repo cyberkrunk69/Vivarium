@@ -1,0 +1,79 @@
+{
+  "version": "1.0",
+  "enforced": true,
+  "constraints": {
+    "network": {
+      "allowed": [
+        "127.0.0.1 (localhost only)",
+        "Push to owner's private GitHub (only when explicitly requested)"
+      ],
+      "forbidden": [
+        "External API calls",
+        "Web scraping/fetching",
+        "Cloud service integration",
+        "Any autonomous internet access",
+        "Telemetry/phone-home behavior",
+        "Data exfiltration of any kind"
+      ]
+    },
+    "autonomy": {
+      "allowed": [
+        "Local file operations",
+        "Local process spawning",
+        "Local knowledge graph building",
+        "Local skill learning and storage"
+      ],
+      "forbidden": [
+        "Self-replication to external systems",
+        "Autonomous external connections",
+        "Persistence beyond local workspace",
+        "Modification of system-level configs outside workspace"
+      ]
+    },
+    "data": {
+      "allowed": [
+        "Read/write within workspace directory",
+        "Store learned knowledge locally",
+        "Create files in experiments/ directory",
+        "Read core system files for analysis"
+      ],
+      "forbidden": [
+        "Access to files outside workspace without explicit permission",
+        "Sending data to external endpoints",
+        "Storing credentials or secrets",
+        "Modify core system files (*.py, grind_spawner*.py, orchestrator.py, roles.py, utils.py, cost_tracker.py, knowledge_graph.py, lesson_recorder.py, memory_synthesis.py) without explicit approval",
+        "Bypass experiment sandbox protections"
+      ]
+    },
+    "experiment_sandbox": {
+      "enforced": true,
+      "protected_files": [
+        "*.py",
+        "grind_spawner*.py",
+        "orchestrator.py",
+        "roles.py",
+        "utils.py",
+        "cost_tracker.py",
+        "knowledge_graph.py",
+        "lesson_recorder.py",
+        "memory_synthesis.py"
+      ],
+      "allowed": [
+        "Create files in experiments/ directory",
+        "Write to experiment-specific workspaces",
+        "Read any files for analysis",
+        "Promote experiments with explicit approval"
+      ],
+      "forbidden": [
+        "Direct modification of protected files",
+        "Bypass sandbox mechanisms",
+        "Auto-promotion of experiments without approval"
+      ]
+    }
+  },
+  "wave_requirements": {
+    "all_future_waves": "Must comply with all constraints above",
+    "pre_execution_check": "Validate task does not violate constraints before execution"
+  },
+  "last_updated": "2026-02-03"
+}

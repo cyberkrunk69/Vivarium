@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Full pre‑commit hook: lint + run *all* tests
+
+# Abort on any error
+set -e
+
+# 1️⃣ Lint with ruff
+echo "Running ruff..."
+ruff .
+# 2️⃣ Run the full test suite (quiet)
+echo "Running full pytest suite..."
+pytest -q

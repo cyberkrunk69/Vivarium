@@ -1,5 +1,5 @@
 """
-Black Swarm Parallel Orchestrator
+Vivarium Parallel Orchestrator
 
 Spawns multiple workers that coordinate using file-based locks.
 Target API: http://127.0.0.1:8420
@@ -7,13 +7,15 @@ Target API: http://127.0.0.1:8420
 Usage:
     python orchestrator.py start [num_workers] [--dry-run]  - Start orchestrator with N workers
     python orchestrator.py status                           - Show execution status
-    python orchestrator.py add <id> <type> [opts]          - Add a task to queue
+    python orchestrator.py add <id> <type> --prompt "..."  - Add a task to queue
     python orchestrator.py clear                            - Clear all tasks and logs
 
 Options for 'add':
+    --prompt STR      Task prompt (required)
     --min FLOAT       Minimum budget in dollars (default: 0.05)
     --max FLOAT       Maximum budget in dollars (default: 0.10)
     --intensity STR   low|medium|high (default: medium)
+    --model STR       Groq model id (must be in whitelist)
 """
 
 import subprocess
@@ -23,8 +25,8 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
-from utils import read_json, write_json
-from config import SWARM_API_URL, validate_config
+from utils import read_json, write_json, read_jsonl
+from config import SWARM_API_URL, validate_config, WORKER_TIMEOUT_SECONDS, validate_model_id
 from logger import json_log
 from safety_killswitch import KillSwitch, CircuitBreaker
 from safety_sandbox import init_sandbox
@@ -32,7 +34,7 @@ from safety_sandbox import init_sandbox
 WORKSPACE = Path(__file__).parent
 QUEUE_FILE = WORKSPACE / "queue.json"
 LOCKS_DIR = WORKSPACE / "task_locks"
-EXECUTION_LOG = WORKSPACE / "execution_log.json"
+EXECUTION_LOG = WORKSPACE / "execution_log.jsonl"
 
 
 def spawn_worker(worker_id: int) -> Dict:
@@ -57,17 +59,26 @@ def spawn_worker(worker_id: int) -> Dict:
         if result["returncode"] == 0:
             print(f"Worker {result['worker_id']} succeeded")
     """
-    result = subprocess.run(
-        [sys.executable, str(WORKSPACE / "worker.py"), "run"],
-        capture_output=True,
-        text=True
-    )
-    return {
-        "worker_id": worker_id,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "returncode": result.returncode
-    }
+    try:
+        result = subprocess.run(
+            [sys.executable, str(WORKSPACE / "worker.py"), "run"],
+            capture_output=True,
+            text=True,
+            timeout=WORKER_TIMEOUT_SECONDS
+        )
+        return {
+            "worker_id": worker_id,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        }
+    except subprocess.TimeoutExpired as e:
+        return {
+            "worker_id": worker_id,
+            "stdout": e.stdout or "",
+            "stderr": f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s",
+            "returncode": 124
+        }
 
 
 def start_orchestrator(num_workers: int = 4, dry_run: bool = False) -> None:
@@ -131,7 +142,7 @@ def start_orchestrator(num_workers: int = 4, dry_run: bool = False) -> None:
         print(f"[SAFETY] Reset with CircuitBreaker.reset()")
         return
 
-    print(f"Starting Black Swarm Orchestrator with {num_workers} workers...")
+    print(f"Starting Vivarium Orchestrator with {num_workers} workers...")
     print(f"Target API: {SWARM_API_URL}")
 
     # Log orchestrator start event
@@ -146,14 +157,10 @@ def start_orchestrator(num_workers: int = 4, dry_run: bool = False) -> None:
     # Ensure directories exist
     LOCKS_DIR.mkdir(exist_ok=True)
 
-    # Initialize execution log
+    # Initialize execution log (JSONL append-only)
     if not EXECUTION_LOG.exists():
-        write_json(EXECUTION_LOG, {
-            "version": "1.0",
-            "start_time": datetime.now(timezone.utc).isoformat(),
-            "tasks": {},
-            "swarm_summary": {}
-        })
+        EXECUTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        EXECUTION_LOG.write_text("")
 
     queue = read_json(QUEUE_FILE)
     task_count = len(queue.get("tasks", []))
@@ -255,14 +262,22 @@ def show_status() -> None:
     print("=" * 50)
 
     queue = read_json(QUEUE_FILE)
-    log = read_json(EXECUTION_LOG)
-    summary = log.get("swarm_summary", {})
+    if not EXECUTION_LOG.exists():
+        print(f"ERROR: Execution log not found: {EXECUTION_LOG}")
+        return
 
-    total_tasks = summary.get('total_tasks', len(queue.get('tasks', [])))
-    completed = summary.get('completed', 0)
-    in_progress = summary.get('in_progress', 0)
-    pending = summary.get('pending', 0)
-    failed = summary.get('failed', 0)
+    events = read_jsonl(EXECUTION_LOG, default=[])
+    task_index: Dict[str, Dict] = {}
+    for event in events:
+        task_id = event.get("task_id")
+        if task_id:
+            task_index[task_id] = event
+
+    total_tasks = len(queue.get("tasks", []))
+    completed = sum(1 for t in task_index.values() if t.get("status") == "completed")
+    in_progress = sum(1 for t in task_index.values() if t.get("status") == "in_progress")
+    failed = sum(1 for t in task_index.values() if t.get("status") == "failed")
+    pending = max(total_tasks - completed - in_progress - failed, 0)
 
     print(f"Total Tasks:  {total_tasks:>5}")
     print(f"Completed:    {completed:>5} ({100*completed//total_tasks if total_tasks else 0}%)")
@@ -271,8 +286,7 @@ def show_status() -> None:
     print(f"Failed:       {failed:>5}")
 
     # Show failed tasks with details
-    tasks = log.get("tasks", {})
-    failed_tasks = [t for t_id, t in tasks.items() if t.get("status") == "failed"]
+    failed_tasks = [t for t in task_index.values() if t.get("status") == "failed"]
     if failed_tasks:
         print("\n" + "-" * 50)
         print(f"FAILED TASKS ({len(failed_tasks)})")
@@ -282,7 +296,7 @@ def show_status() -> None:
             error_msg = task.get('errors', 'No error details recorded')
             print(f"ID: {task_id}")
             print(f"  Error: {error_msg}")
-            print(f"  Action: Review execution_log.json for details")
+            print(f"  Action: Review execution_log.jsonl for details")
             print()
 
     # Show active locks
@@ -298,7 +312,16 @@ def show_status() -> None:
     print("=" * 50)
 
 
-def add_task(task_id: str, task_type: str, min_budget: float = 0.05, max_budget: float = 0.10, intensity: str = "medium", depends_on: Optional[List[str]] = None) -> None:
+def add_task(
+    task_id: str,
+    task_type: str,
+    prompt: str,
+    min_budget: float = 0.05,
+    max_budget: float = 0.10,
+    intensity: str = "medium",
+    depends_on: Optional[List[str]] = None,
+    model: Optional[str] = None,
+) -> None:
     """
     Add a grind task to the queue.
 
@@ -308,28 +331,33 @@ def add_task(task_id: str, task_type: str, min_budget: float = 0.05, max_budget:
     Args:
         task_id: Unique identifier (e.g., "task_001").
         task_type: Task category (e.g., "grind").
+        prompt: Task prompt sent to the Groq API.
         min_budget: Minimum budget in dollars (default: 0.05, must be > 0).
         max_budget: Maximum budget in dollars (default: 0.10, must be >= min_budget).
         intensity: Execution intensity - "low", "medium", or "high".
         depends_on: List of task IDs that must complete first.
+        model: Optional Groq model id (must be in whitelist if provided).
 
     Raises:
         ValueError: If budget or intensity parameters are invalid.
 
     Example:
         # Add simple task
-        add_task("task_001", "grind")
+        add_task("task_001", "grind", "Summarize the code changes in this repo.")
 
         # Add high-priority task with custom budget
-        add_task("task_002", "grind", min_budget=0.10, max_budget=0.20, intensity="high")
+        add_task("task_002", "grind", "Audit error handling in worker.py",
+                 min_budget=0.10, max_budget=0.20, intensity="high")
 
-        # CLI: python orchestrator.py add task_001 grind --min 0.05 --max 0.10
+        # CLI: python orchestrator.py add task_001 grind --prompt "Audit locks" --min 0.05 --max 0.10
     """
     # Input validation
     if not task_id or not isinstance(task_id, str):
         raise ValueError("task_id must be a non-empty string")
     if not task_type or not isinstance(task_type, str):
         raise ValueError("task_type must be a non-empty string")
+    if not prompt or not isinstance(prompt, str):
+        raise ValueError("prompt must be a non-empty string")
     if min_budget <= 0:
         raise ValueError(f"min_budget must be > 0, got {min_budget}")
     if max_budget < min_budget:
@@ -346,15 +374,20 @@ def add_task(task_id: str, task_type: str, min_budget: float = 0.05, max_budget:
     if any(t.get("id") == task_id for t in queue.get("tasks", [])):
         raise ValueError(f"Task ID '{task_id}' already exists in queue")
 
+    if model:
+        validate_model_id(model)
+
     task = {
         "id": task_id,
         "type": task_type,
+        "prompt": prompt,
         "min_budget": min_budget,
         "max_budget": max_budget,
         "intensity": intensity,
         "status": "pending",
         "depends_on": depends_on or [],
-        "parallel_safe": True
+        "parallel_safe": True,
+        "model": model,
     }
 
     queue["tasks"].append(task)
@@ -396,11 +429,8 @@ def clear_all() -> None:
         "failed": []
     })
 
-    write_json(EXECUTION_LOG, {
-        "version": "1.0",
-        "tasks": {},
-        "swarm_summary": {}
-    })
+    EXECUTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+    EXECUTION_LOG.write_text("")
 
     if LOCKS_DIR.exists():
         for lock in LOCKS_DIR.glob("*.lock"):
@@ -409,14 +439,16 @@ def clear_all() -> None:
     print("Cleared all tasks, logs, and locks.")
 
 
-def parse_add_args(args: List[str]) -> Tuple[str, str, float, float, str]:
-    """Parse arguments for 'add' command. Returns (task_id, task_type, min_budget, max_budget, intensity)."""
+def parse_add_args(args: List[str]) -> Tuple[str, str, str, float, float, str, Optional[str]]:
+    """Parse arguments for 'add' command."""
     if len(args) < 2:
         raise ValueError("'add' command requires: task_id and task_type arguments")
 
     task_id = args[0]
     task_type = args[1]
     min_b, max_b, intensity = 0.05, 0.10, "medium"
+    prompt = None
+    model = None
 
     i = 2
     while i < len(args):
@@ -435,10 +467,19 @@ def parse_add_args(args: List[str]) -> Tuple[str, str, float, float, str]:
         elif args[i] == "--intensity" and i + 1 < len(args):
             intensity = args[i + 1]
             i += 2
+        elif args[i] in ("--prompt", "--task") and i + 1 < len(args):
+            prompt = args[i + 1]
+            i += 2
+        elif args[i] == "--model" and i + 1 < len(args):
+            model = args[i + 1]
+            i += 2
         else:
             i += 1
 
-    return task_id, task_type, min_b, max_b, intensity
+    if not prompt:
+        raise ValueError("'add' command requires --prompt")
+
+    return task_id, task_type, prompt, min_b, max_b, intensity, model
 
 
 if __name__ == "__main__":
@@ -470,8 +511,8 @@ if __name__ == "__main__":
             show_status()
 
         elif cmd == "add":
-            task_id, task_type, min_b, max_b, intensity = parse_add_args(sys.argv[2:])
-            add_task(task_id, task_type, min_b, max_b, intensity)
+            task_id, task_type, prompt, min_b, max_b, intensity, model = parse_add_args(sys.argv[2:])
+            add_task(task_id, task_type, prompt, min_b, max_b, intensity, model=model)
 
         elif cmd == "clear":
             clear_all()

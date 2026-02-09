@@ -1,0 +1,2 @@
+def execute_task(task, context):
+    # implementation …

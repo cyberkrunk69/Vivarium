@@ -1,0 +1,8 @@
+<patch path="dashboard_vision.js" action="insert_after" line="/* Main dashboard container */">
+/* -------------------------------------------------
+   Worker Grid Container – will be populated dynamically
+   ------------------------------------------------- */
+const workerGridContainer = document.createElement('div');
+workerGridContainer.id = 'worker-grid';
+document.body.appendChild(workerGridContainer);
+</patch>

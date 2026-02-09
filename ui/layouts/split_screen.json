@@ -1,9 +1,0 @@
-{
-    "name": "split_screen",
-    "panes": [
-        { "id": "logs", "position": "left",  "width_percent": 30 },
-        { "id": "chat", "position": "center", "width_percent": 40 },
-        { "id": "task_manager", "position": "right", "width_percent": 30 }
-    ],
-    "mode": "video_recording"
-}

@@ -1,0 +1,18 @@
+[
+    {
+        "category": "claude",
+        "keywords": ["Use", "Claude-specific", "optimizations", "better", "performance"]
+    },
+    {
+        "category": "groq",
+        "keywords": ["Groq", "has", "different", "quirks", "than", "Claude", "optimize", "accordingly"]
+    },
+    {
+        "category": "api:spotify",
+        "keywords": ["Spotify", "API", "requires", "authentication", "certain", "endpoints"]
+    },
+    {
+        "category": "api:github",
+        "keywords": ["GitHub", "API", "has", "rate", "limits", "unauthenticated", "requests"]
+    }
+]

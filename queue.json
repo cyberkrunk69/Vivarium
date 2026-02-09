@@ -1,18 +1,5 @@
 {
-  "tasks": [],
-  "completed": [],
-  "failed": [
-    {
-      "id": "task_001",
-      "type": "grind",
-      "description": "Add a comment",
-      "target_file": "model_registry.py",
-      "min_budget": 0.05,
-      "max_budget": 0.1,
-      "intensity": "low",
-      "status": "failed",
-      "worker": "default",
-      "error": "API error: 500"
-    }
-  ]
+  "version": "1.0",
+  "api_endpoint": "http://127.0.0.1:8420",
+  "tasks": []
 }

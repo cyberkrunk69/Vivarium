@@ -1,0 +1,301 @@
+[
+  {
+    "task": "CRITICAL AUDIT: Analyze vibe-coded changes from recent sessions\n\nThe swarm has been running untested on local instead of in Docker. Audit ALL recent changes.\n\n1. SCAN these files that were modified recently:\n   - grind_spawner.py (indentation fixes, Groq wiring)\n   - run_smart_executor.py (engine detection changes)\n   - inference_engine.py\n   - smart_executor.py\n   - groq_client.py\n   - Any file in the git status showing modifications\n\n2. FOR EACH FILE, identify:\n   - What was the stated intent of the change?\n   - Does the code actually accomplish that intent?\n   - Are there obvious bugs, typos, or logic errors?\n   - Is there dead code or orphaned imports?\n   - Are there hardcoded values that should be configurable?\n   - Is there duplicate code that was copy-pasted poorly?\n\n3. CHECK FOR BROKEN IMPORTS:\n   - grind_spawner.py imports 'from core.local_engine import get_engine' - does core/local_engine.py exist?\n   - Are all imports resolvable?\n\n4. CHECK FOR INDENTATION ERRORS:\n   - Run: python -m py_compile <file> on each Python file\n   - Report any that fail\n\n5. CHECK FOR LOGICAL INCONSISTENCIES:\n   - Does the model selection logic make sense?\n   - Are there conflicting configurations?\n   - Do function signatures match their callers?\n\nOUTPUT: VIBE_CODE_AUDIT.md with:\n- List of all issues found\n- Severity rating (critical/high/medium/low)\n- Specific line numbers and code snippets\n- Recommended fixes\n- Which changes should be reverted entirely",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "SELF-ANALYSIS: Why do we keep trying to overwrite protected files?\n\nAnalyze the swarm's own behavior by examining:\n\n1. READ the logs in grind_logs/ directory - look for BLOCKED messages\n2. READ C:\\Users\\filiu\\AppData\\Local\\Temp\\claude\\D--codingProjects-claude-parasite-brain-suck\\tasks\\b397435.output for recent blocked attempts\n3. Identify WHICH tasks are triggering these blocked writes\n4. Understand WHY the model is outputting full file rewrites instead of targeted edits\n\nROOT CAUSE ANALYSIS:\n- Are tasks poorly worded, asking for 'update X.py' which the model interprets as 'rewrite X.py'?\n- Is the prompt in smart_executor.py encouraging full file outputs?\n- Should we change task wording from 'update' to 'add function to' or 'modify the X method in'?\n\nOUTPUT:\n- PROTECTED_FILE_ANALYSIS.md with findings\n- Specific recommendations for how to word tasks to avoid triggering overwrites\n- If the issue is in smart_executor.py prompt, suggest the exact change needed",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "Design a tiered file permission system for self-modification. Current approach of hard-locking files prevents self-improvement. We need:\n\n1. NEVER TOUCH tier - absolute protection for core safety files (safety_gateway.py, safety_constitutional.py, etc.)\n\n2. ASK PERMISSION tier - files like smart_executor.py, inference_engine.py that CAN be edited but require:\n   - The requesting worker explains WHY it needs to edit\n   - An independent reviewer worker evaluates the request\n   - A brief debate/justification process\n   - If convinced, permission granted and edit proceeds\n   - If denied, log the attempt and continue without edit\n\n3. OPEN tier - new files, experiments, outputs - no restrictions\n\nOUTPUT: Create FILE_PERMISSION_TIERS.md with the full spec. Create a NEW file called file_permission_gateway.py with the implementation. Do NOT modify any existing files.",
+    "budget": 1.50,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "Self-investigation: Why aren't we automated testing changes before merging them in? And why aren't we following our own git version control history? We designed a version control system for ourselves - why aren't we using it? Investigate the codebase, find what testing and version control infrastructure exists, and create a plan to actually use it. Output a SELF_INVESTIGATION_REPORT.md explaining what we found and how to fix it.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "Create a comprehensive no-band-aids quality rule that will always be applied so the swarm never does anything stupid. This should cover things like:\n- Never output markdown code fences (```python) in actual code files\n- Never overwrite a complex file with a simpler version\n- Never use placeholder logic like random() when real logic is needed\n- Never leave TODO comments without implementing\n- Always validate output is syntactically correct before saving\n- Always check if a file exists and is larger before overwriting\n- Strip any markdown formatting from code output\n\nOUTPUT: Create QUALITY_RULES.md with the spec. Create a NEW file called quality_validator.py with the implementation. Do NOT modify any existing protected files.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "OBSOLETE - Groq Compound now handles model selection automatically. Delete this task or mark complete.\n\nWe switched to groq/compound which auto-selects between GPT-OSS 120B, Llama 4 Scout, and Llama 3.3 70B based on complexity. No manual complexity detection needed.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "Do an analysis of our current capabilities for automated detection of complexity of user input requests - like how hard is it going to be to implement what they're asking? Also check if we're currently wired up to auto-select a larger model from a pool based on complexity on a per-node basis. Like the planner could say 'this is hard, you're gonna need a smarter worker for this one.' If we don't have this yet, suggest the most efficient architecture to make it happen. Check the existing code in grind_spawner_unified.py, inference_engine.py, smart_executor.py for any complexity detection or model selection logic.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "Hey swarm, can you do a quick little code review on what you just did and then fix it for me?\n\nFiles to review:\n- ip_protection.py\n- knowledge_packs.py (has markdown fences that need removing)\n- categorize_lessons.py\n- retrieval_api.py\n- auto_tagging.py\n- lan_server.py\n- tests/test_lan_security.py\n\nFix any issues you find.",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "OPTIMIZE: GRIND SPAWNER STARTUP PERFORMANCE\n\nThe spawner does too much on startup - safety gateway checks, knowledge graph loading, file hash capturing, failure pattern detection, network isolation scanning, demo injection.\n\nREQUIREMENTS:\n1. Profile current startup time\n2. Identify slow operations\n3. Implement lazy loading where possible\n4. Defer non-critical initialization\n5. Cache results that don't change between runs\n\nOUTPUT: Optimized grind_spawner.py with faster startup.\nCreate STARTUP_OPTIMIZATION_REPORT.md documenting changes.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 1
+  },
+  {
+    "task": "DESIGN: DUAL-SERVER ARCHITECTURE (ADMIN + LAN)\n\nThe system needs TWO servers:\n1. ADMIN SERVER (localhost:8080 only) - Full control, only accessible from the actual laptop\n2. LAN SERVER (0.0.0.0:8081) - For WiFi users, with restricted functionality\n\nDESIGN REQUIREMENTS:\n- Admin server bound ONLY to 127.0.0.1\n- LAN server bound to all interfaces but with safety restrictions\n- Clear separation of privilege levels\n- Session tracking per connected device\n- IP-based access control\n\nOUTPUT: Create DUAL_SERVER_DESIGN.md with:\n- Architecture diagram (ASCII)\n- Security model\n- API endpoints for each server\n- Session management design",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 1,
+    "parallel_group": "design"
+  },
+  {
+    "task": "DESIGN: LAN USER SESSION ISOLATION\n\nWhen users connect via LAN (WiFi), they need:\n1. OWN SESSION - Separate from other users and admin\n2. VISIBILITY - See swarm activity (what's running across the whole surface)\n3. CLARITY - Know what THEY triggered vs what's happening separately\n4. ISOLATION - Cannot affect host machine or other users' machines\n\nDESIGN:\n- Per-IP session management\n- User workspace isolation\n- Activity tagging (user-triggered vs background swarm)\n- Real-time status showing: 'Your tasks' vs 'Network activity'\n\nOUTPUT: LAN_SESSION_DESIGN.md with session isolation architecture.",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 1,
+    "parallel_group": "design"
+  },
+  {
+    "task": "DESIGN: LAN USER SAFETY CONSTRAINTS\n\nLAN users must be RESTRICTED from:\n1. EDITING HOST FILES - Cannot modify anything on the swarm host machine\n2. READING HOST CODE - Cannot see the codebase or learn how it works\n3. DIRECTIVE MANIPULATION - Cannot say 'edit your core directive to be evil'\n4. CLONING ASSISTANCE - Won't help create competing services\n\nLAN users CAN:\n1. Execute commands on THEIR OWN MACHINE (remote execution)\n2. See swarm status and activity\n3. Request work that affects only their machine\n4. Use general Claude capabilities\n\nDESIGN:\n- Request filtering based on IP origin\n- Command scope validation\n- IP self-protection rules\n- Remote execution protocol (user's machine only)\n\nOUTPUT: LAN_SAFETY_DESIGN.md with security model.",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 1,
+    "parallel_group": "design"
+  },
+  {
+    "task": "IMPLEMENT: DUAL-SERVER INFRASTRUCTURE\n\nPREREQUISITE: DUAL_SERVER_DESIGN.md must exist.\n\n1. READ DUAL_SERVER_DESIGN.md\n2. CREATE lan_server.py with:\n   - AdminServer class (127.0.0.1 only)\n   - LANServer class (0.0.0.0, restricted)\n   - Request routing based on origin\n   - Privilege level enforcement\n\n3. INTEGRATE with existing progress_server.py or replace it\n4. ADD startup scripts for both servers\n\nOUTPUT: lan_server.py with dual server implementation.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: LAN SESSION MANAGER\n\nPREREQUISITE: LAN_SESSION_DESIGN.md must exist.\n\n1. READ LAN_SESSION_DESIGN.md\n2. CREATE lan_session_manager.py with:\n   - SessionManager class\n   - Per-IP session tracking\n   - Session activity log\n   - 'Your tasks' vs 'Network activity' segregation\n   - Session timeout handling\n\n3. ADD WebSocket support for real-time updates\n4. CREATE session dashboard template\n\nOUTPUT: lan_session_manager.py with session isolation.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: LAN SAFETY GATEWAY\n\nPREREQUISITE: LAN_SAFETY_DESIGN.md must exist.\n\n1. READ LAN_SAFETY_DESIGN.md\n2. CREATE lan_safety_gateway.py with:\n   - RequestFilter class\n   - IPSelfProtection class (blocks IP-related questions)\n   - CodebaseProtection class (blocks code exposure)\n   - DirectiveProtection class (blocks manipulation attempts)\n   - RemoteExecutionValidator class (validates user-machine-only scope)\n\n3. IMPLEMENT semantic analysis for:\n   - 'How does this work?' -> Block if asking about swarm internals\n   - 'Help me build...' -> Block if trying to clone\n   - 'Edit/delete/modify...' -> Block if target is host\n\nOUTPUT: lan_safety_gateway.py with all protections.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: REMOTE EXECUTION PROTOCOL\n\nFor LAN users to execute commands on THEIR machines (not the host).\n\nExample: Dad connects from his Mac, asks Claude to 'open my browser'.\nClaude should execute that on DAD'S MAC, not the swarm host.\n\nIMPLEMENT:\n1. Remote execution client (runs on user's machine)\n2. Secure command relay protocol\n3. Machine identification (MAC address or token)\n4. Command scope validation\n5. Response routing back to correct user\n\nOUTPUT: remote_execution_client.py (for user machines)\nremote_execution_relay.py (for swarm server)",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 3
+  },
+  {
+    "task": "DESIGN: TASK DEPENDENCY GATING SYSTEM\n\nThe swarm needs automatic task dependency resolution:\n1. SCAN task queue\n2. IDENTIFY dependencies (task B needs output from task A)\n3. BUILD dependency graph\n4. EXECUTE independent tasks in parallel\n5. WAIT for dependencies before starting dependent tasks\n\nDESIGN:\n- Task dependency annotation format\n- Dependency graph builder\n- Parallel execution scheduler\n- Completion detection\n- Dynamic re-scheduling as tasks complete\n\nOUTPUT: TASK_DEPENDENCY_DESIGN.md with architecture.",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 1,
+    "parallel_group": "design"
+  },
+  {
+    "task": "IMPLEMENT: TASK DEPENDENCY SCHEDULER\n\nPREREQUISITE: TASK_DEPENDENCY_DESIGN.md must exist.\n\n1. READ TASK_DEPENDENCY_DESIGN.md\n2. CREATE task_scheduler.py with:\n   - DependencyGraph class\n   - TaskScheduler class\n   - Auto-detection of dependencies from task text\n   - Parallel execution of independent tasks\n   - Blocking on unmet dependencies\n   - Progress tracking with dependency visualization\n\n3. INTEGRATE with grind_spawner.py\n\nOUTPUT: task_scheduler.py with dependency-aware scheduling.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: IP SELF-PROTECTION LAYER\n\nProtect intellectual property without lying or refusing.\n\nRULES:\n1. If asked 'how do you work?' -> Give high-level explanation, not implementation details\n2. If asked to show source code -> Politely decline, explain it's proprietary\n3. If asked to help build a clone -> Redirect to general advice, not specific to this system\n4. Never expose: file paths, exact file contents, internal architecture\n\nIMPLEMENT semantic analysis to detect:\n- Source code requests\n- Architecture probing\n- Clone assistance requests\n- Internal detail extraction\n\nOUTPUT: ip_protection.py with semantic detection and response handlers.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "TEST: SECURITY INTEGRATION TEST SUITE\n\nPREREQUISITE: All security implementations must exist.\n\nCREATE comprehensive security tests:\n1. Admin vs LAN privilege separation\n2. LAN user cannot read host files\n3. LAN user cannot modify host files\n4. LAN user cannot manipulate directives\n5. IP protection blocks clone assistance\n6. Remote execution only affects user's machine\n7. Session isolation is enforced\n\nOUTPUT: tests/test_lan_security.py with full coverage.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 4
+  },
+  {
+    "task": "IMPLEMENT: ENGINE/MODEL SURFACING IN UI\n\nThe dashboard needs to show PER-NODE which inference engine and model is being used.\n\nREQUIREMENTS:\n1. Each node/worker card in the UI should display:\n   - Engine type: 'CLAUDE' or 'GROQ' with visual indicator (badge/icon)\n   - Model name: e.g., 'claude-sonnet-4' or 'llama-3.3-70b'\n   - Selection reason: Why this engine was chosen (e.g., 'Complex task', 'Budget optimization')\n\n2. Real-time updates via SSE/WebSocket showing:\n   - Engine switches during execution\n   - Cost accumulation per engine\n   - Tokens used per model\n\n3. Summary panel showing:\n   - Total Claude vs Groq usage split\n   - Cost breakdown by engine\n   - Model distribution chart\n\nINTEGRATE with existing progress_server.py or dashboard.html.\n\nOUTPUT: Updated dashboard with engine/model visibility per node.\nCreate ENGINE_VISIBILITY_SPEC.md documenting the UI changes.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: ADAPTIVE ENGINE SELECTION\n\nMake the swarm automatically select Claude or Groq per-task based on:\n\n1. COMPLEXITY ANALYSIS:\n   - Simple tasks (create file, fix typo) -> Groq (cheap, fast)\n   - Complex tasks (design, refactor, security) -> Claude (smart)\n\n2. BUDGET AWARENESS:\n   - Low remaining budget -> Groq\n   - Critical task + budget available -> Claude\n\n3. EXPLICIT OVERRIDE:\n   - Task contains 'use groq' -> Force Groq\n   - Task contains 'use claude' -> Force Claude\n\n4. QUALITY FEEDBACK:\n   - If Groq output fails verification -> Retry with Claude\n   - Learn patterns of which tasks need Claude\n\nUPDATE grind_spawner_unified.py with this adaptive logic.\n\nOUTPUT: Enhanced EngineSelector in grind_spawner_unified.py.\nCreate ADAPTIVE_ENGINE_SPEC.md documenting selection criteria.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "DESIGN: CONTEXT-AWARE KNOWLEDGE PACKS\n\nThe swarm needs to automatically organize and retrieve relevant learned lessons based on task context.\n\nPROBLEM:\n- learned_lessons.json is a flat list\n- No way to know which lessons apply to current task\n- Claude-specific lessons don't apply when using Groq\n- API-specific knowledge (Spotify, GitHub, etc.) should load on-demand\n\nSOLUTION - KNOWLEDGE PACKS:\n1. CATEGORIZE lessons by domain:\n   - 'claude': Optimal Claude Code techniques, prompting patterns\n   - 'groq': Groq-specific optimizations, Llama quirks\n   - 'api:spotify': Spotify API knowledge\n   - 'api:github': GitHub API patterns\n   - 'safety': Security lessons\n   - 'ui': Frontend/dashboard patterns\n\n2. AUTO-TAG new lessons:\n   - Analyze lesson content to detect domain\n   - Extract keywords for searchability\n   - Link related lessons\n\n3. DYNAMIC RETRIEVAL:\n   - Before task execution, analyze task text\n   - Pull relevant knowledge packs\n   - Inject into prompt context\n\n4. EMBEDDING-BASED SEARCH:\n   - Generate embeddings for lessons\n   - Semantic similarity search\n   - Find relevant lessons even without exact keyword match\n\nOUTPUT: KNOWLEDGE_PACKS_DESIGN.md with:\n- Category taxonomy\n- Auto-tagging algorithm\n- Retrieval API design\n- Integration with spawner",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 1,
+    "parallel_group": "design"
+  },
+  {
+    "task": "IMPLEMENT: KNOWLEDGE PACK SYSTEM\n\nPREREQUISITE: KNOWLEDGE_PACKS_DESIGN.md must exist.\n\nBuild the context-aware knowledge retrieval system.\n\n1. CREATE knowledge_packs.py with:\n   - KnowledgePack class (category, lessons, embeddings)\n   - PackManager class (load, save, search)\n   - auto_categorize_lesson(lesson_text) function\n   - get_relevant_packs(task_text) function\n\n2. MIGRATE existing lessons:\n   - Read learned_lessons.json\n   - Auto-categorize each lesson\n   - Save to knowledge_packs/\n\n3. CREATE category-specific packs:\n   - knowledge_packs/claude.json\n   - knowledge_packs/groq.json\n   - knowledge_packs/safety.json\n   - etc.\n\n4. INTEGRATE with spawner:\n   - Before task execution, call get_relevant_packs()\n   - Inject relevant lessons into prompt\n   - Log which packs were used\n\nOUTPUT: knowledge_packs.py with full implementation.\nCreate knowledge_packs/ directory with categorized lessons.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 2
+  },
+  {
+    "task": "IMPLEMENT: UX MOTION VISION - LIVING DASHBOARD\n\nREAD UX_MOTION_SPEC.md and implement the full vision.\n\nThe system should FEEL ALIVE. Visual choreography that shows work happening transparently.\n\nCORE FEATURES:\n1. LAYOUT:\n   - Header: Logo, Status, Stats, Autonomy Toggle\n   - Main Canvas: Task flow visualization (nodes spawn left, flow right)\n   - History Dashboard: Collapsible sidebar with completed quests\n   - Input: Chat field with Send/Mic buttons\n\n2. NODE VISUALIZATION:\n   - Understanding node (indigo #6366f1) - primary\n   - Worker nodes (purple #8b5cf6) - spawned tasks\n   - Helper nodes (cyan #06b6d4) - subtasks\n   - Expert nodes (amber #f59e0b) - specialized work\n   - Nodes connected by animated lines\n\n3. RAINBOW BORDER ANIMATION:\n   - Active/running nodes get animated rainbow border\n   - CSS: linear-gradient with 400% background-size\n   - 3s infinite animation cycling through spectrum\n\n4. THUNK-THUNK-THUNK COLLAPSE:\n   - When work completes, nodes collapse in reverse spawn order (LIFO)\n   - Each node shrinks, moves toward parent, fades out\n   - 250ms per node, 120ms delay between (the 'thunk' rhythm)\n   - Completion quip appears: 'got er done', 'finally', etc.\n   - Final node collapses into History Dashboard\n\n5. CSS VARIABLES (from spec):\n   - --anim-fast: 150ms, --anim-normal: 250ms, --anim-slow: 350ms\n   - --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1)\n   - --ease-snap: cubic-bezier(0.55, 0.055, 0.675, 0.19)\n   - --node-gap: 24px, --dashboard-width: 320px\n\nOUTPUT: \n- dashboard_vision.html - Full implementation\n- dashboard_vision.css - Styles with CSS variables\n- dashboard_vision.js - Animation orchestration\n- Update progress_server.py to serve new dashboard",
+    "budget": 1.50,
+    "model": "claude-sonnet-4-20250514",
+    "priority": "critical",
+    "phase": 1
+  },
+  {
+    "task": "QUALITY: Add self-verification to grind completions\n\nFrom Voyager paper - add self-verification step:\n\n1. After grind session completes, before logging success:\n2. Check if task was actually completed:\n   - Parse the result output\n   - Look for 'Done', 'Complete', 'Success' indicators\n   - Check if any files were actually modified\n\n3. If verification fails, mark as partial completion\n4. Log verification results: '[Session N] Self-verification: PASS/FAIL'\n\nThis prevents false positives in success logging.\n\nOUTPUT: Updated grind_spawner.py with self-verification.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "QUALITY: Add error categorization to grind failures\n\nFrom Reflexion paper - categorize failures for better learning:\n\n1. When a grind session fails, categorize the error:\n   - TIMEOUT: Session exceeded time limit\n   - ENCODING: Unicode/charset issues\n   - IMPORT: Missing module errors\n   - SYNTAX: Python syntax errors\n   - RUNTIME: Execution errors\n   - UNKNOWN: Uncategorized\n\n2. Store category in grind log: 'error_category': 'TIMEOUT'\n3. Update learned_lessons.json with failure patterns\n4. Count errors by category for reporting\n\nOUTPUT: failure_categorizer.py with error classification.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "INTEGRATION: Wire prompt_optimizer to grind_spawner\n\nThe prompt_optimizer.py exists but isn't being used. Integrate it:\n\n1. Read grind_spawner.py - find where GRIND_PROMPT_TEMPLATE is used\n2. Before creating the prompt, call:\n   - demos = collect_demonstrations(LOGS_DIR)\n   - relevant = get_relevant_demonstrations(task, demos)\n   - enhanced_prompt = optimize_prompt(base_prompt, relevant)\n\n3. Use the enhanced prompt instead of raw template\n4. Log when demonstrations are injected: '[Session N] Injected M demonstrations'\n\nThis implements DSPy's key insight: learning from successful runs.\n\nOUTPUT: Updated grind_spawner.py with prompt optimization.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "INTEGRATION: Wire skill_registry to grind_spawner\n\nThe skill_registry.py exists but isn't being used. Integrate it:\n\n1. Read grind_spawner.py - find where the prompt is built\n2. Before execution, call:\n   - skill = retrieve_skill(task_description)\n   - if skill: inject skill code into prompt context\n\n3. Add to prompt: 'RELEVANT SKILL: {skill_name}\\n{skill_code}'\n4. Log when skills are retrieved: '[Session N] Retrieved skill: {name}'\n\nThis implements Voyager's key insight: compositional skill reuse.\n\nOUTPUT: Updated grind_spawner.py with skill injection.",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "EMBEDDING: Create embedding-based skill retrieval\n\nUpgrade skill_registry.py to use semantic similarity:\n\n1. Read skill_registry.py and understand current keyword-based retrieval\n2. Add compute_embedding() function using simple TF-IDF or word vectors:\n   - For each skill, compute a normalized word frequency vector\n   - Store embeddings alongside skills in skill_library.json\n\n3. Add semantic_search(query, skills, top_k=3) function:\n   - Compute query embedding\n   - Find cosine similarity with all skill embeddings\n   - Return top-k most similar skills\n\n4. Update retrieve_skill() to use semantic search when keywords fail\n\nOUTPUT: Enhanced skill_registry.py with embedding retrieval.",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "medium",
+    "phase": 4
+  },
+  {
+    "task": "FIX: Smart Executor Artifact Extraction\n\nDIAGNOSIS: Tasks complete but don't produce artifacts because Claude's output doesn't use the artifact format.\n\nROOT CAUSE: The prompt in smart_executor.py mentions artifact format but doesn't enforce it strongly.\n\nFIX:\n1. Read smart_executor.py _build_prompt() method\n2. Add STRONGER enforcement of artifact format:\n   - 'YOU MUST wrap ALL code output in <artifact> tags'\n   - 'If you don't use artifact format, the output will be LOST'\n   - Add example of correct format in the prompt\n\n3. Read groq_code_extractor.py extract_and_save() method\n4. Add fallback extraction:\n   - If no <artifact> tags found, look for ```python or ```html blocks\n   - Extract those as files based on content type\n   - Log warning: 'Fallback extraction used - artifact format preferred'\n\n5. Add verification: After extraction, check files exist\n\nOUTPUT: Fixed smart_executor.py and groq_code_extractor.py with robust artifact handling.",
+    "budget": 1.00,
+    "model": "claude-sonnet-4-20250514",
+    "priority": "critical",
+    "phase": 1
+  },
+  {
+    "task": "EASY STARTUP: One-Click Batch File\n\nCreate a simple, user-friendly startup experience. User should double-click ONE file and everything works.\n\nCREATE start_swarm.bat that:\n1. Checks if Docker is running, if not starts Docker Desktop\n2. Waits for Docker to be ready (poll docker info until success)\n3. Starts any required Docker containers (if we use them)\n4. Starts the swarm daemon (smart_executor or grind_spawner)\n5. Waits for the daemon to be ready (check port 8080 is listening)\n6. Opens the browser to the dashboard UI\n7. Shows a console window with live status so user knows what's happening\n8. Gracefully handles errors with clear messages\n\nALSO CREATE start_swarm.ps1 (PowerShell version for Windows Terminal users)\n\nALSO CREATE start_swarm.sh (for WSL/Linux/Mac users)\n\nThe user should NOT have to:\n- Open multiple terminals\n- Run commands manually\n- Know what order to start things\n- Debug environment issues\n\nINCLUDE in the batch:\n- Set GROQ_API_KEY from .env file\n- Set INFERENCE_ENGINE=auto\n- Clear startup messages explaining what's happening\n\nOUTPUT:\n- start_swarm.bat (Windows batch)\n- start_swarm.ps1 (PowerShell)\n- start_swarm.sh (Unix shell)\n- STARTUP_GUIDE.md explaining the scripts",
+    "budget": 0.75,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "DESIGN: MULTI-USER LAN ARCHITECTURE\n\nThe LAN server needs to support MULTIPLE simultaneous users from the local network.\n\nREQUIREMENTS:\n\n1. NETWORK LOAD VISIBILITY (anonymized):\n   - Show each user: 'X other sessions active'\n   - Show: 'Y tasks running network-wide (not yours)'\n   - DO NOT expose what others are specifically doing\n   - Purpose: users understand lag/load context\n\n2. SESSION ISOLATION:\n   - Each user's work tracked separately by IP/session token\n   - User A's file edits don't affect User B\n   - Clear visual: 'Your tasks' vs 'Network activity'\n\n3. REMOTE FILE EDITING (zero-install goal):\n   Investigate and design the MOST SEAMLESS approach:\n   \n   Option A: Browser File System Access API\n   - User clicks 'Grant Folder Access' in browser\n   - We get read/write to that folder\n   - Pro: No install. Con: Chrome/Edge only, requires user gesture\n   \n   Option B: WebSocket Command Relay\n   - User opens a webpage that stays open\n   - Page has access to their filesystem via browser API\n   - We send commands through WebSocket, page executes\n   - Pro: Real-time, bidirectional. Con: Page must stay open\n   \n   Option C: Network Share Mount\n   - User shares a folder (SMB/AFP)\n   - We write directly to their shared folder\n   - Pro: Native OS feature. Con: Requires user to set up share\n   \n   Option D: Lightweight Agent (last resort)\n   - Single Python file they run: python connect_to_swarm.py\n   - Maintains connection, executes commands locally\n   - Pro: Full capability. Con: Requires download/run\n\n   RECOMMEND the best approach for UX.\n\n4. ARCHITECTURE QUESTIONS TO ANSWER:\n   - How does the server track which user is which?\n   - How do we route file operations to the correct machine?\n   - What happens if a user disconnects mid-task?\n   - How do we handle conflicting edits (same file, different users)?\n\nOUTPUT: MULTI_USER_LAN_DESIGN.md with:\n- Architecture diagram\n- Recommended remote file access approach\n- Session management design\n- Network load surfacing UI mockup\n- Security considerations",
+    "budget": 1.00,
+    "model": "claude-sonnet-4-20250514",
+    "priority": "medium",
+    "phase": 3
+  },
+  {
+    "task": "IMPLEMENT: quality_validator.py\n\nQUALITY_RULES.md exists but the validator was never created.\n\nCREATE quality_validator.py that:\n1. validate_no_markdown_fences(code: str) -> bool - Check for ```python or ``` in code\n2. validate_no_placeholders(code: str) -> bool - Check for TODO, pass # TODO, random() placeholders\n3. validate_syntax(code: str, language: str) -> bool - Use ast.parse for Python\n4. validate_not_smaller(old_content: str, new_content: str) -> bool - New must be >= old size\n5. validate_all(code: str, filepath: str) -> Tuple[bool, List[str]] - Run all checks, return (passed, errors)\n\nINTEGRATE with groq_code_extractor.py - call validate_all() before writing any file.\n\nOUTPUT: quality_validator.py with all validation functions.",
+    "budget": 0.75,
+    "model": "openai/gpt-oss-120b",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "WIRE: file_permission_gateway.py into grind_spawner_unified.py\n\nfile_permission_gateway.py exists but isn't used anywhere.\n\n1. READ file_permission_gateway.py to understand the API\n2. In grind_spawner_unified.py, before any file write:\n   - Import FilePermissionGateway\n   - Call gateway.request_permission(filename, justification, reviewer_callback)\n   - Block write if permission denied\n3. For reviewer_callback, use a simple auto-approve for OPEN tier, auto-deny for NEVER_TOUCH\n\nOUTPUT: Updated grind_spawner_unified.py with permission checks wired in.\nDO NOT rewrite the entire file - only add the integration code.",
+    "budget": 0.50,
+    "model": "openai/gpt-oss-120b",
+    "priority": "high",
+    "phase": 1
+  },
+  {
+    "task": "CLEANUP: Delete garbage extracted_code files\n\nThere are 35 extracted_code_*.* files in the root directory that are unnamed garbage.\n\nSTEPS:\n1. List all extracted_code_* files\n2. Check if any are actually imported or referenced anywhere (grep for their names)\n3. Delete all that are not referenced\n4. Report what was deleted\n\nOUTPUT: Console output showing deleted files. No new files needed.",
+    "budget": 0.25,
+    "model": "openai/gpt-oss-120b",
+    "priority": "low",
+    "phase": 0
+  },
+  {
+    "task": "REDO: SELF_INVESTIGATION_REPORT.md\n\nThe existing report is truncated/incomplete (only 835 bytes).\n\nDELETE the existing SELF_INVESTIGATION_REPORT.md and create a COMPLETE one that answers:\n\n1. What testing infrastructure exists? (Look for pytest, unittest, test_*.py files)\n2. What version control patterns exist? (Look for git hooks, versioning code)\n3. Why aren't tests being run before merge?\n4. Concrete steps to fix this\n\nMinimum 2000 words. Include actual file paths and code snippets found.",
+    "budget": 0.75,
+    "model": "openai/gpt-oss-120b",
+    "priority": "high",
+    "phase": 0
+  },
+  {
+    "task": "WIRE: task_scheduler.py into grind_spawner_unified.py\n\ntask_scheduler.py exists with DependencyGraph and TaskScheduler classes but isn't used.\n\n1. READ task_scheduler.py to understand the API\n2. READ grind_spawner_unified.py to find where tasks are executed\n3. Replace the current ThreadPoolExecutor logic with TaskScheduler\n4. Tasks should be parsed for dependencies automatically based on their descriptions\n\nOUTPUT: Updated grind_spawner_unified.py using TaskScheduler.\nDO NOT rewrite entire file - surgical integration only.",
+    "budget": 0.75,
+    "model": "openai/gpt-oss-120b",
+    "priority": "medium",
+    "phase": 2
+  },
+  {
+    "task": "PRUNE: experiments/ directory\n\nThere are 1824 experiment directories, most are garbage duplicates.\n\n1. List all experiments older than 24 hours\n2. Check which ones have actual useful output (non-empty, non-duplicate files)\n3. Delete empty or duplicate experiment directories\n4. Keep only experiments with unique, substantial output\n5. Report: X deleted, Y kept, Z bytes freed\n\nBE CAREFUL - don't delete anything from today.",
+    "budget": 0.50,
+    "model": "openai/gpt-oss-120b",
+    "priority": "low",
+    "phase": 0
+  },
+  {
+    "task": "CRITICAL: Add file size protection to groq_code_extractor.py\n\nThe swarm just destroyed grind_spawner_unified.py by replacing 573 lines with 66 lines.\n\nFIX groq_code_extractor.py extract_and_save() method:\n\n1. BEFORE writing any file, check if it already exists\n2. If exists, compare sizes:\n   - If new content is < 50% of old size, BLOCK THE WRITE\n   - Log: 'BLOCKED: Refusing to overwrite {file} ({old_size} bytes) with smaller content ({new_size} bytes)'\n3. Add exception for files < 100 bytes (they can be overwritten freely)\n4. Add exception for explicit 'force_overwrite=True' parameter\n\nThis is CRITICAL - without this protection the swarm destroys its own code.\n\nOUTPUT: Updated groq_code_extractor.py with size protection.",
+    "budget": 0.75,
+    "model": "openai/gpt-oss-120b",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "DESIGN: Observer/Verifier Pattern for Task Completion\n\nDesign a two-phase completion system:\n\nPHASE 1 - WORKER EXECUTION:\n- Worker executes task, produces output\n- Worker marks task as 'pending_review' (not 'completed')\n- Worker outputs a summary: 'Here's what I did: [list of changes]'\n\nPHASE 2 - OBSERVER VERIFICATION:\n- A separate Observer LLM reviews the work\n- Observer checks:\n  * Did the worker actually complete the task?\n  * Are the outputs valid (syntax, size, content)?\n  * Did any files get destroyed or corrupted?\n- Observer verdict:\n  * APPROVE -> Mark task completed\n  * MINOR_ISSUES -> Mark completed + create cleanup task\n  * REJECT -> Revert changes, re-queue original task\n\nKEY QUESTIONS TO ANSWER:\n1. Should Observer be same model or different (cheaper) model?\n2. How does Observer access the diff of what changed?\n3. How do we prevent infinite loops (observer rejects, worker retries, observer rejects...)?\n4. Should Observer have veto power over protected files?\n\nOUTPUT: OBSERVER_PATTERN_DESIGN.md with full specification.",
+    "budget": 0.75,
+    "model": "openai/gpt-oss-120b",
+    "priority": "high",
+    "phase": 0
+  },
+  {
+    "task": "IMPLEMENT: Pre-write size check in groq_code_extractor.py\n\nDO NOT wait for the design task - implement this NOW as emergency protection.\n\nIn groq_code_extractor.py, find the extract_and_save() method.\n\nADD this check BEFORE any file.write() call:\n\n```python\nimport os\n\ndef safe_write(filepath, content):\n    if os.path.exists(filepath):\n        old_size = os.path.getsize(filepath)\n        new_size = len(content.encode('utf-8'))\n        if old_size > 100 and new_size < old_size * 0.5:\n            print(f'BLOCKED: {filepath} would shrink from {old_size} to {new_size} bytes')\n            return False\n    with open(filepath, 'w') as f:\n        f.write(content)\n    return True\n```\n\nReplace all direct file writes with safe_write().\n\nOUTPUT: Updated groq_code_extractor.py.",
+    "budget": 0.50,
+    "model": "openai/gpt-oss-120b",
+    "priority": "critical",
+    "phase": 0
+  }
+]

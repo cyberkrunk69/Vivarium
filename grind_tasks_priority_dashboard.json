@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "name": "PRIORITY: Fix Dashboard UI",
+    "budget": 0.15,
+    "description": "Fix the dashboard so it loads with CSS"
+  },
+  "tasks": [
+    {
+      "id": "dash-fix-1",
+      "phase": 0,
+      "description": "CRITICAL FIX: The dashboard at localhost:8420 loads HTML but no CSS. Read dashboard_vision.html, dashboard_vision.css, and dashboard_server.py. Identify why CSS is not loading. Common issues: wrong path, missing route, file not found. Fix it so the dashboard renders properly with styles."
+    },
+    {
+      "id": "dash-fix-2",
+      "phase": 0,
+      "description": "VERIFY CSS ROUTE: In dashboard_server.py, ensure there is a route that serves /dashboard_vision.css. If missing, add it. The CSS file exists at dashboard_vision.css in the root. Make sure the Content-Type header is text/css."
+    },
+    {
+      "id": "dash-fix-3",
+      "phase": 0,
+      "description": "FIX HTML STRUCTURE: In dashboard_vision.html, there are TWO <!DOCTYPE html> declarations making it invalid. Remove the duplicate. Keep only the Living Dashboard section (the second one). Ensure the <link rel='stylesheet' href='/dashboard_vision.css'> is correct."
+    },
+    {
+      "id": "dash-fix-4",
+      "phase": 0,
+      "description": "FIX JS LOADING: In dashboard_vision.js, there's an ES6 'export' statement that breaks in browsers. Remove it or wrap in proper module detection. The file should work as a regular script tag include."
+    },
+    {
+      "id": "dash-fix-5",
+      "phase": 0,
+      "description": "TEST AND VERIFY: After fixes, the dashboard at http://localhost:8420/vision should load with: 1) Styled header with logo, 2) Main canvas area, 3) History sidebar, 4) Input area at bottom. If any element is unstyled, debug and fix."
+    }
+  ]
+}

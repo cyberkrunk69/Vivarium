@@ -1,0 +1,89 @@
+{
+  "meta": {
+    "name": "Admin Dashboard Optimization",
+    "priority": "high",
+    "description": "Optimize dashboard for admin visibility into parallel swarm execution"
+  },
+  "tasks": [
+    {
+      "id": "admin-1",
+      "phase": 1,
+      "description": "Create a real-time task grid view in dashboard_vision.js showing ALL active workers in a compact grid layout. Each cell shows: task ID, status (color-coded), elapsed time, current action. Grid auto-scales based on worker count. Update via SSE/WebSocket."
+    },
+    {
+      "id": "admin-2",
+      "phase": 1,
+      "description": "Add a live log stream panel to dashboard_vision.html. Tail the last 50 lines from grind_logs/ in real-time. Color-code by log level (START=blue, DONE=green, FAIL=red, SKIP=gray). Auto-scroll with pause-on-hover."
+    },
+    {
+      "id": "admin-3",
+      "phase": 1,
+      "description": "Build a task dependency graph visualization. Parse grind_tasks_*.json files, extract phase and dependency info, render as a DAG using CSS/SVG. Highlight completed nodes green, in-progress nodes with rainbow border, blocked nodes gray."
+    },
+    {
+      "id": "admin-4",
+      "phase": 1,
+      "description": "Create a swarm health panel showing: total workers, active workers, tasks/minute throughput, estimated cost/hour, API error rate, checkpoint freshness. Use gauges or sparklines. Poll /api/stats endpoint."
+    },
+    {
+      "id": "admin-5",
+      "phase": 2,
+      "description": "Add keyboard shortcuts to dashboard: 'g' for grid view, 'l' for log view, 't' for tree view, 'space' to pause/resume auto-refresh, 'r' to force refresh, '?' to show help overlay. Display current mode in header."
+    },
+    {
+      "id": "admin-6",
+      "phase": 2,
+      "description": "Implement task filtering and search. Add search box that filters visible tasks by: id, description text, status, phase. Support regex. Highlight matches. Persist filter in URL hash for shareability."
+    },
+    {
+      "id": "admin-7",
+      "phase": 2,
+      "description": "Create an experiments/ browser panel. List recent experiment folders with: timestamp, task count, files created, status (success/fail). Click to expand and see file list. Link to view diffs."
+    },
+    {
+      "id": "admin-8",
+      "phase": 2,
+      "description": "Add a cost breakdown chart. Show cost by: task file, phase, time period. Use simple bar chart or treemap. Data from checkpoint + grind_logs. Update in real-time as tasks complete."
+    },
+    {
+      "id": "admin-9",
+      "phase": 3,
+      "description": "Build a parallel execution timeline view. Gantt-style chart showing when each task started/ended. X-axis is time, Y-axis is worker slot. Color by task file origin. Zoom and pan support."
+    },
+    {
+      "id": "admin-10",
+      "phase": 3,
+      "description": "Create dashboard_server.py endpoints: GET /api/stats (swarm health), GET /api/tasks (all tasks with status), GET /api/logs?tail=N (recent logs), GET /api/experiments (experiment list). Return JSON."
+    },
+    {
+      "id": "admin-11",
+      "phase": 3,
+      "description": "Add WebSocket push for real-time updates. Server broadcasts: task_start, task_complete, task_fail, checkpoint_save events. Dashboard subscribes and updates UI without polling. Fallback to SSE."
+    },
+    {
+      "id": "admin-12",
+      "phase": 3,
+      "description": "Implement a notification system. Toast notifications for: task failures, budget warnings (>80% spent), checkpoint saves, new task files detected. Stack in corner, auto-dismiss after 5s, click to expand."
+    },
+    {
+      "id": "admin-13",
+      "phase": 4,
+      "description": "Create a dark/light theme toggle. Store preference in localStorage. Define CSS variables for both themes. Default to dark. Respect system preference via prefers-color-scheme media query."
+    },
+    {
+      "id": "admin-14",
+      "phase": 4,
+      "description": "Add responsive layout for mobile/tablet viewing. Collapse sidebar on small screens, stack panels vertically, touch-friendly controls. Test at 320px, 768px, 1024px breakpoints."
+    },
+    {
+      "id": "admin-15",
+      "phase": 4,
+      "description": "Performance optimization pass. Virtualize long lists (only render visible items), debounce rapid updates, use requestAnimationFrame for animations, lazy-load heavy components. Target 60fps."
+    },
+    {
+      "id": "admin-16",
+      "phase": 4,
+      "description": "Add an admin command palette. Press Ctrl+K to open. Type commands like 'restart swarm', 'clear logs', 'export stats', 'pause workers'. Fuzzy search command list. Execute via API calls."
+    }
+  ]
+}

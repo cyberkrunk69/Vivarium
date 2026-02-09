@@ -1,0 +1,6 @@
+# Await the async call to obtain the actual response object
+response = await client.chat.completions.create(
+    model=model,
+    messages=messages,
+    temperature=temperature,
+)

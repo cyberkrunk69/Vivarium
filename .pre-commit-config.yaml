@@ -1,0 +1,28 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+  - repo: https://github.com/psf/black
+    rev: 24.2b0
+    hooks:
+      - id: black
+        language_version: python3.11
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run pytest
+        entry: pytest -q
+        language: system
+        pass_filenames: false
+        always_run: true
+repos:
+  - repo: local
+    hooks:
+      - id: enforce-version-control
+        name: Enforce custom version‑control workflow
+        entry: python scripts/version_control.py enforce
+        language: python
+        stages: [commit]
+        always_run: true

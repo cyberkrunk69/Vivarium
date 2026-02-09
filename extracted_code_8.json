@@ -1,0 +1,9 @@
+// knowledge_packs/claude.json
+{
+    "category": "claude",
+    "lessons": [
+        "Lesson 1: Claude's lesson",
+        "Lesson 2: Another Claude lesson"
+    ],
+    "embeddings": []
+}

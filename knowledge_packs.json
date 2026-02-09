@@ -1,0 +1,33 @@
+{
+    "categories": [
+        "founding",
+        "claude",
+        "groq",
+        "api:spotify",
+        "api:github",
+        "safety",
+        "ui",
+        "self:patterns",
+        "self:values",
+        "self:experience",
+        "self:corrections",
+        "relationship:memory",
+        "identity:stable"
+    ],
+    "lessons": {
+        "founding": [],
+        "claude": [],
+        "groq": [],
+        "api:spotify": [],
+        "api:github": [],
+        "safety": [],
+        "ui": [],
+        "self:patterns": [],
+        "self:values": [],
+        "self:experience": [],
+        "self:corrections": [],
+        "relationship:memory": [],
+        "identity:stable": []
+    },
+    "priority_categories": ["founding", "self:values", "identity:stable"]
+}

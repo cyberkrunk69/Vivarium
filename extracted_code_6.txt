@@ -1,0 +1,2 @@
+# Model can be overridden via env var for flexibility
+MODEL = os.getenv("SMART_EXECUTOR_MODEL", "gpt-4o-mini")

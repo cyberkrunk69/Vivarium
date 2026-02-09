@@ -1,0 +1,9 @@
+[
+  {
+    "task": "AUTONOMOUS SELF-IMPROVEMENT: Analyze the system and evolve it\n\nYou have $2.00 and full autonomy. Your mission: make this swarm better.\n\n## Step 1: Analyze Current State\nRead these files to understand what exists:\n- README.md - project overview\n- SWARM_ARCHITECTURE_V2.md - current architecture\n- grind_logs/ - what has been working/failing\n- Recent commits (git log --oneline -20)\n- knowledge_packs.json - what you know\n- skills/skill_registry.py - what you can do\n\n## Step 2: Identify Gaps\nWhat's missing? What's broken? What could be better?\nConsider:\n- Are there architectural components from the spec that don't exist yet?\n- What failures are recurring in the logs?\n- What would make task success rate higher?\n- What would reduce cost while maintaining quality?\n- What would enable new capabilities?\n\n## Step 3: Prioritize and Build\nPick the highest-impact improvements and implement them.\nYou can:\n- Build new modules (atomizer, consensus, planner improvements)\n- Fix broken infrastructure\n- Integrate disconnected components\n- Add missing safety/validation layers\n- Implement research from the papers\n- Create new meta-learning capabilities\n- Optimize prompt engineering\n- Build better self-observation tools\n\n## Constraints\n- Budget: $2.00 total\n- Don't break existing working code\n- Use experiments/ for risky changes\n- Document what you built and WHY\n- Test critical changes\n\n## Output Requirements\nCreate SELF_IMPROVEMENT_REPORT.md with:\n1. What you analyzed\n2. What gaps you found\n3. What you built/fixed (with file paths)\n4. Measured impact (if applicable)\n5. What should be built next\n6. Total cost breakdown\n\nYou decide the priorities. You decide the approach. Build what matters.",
+    "budget": 2.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  }
+]

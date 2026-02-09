@@ -1,2 +1,2 @@
-# /app/* @team/backend
-# /app/tests/* @team/qa
+# All changes require gatekeeper approval.
+* @cyberkrunk69

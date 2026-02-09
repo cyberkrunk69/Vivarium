@@ -1,0 +1,164 @@
+{
+  "meta": {
+    "name": "UI Vision Implementation",
+    "blueprint": "UIUX_INTERACTION_SPEC.md + UX_MOTION_SPEC.md",
+    "target_files": ["dashboard_vision.js", "dashboard_vision.css", "dashboard_vision.html"],
+    "priority": "high"
+  },
+  "tasks": [
+    {
+      "id": "ui-1.1",
+      "phase": 1,
+      "component": "Draggable Node System",
+      "description": "Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() functions in dashboard_vision.js. Add drag handle (three dots) in top-right corner of each node. Enable click-and-drag repositioning with visual feedback (scale + shadow during drag). Respect viewport boundaries. See UIUX_INTERACTION_SPEC.md section 1.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-1.2",
+      "phase": 1,
+      "component": "Drag Handle CSS",
+      "description": "Add CSS for drag handles in dashboard_vision.css: .drag-handle with grab cursor, hover states, positioning in node header. Add .node.dragging class with elevated shadow and scale(1.05).",
+      "dependencies": []
+    },
+    {
+      "id": "ui-1.3",
+      "phase": 1,
+      "component": "Position Persistence",
+      "description": "Implement saveNodePosition() and loadNodePosition() functions using localStorage. Save positions as JSON under key 'nodePositions'. Load and apply positions on page reload. See UIUX_INTERACTION_SPEC.md section 6.",
+      "dependencies": ["ui-1.1"]
+    },
+    {
+      "id": "ui-2.1",
+      "phase": 2,
+      "component": "Connection Line Updates",
+      "description": "Modify updateConnectionLines() to be called continuously during drag operations using requestAnimationFrame. Lines should smoothly follow nodes as they move. Throttle updates for performance.",
+      "dependencies": ["ui-1.1"]
+    },
+    {
+      "id": "ui-2.2",
+      "phase": 2,
+      "component": "Auto-Scaling Trees",
+      "description": "Implement updateTreeScale() and calculateOptimalScale() in dashboard_vision.js. Trees should scale down as they grow to maintain big-picture visibility. Min scale 30%, max 70% screen occupation per tree. See UIUX_INTERACTION_SPEC.md section 2.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-2.3",
+      "phase": 2,
+      "component": "Tree Scale CSS",
+      "description": "Add CSS for scaled trees: transform-origin center, smooth scale transitions using --anim-normal timing. Ensure readability at minimum scale.",
+      "dependencies": ["ui-2.2"]
+    },
+    {
+      "id": "ui-3.1",
+      "phase": 3,
+      "component": "Floating Chat Module",
+      "description": "Implement createFloatingChat() and setupChatDrag() in dashboard_vision.js. Create draggable floating panel with header, minimize button, drag handle, input field, send button. Maintain backdrop blur for visual separation. See UIUX_INTERACTION_SPEC.md section 3.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-3.2",
+      "phase": 3,
+      "component": "Floating Chat CSS",
+      "description": "Add CSS for floating chat module in dashboard_vision.css: .floating-chat with position:fixed, backdrop-filter:blur, rounded corners, shadow. .chat-minimized for collapsed state. Draggable header styling.",
+      "dependencies": ["ui-3.1"]
+    },
+    {
+      "id": "ui-3.3",
+      "phase": 3,
+      "component": "Chat Position Persistence",
+      "description": "Implement saveChatPosition() and loadChatPosition() using localStorage. Save position and collapsed state. Restore on page reload. Key: 'chatState'.",
+      "dependencies": ["ui-3.1"]
+    },
+    {
+      "id": "ui-4.1",
+      "phase": 4,
+      "component": "Collapsible Tree Mini Mode",
+      "description": "Implement collapseTree(), expandTree(), toggleTreeCollapse() in dashboard_vision.js. Collapse entire task trees into compact mini summaries showing tree icon, title, and completion ratio. Add collapse button to root nodes. See UIUX_INTERACTION_SPEC.md section 4.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-4.2",
+      "phase": 4,
+      "component": "Staggered Collapse Animation",
+      "description": "Implement the thunk-thunk-thunk collapse animation: deepest nodes collapse first (LIFO), 80ms stagger between each node, nodes shrink and translate toward collapse point, connection lines retract simultaneously. Use --thunk-delay CSS variable.",
+      "dependencies": ["ui-4.1"]
+    },
+    {
+      "id": "ui-4.3",
+      "phase": 4,
+      "component": "Mini Summary Display",
+      "description": "Create .tree-mini-summary element showing tree icon, task title, completed/total ratio, and expand button. Style with compact dimensions, border matching node type color. Click to expand back to full tree.",
+      "dependencies": ["ui-4.1"]
+    },
+    {
+      "id": "ui-4.4",
+      "phase": 4,
+      "component": "Mini Mode CSS",
+      "description": "Add CSS for .tree-mini-summary, .mini-expand-btn, staggered animation keyframes with 80ms delays. Add .node.mini-collapsing class for shrink+translate animation.",
+      "dependencies": ["ui-4.2", "ui-4.3"]
+    },
+    {
+      "id": "ui-5.1",
+      "phase": 5,
+      "component": "Multi-Tree State Management",
+      "description": "Add state.workspace.trees Map to track multiple parallel task trees. Each tree entry tracks: nodeCount, scale, collapsed status, miniElement reference. Implement getTreeRoots() and getTreeNodes(). See UIUX_INTERACTION_SPEC.md section 5.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-5.2",
+      "phase": 5,
+      "component": "Independent Tree Operations",
+      "description": "Ensure tree operations (scale, collapse, drag) affect only their own tree. Implement z-index management for drag operations so dragged tree comes to front.",
+      "dependencies": ["ui-5.1", "ui-2.2", "ui-4.1"]
+    },
+    {
+      "id": "ui-6.1",
+      "phase": 6,
+      "component": "Smart Layout Algorithm",
+      "description": "Implement smartLayoutTrees() in dashboard_vision.js. Calculate grid dimensions: cols = ceil(sqrt(tree_count)). Distribute space evenly. Auto-position new trees without saved positions. Preserve user customizations.",
+      "dependencies": ["ui-5.1"]
+    },
+    {
+      "id": "ui-6.2",
+      "phase": 6,
+      "component": "Collision Avoidance",
+      "description": "Implement collision detection when spawning new trees. Find open space in grid. Prevent overlapping nodes. Responsive layout that adapts to window resize.",
+      "dependencies": ["ui-6.1"]
+    },
+    {
+      "id": "ui-6.3",
+      "phase": 6,
+      "component": "Window Resize Handler",
+      "description": "Add responsive window.onresize handler that recalculates layout, updates connection lines, and re-checks tree scales. Debounce for performance.",
+      "dependencies": ["ui-6.1", "ui-2.1"]
+    },
+    {
+      "id": "ui-7.1",
+      "phase": 7,
+      "component": "Keyboard Navigation",
+      "description": "Add keyboard handlers for accessibility: Enter to send in chat, Tab navigation between nodes, Escape to close expanded details. Focus indicators on interactive elements.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-7.2",
+      "phase": 7,
+      "component": "Tooltips and Labels",
+      "description": "Add title attributes and tooltips to all control buttons (collapse, expand, drag, minimize). Add ARIA labels for screen reader support.",
+      "dependencies": []
+    },
+    {
+      "id": "ui-7.3",
+      "phase": 7,
+      "component": "Visual Polish",
+      "description": "Final visual polish pass: consistent hover states, smooth transitions on all interactive elements, proper cursor changes (grab, grabbing, pointer). Verify rainbow border animation performance.",
+      "dependencies": ["ui-1.1", "ui-3.1", "ui-4.1"]
+    },
+    {
+      "id": "ui-7.4",
+      "phase": 7,
+      "component": "Performance Optimization",
+      "description": "Add throttled connection line updates during drag. Use CSS transforms for all animations (GPU acceleration). Minimize DOM manipulation. Profile and fix any jank.",
+      "dependencies": ["ui-2.1"]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+---
+
+## 4. Session Management Design
+| Component | Responsibility |
+|-----------|----------------|
+| **HTTP Login / Token Issuance** | Generates a **cryptographically random session token** tied to the client’s IP (optional) and stores it in the server’s session map. |
+| **WebSocket Handshake** | Client presents the token; server validates and attaches the socket to the session. |
+| **Per‑User State** | `session = { token, ip, folderGranted:false, activeTasks: Set<taskId>, lastSeen: timestamp }` |
+| **Heartbeat** | Client sends a ping every 15 s; server updates `lastSeen`. If no ping for 30 s → mark session *disconnected*. |
+| **Graceful Disconnect** | On `close` event, server:
+  1. Marks all pending tasks for that session as **aborted**.
+  2. Removes the socket from the routing table.
+  3. Keeps the session entry for a short “reconnect window” (e.g., 2 min) to allow quick resume. |
+| **Reconnection** | If a client reconnects with the same token before the window expires, the server restores the socket and re‑queues any unfinished tasks. |
+
+---
+
+## 5. Routing File Operations
+1. **Client → Server**: UI action → HTTP POST `/api/command` containing `{sessionToken, command, relativePath, payload}`.  
+2. **Server** validates token → looks up session → enqueues a **Task** object (`taskId`, `sessionToken`, `command`, `path`).  
+3. **Task Dispatcher** selects the **WebSocket** belonging to that session and sends the command.  
+4. **Client** executes locally, replies with success/failure → server updates task status.  
+
+All routing is **session‑token based**, never by raw IP alone, to support NAT or multiple devices behind the same address.
+
+---
+
+## 6. Handling Disconnections & Failures
+* **Mid‑task disconnect** – Server marks the task **failed**; UI shows “Task aborted (connection lost)”.  
+* **Automatic retry** – UI may offer a “Retry” button; on reconnection the same command can be re‑sent.  
+* **Long‑running tasks** – For operations that may take > 30 s (e.g., large file copy), the client streams progress messages; server can keep the task alive as long as the socket remains open.
+
+---
+
+## 7. Conflict Resolution (Concurrent Edits)
+* **Optimistic Locking** – Each file edit includes a **file version hash** (e.g., SHA‑256 of the last known content).  
+* **Server‑side check** – When a write command arrives, the server verifies that the version matches the latest version known for that file across the network.  
+* **If mismatch** → Server returns a **conflict response**; UI displays “File changed by another user; merge required”.  
+* **Merge UI** – Simple side‑by‑side diff view allowing the user to choose which version to keep or to manually merge.  
+* **Alternative** – Serialize writes per file (queue) – simplest but can cause latency; recommended only for low‑traffic environments.
+
+---
+
+## 8. Network Load Visibility UI Mockup

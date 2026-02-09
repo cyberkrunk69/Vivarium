@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "id": "fix_log_404",
+      "description": "READ dashboard_server.py. The /grind_logs/latest.log endpoint exists but returns 404. Find the bug and FIX IT. Common issues: (1) Route might not be registered with Flask app correctly, (2) glob might not be imported, (3) Path logic might be wrong. OUTPUT: The corrected dashboard_server.py file with the working endpoint. Test your fix by checking: does the route use @app.route? Is glob imported at the top? Does the grind_logs path resolve correctly? Write the COMPLETE fixed file as output.",
+      "budget": 0.15,
+      "model": "llama-3.3-70b-versatile",
+      "expected_output": "dashboard_server.py with working /grind_logs/latest.log endpoint",
+      "dependencies": []
+    }
+  ]
+}

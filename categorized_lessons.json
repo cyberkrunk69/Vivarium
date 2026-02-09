@@ -1,0 +1,20 @@
+{
+    "claude": [
+        {
+            "id": 1,
+            "lesson": "Use Claude-specific prompting patterns for optimal results"
+        }
+    ],
+    "groq": [
+        {
+            "id": 2,
+            "lesson": "Optimize Groq code for better performance"
+        }
+    ],
+    "api:spotify": [
+        {
+            "id": 3,
+            "lesson": "Use Spotify API to fetch user playlists"
+        }
+    ]
+}

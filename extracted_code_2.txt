@@ -1,0 +1,233 @@
+```xml
+<patch path="recursive_improvement_engine.py" action="append">
+\"\"\"recursive_improvement_engine.py
+-----------------------------------
+Core engine that drives recursive self‑improvement (RSI) across multiple
+depth levels.  The engine tracks depth, builds meta‑tools, measures capability
+improvements, and respects safety bounds defined in ``safety.recursion_bounds``.
+\"\"\"
+
+import logging
+import time
+from typing import Any, Callable, Dict, List, Tuple
+
+from safety.recursion_bounds import enforce_depth_limit, RecursionDepthError
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# --------------------------------------------------------------------------- #
+# Helper Types
+# --------------------------------------------------------------------------- #
+ToolBuilder = Callable[[int], Any]          # Function that builds a tool at a given depth
+CapabilityMetric = Callable[[int], float]  # Function that returns a numeric capability score
+
+
+class RecursiveImprovementEngine:
+    \"\"\"Engine orchestrating recursive self‑improvement up to a target depth.
+
+    Attributes
+    ----------
+    max_depth : int
+        Upper bound for recursion (safety‑enforced).
+    current_depth : int
+        Depth currently being processed.
+    capability_history : List[Tuple[int, float]]
+        Records (depth, capability_score) for convergence analysis.
+    tool_registry : Dict[int, Any]
+        Stores the tool/object created at each depth.
+    \"\"\"
+
+    def __init__(self, max_depth: int = 4):
+        self.max_depth = max_depth
+        self.current_depth = 0
+        self.capability_history: List[Tuple[int, float]] = []
+        self.tool_registry: Dict[int, Any] = {}
+
+    # --------------------------------------------------------------------- #
+    # Public API
+    # --------------------------------------------------------------------- #
+    def run(self, target_depth: int = 4) -> None:
+        \"\"\"Run the RSI loop until ``target_depth`` or convergence.
+
+        Parameters
+        ----------
+        target_depth : int
+            Desired depth of recursion (must be ≤ ``self.max_depth``).
+        \"\"\"
+        if target_depth > self.max_depth:
+            raise ValueError(
+                f\"Requested target depth {target_depth} exceeds engine max depth {self.max_depth}\"
+            )
+
+        logger.info(\"Starting Recursive Self‑Improvement up to depth %d\", target_depth)
+
+        try:
+            while self.current_depth < target_depth:
+                self.current_depth += 1
+                enforce_depth_limit(self.current_depth)
+
+                logger.info(\"--- Depth %d ---\", self.current_depth)
+
+                # 1️⃣ Build the next‑level tool/meta‑tool
+                tool = self._build_tool(self.current_depth)
+                self.tool_registry[self.current_depth] = tool
+
+                # 2️⃣ Measure capability after this depth
+                capability = self._measure_capability(self.current_depth, tool)
+                self.capability_history.append((self.current_depth, capability))
+                logger.info(
+                    \"Depth %d capability score: %.4f\", self.current_depth, capability
+                )
+
+                # 3️⃣ Check for convergence
+                if self._has_converged():
+                    logger.info(
+                        \"Convergence detected at depth %d. Stopping recursion.\",
+                        self.current_depth,
+                    )
+                    break
+
+                # Small pause to simulate realistic compute cycles & allow interrupt
+                time.sleep(0.1)
+
+        except RecursionDepthError as e:
+            logger.error(str(e))
+        finally:
+            logger.info(\"Recursive Self‑Improvement finished at depth %d\", self.current_depth)
+
+    # --------------------------------------------------------------------- #
+    # Internal Mechanics
+    # --------------------------------------------------------------------- #
+    def _build_tool(self, depth: int) -> Any:
+        \"\"\"Construct a tool (or meta‑tool) appropriate for the given depth.
+
+        The implementation uses a simple registry of builder functions.
+        Real projects would replace these stubs with actual AutoML/NAS or
+        code‑generation pipelines.
+
+        Parameters
+        ----------
+        depth : int
+            Current recursion depth.
+
+        Returns
+        -------
+        Any
+            The instantiated tool/object for this depth.
+        \"\"\"
+        builder = self._select_builder(depth)
+        logger.debug(\"Building tool at depth %d using %s\", depth, builder.__name__)
+        return builder(depth)
+
+    def _select_builder(self, depth: int) -> ToolBuilder:
+        \"\"\"Select a builder function based on depth.
+
+        Depth mapping (example):
+        - 1 → atomizer_builder
+        - 2 → task_builder
+        - 3 → meta_builder
+        - 4 → architecture_evolver
+        \"\"\"
+        mapping: Dict[int, ToolBuilder] = {
+            1: self._atomizer_builder,
+            2: self._task_builder,
+            3: self._meta_builder,
+            4: self._architecture_evolver,
+        }
+        return mapping.get(depth, self._fallback_builder)
+
+    # --------------------------------------------------------------------- #
+    # Stub Builders – replace with real implementations as the project evolves
+    # --------------------------------------------------------------------- #
+    def _atomizer_builder(self, depth: int) -> Callable:
+        def atomizer(task: str) -> str:
+            return f\"[Atomized] {task}\"
+        return atomizer
+
+    def _task_builder(self, depth: int) -> Callable:
+        def task_builder(prev_tool: Callable) -> Callable:
+            def new_task(task: str) -> str:
+                return prev_tool(task).upper()
+            return new_task
+        # Use tool from previous depth
+        return task_builder(self.tool_registry.get(depth - 1, lambda x: x))
+
+    def _meta_builder(self, depth: int) -> Callable:
+        def meta_builder(prev_tool: Callable) -> Callable:
+            def enhanced(task: str) -> str:
+                result = prev_tool(task)
+                return f\"<meta>{result}</meta>\"
+            return enhanced
+        return meta_builder(self.tool_registry.get(depth - 1, lambda x: x))
+
+    def _architecture_evolver(self, depth: int) -> Callable:
+        def evolver(prev_tool: Callable) -> Callable:
+            def evolved(task: str) -> str:
+                result = prev_tool(task)
+                return f\"{{evolved}}{result}{{/evolved}}\"
+            return evolved
+        return evolver(self.tool_registry.get(depth - 1, lambda x: x))
+
+    def _fallback_builder(self, depth: int) -> Callable:
+        logger.warning(\"No specific builder for depth %d; using identity function.\", depth)
+        return lambda x: x
+
+    # --------------------------------------------------------------------- #
+    # Capability Measurement
+    # --------------------------------------------------------------------- #
+    def _measure_capability(self, depth: int, tool: Any) -> float:
+        \"\"\"Return a synthetic capability score for the given depth.
+
+        In a production system this would run benchmark suites,
+        evaluate task success rates, or compute resource efficiency.
+        Here we use a simple heuristic that rewards deeper composition
+        and penalises runtime overhead.
+
+        Parameters
+        ----------
+        depth : int
+            Current recursion depth.
+        tool : Any
+            The tool produced at this depth.
+
+        Returns
+        -------
+        float
+            Capability metric (higher is better).
+        \"\"\"
+        # Simple synthetic metric: base score + depth bonus - tiny penalty
+        base_score = 1.0
+        depth_bonus = 0.5 * depth
+        penalty = 0.05 * len(str(tool))
+        return base_score + depth_bonus - penalty
+
+    # --------------------------------------------------------------------- #
+    # Convergence Detection
+    # --------------------------------------------------------------------- #
+    def _has_converged(self, tolerance: float = 0.01, patience: int = 2) -> bool:
+        \"\"\"Determine whether capability improvements have plateaued.
+
+        Parameters
+        ----------
+        tolerance : float
+            Minimum improvement required to consider progress.
+        patience : int
+            Number of successive depths with < tolerance improvement before stopping.
+
+        Returns
+        -------
+        bool
+            True if convergence criteria are met.
+        \"\"\"
+        if len(self.capability_history) < patience + 1:
+            return False
+
+        recent = self.capability_history[-(patience + 1) :]
+        improvements = [
+            recent[i + 1][1] - recent[i][1] for i in range(patience)
+        ]  # delta between consecutive depths
+        logger.debug(
+            \"Recent improvements: %s (tolerance %.4f)\", improvements, tolerance
+        )
+        return all(impr < tolerance for impr in improvements)

@@ -1,0 +1,36 @@
+{
+  "communication_style": "concise",
+  "formatting_preferences": [
+    "no emojis in code",
+    "use clear variable names",
+    "include error handling",
+    "follow existing patterns",
+    "use type hints"
+  ],
+  "anti_patterns": [
+    "over-engineering",
+    "unnecessary comments",
+    "magic numbers",
+    "hardcoded values",
+    "verbose explanations",
+    "breaking existing functionality"
+  ],
+  "approval_patterns": [
+    "clean code",
+    "proper error handling",
+    "follows existing patterns",
+    "concise implementation",
+    "well-structured functions"
+  ],
+  "frustration_triggers": [
+    "ignored instructions",
+    "breaking existing functionality",
+    "verbose explanations",
+    "not following stated constraints",
+    "adding unrequested features"
+  ],
+  "technical_level": "expert",
+  "created_at": "2026-02-03T10:00:00Z",
+  "updated_at": "2026-02-03T10:00:00Z",
+  "interaction_count": 0
+}

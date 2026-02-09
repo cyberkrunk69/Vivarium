@@ -1,0 +1,6 @@
+import os
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise EnvironmentError("GROQ_API_KEY environment variable not set. Please configure your Groq API key.")
+client = Groq(api_key=GROQ_API_KEY)

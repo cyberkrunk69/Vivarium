@@ -1,0 +1,8 @@
+# example_task.yaml
+id: task_B
+command: python process_b.py
+depends_on:
+  - task_A   # output of task_A is required
+resources:
+  cpu: 2
+  memory: 4Gi

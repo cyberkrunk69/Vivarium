@@ -1,0 +1,7 @@
+{
+  "id": "uuid",
+  "text": "Full lesson content",
+  "tags": ["api:github", "safety"],
+  "keywords": ["webhook", "secret", "rate limit"],
+  "embedding": [0.12, -0.03, ...]   // stored as base64 or separate binary file
+}

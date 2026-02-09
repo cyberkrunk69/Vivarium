@@ -1,0 +1,18 @@
+{
+  "results": [
+    {
+      "id": "lesson_021",
+      "tags": ["api:github"],
+      "snippet": "To create a webhook, POST to /repos/:owner/:repo/hooks …",
+      "score": 0.92
+    },
+    {
+      "id": "lesson_045",
+      "tags": ["api:slack"],
+      "snippet": "Slack incoming webhook payload must contain a `text` field …",
+      "score": 0.87
+    }
+  ],
+  "used_embedding": true,
+  "fallback_keywords": false
+}

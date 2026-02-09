@@ -1,0 +1,1106 @@
+No artifacts found in response, attempting fallback extraction
+BLOCKED: Attempt to write to protected file: experiments/exp_20260203_220119_unified_session_89/grind_spawner_unified.py
+CAUTION: Writing to sensitive file: inference_engine.py
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\inference_engine.py (6727 bytes) with smaller content (3113 bytes, 46%)
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\docker-compose.yml (4695 bytes) with smaller content (616 bytes, 13%)
+No artifacts found in response, attempting fallback extraction
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\dashboard_vision.html (2394 bytes) with smaller content (777 bytes, 32%)
+Failed to parse patch block: invalid literal for int() with base 10: '"<<SEARCH_LINE_NUMBER'
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\extracted_code_1.py (8168 bytes) with smaller content (766 bytes, 9%)
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\extracted_code_1.sh (2870 bytes) with smaller content (163 bytes, 5%)
+CAUTION: Writing to sensitive file: experiments/exp_20260203_220204_unified_session_112/inference_engine.py
+No artifacts found in response, attempting fallback extraction
+No artifacts found in response, attempting fallback extraction
+[TOGETHER] Warning: together package not installed. Run: pip install together
+[AUTODISCOVER] Loading grind_tasks_admin_dashboard.json
+[AUTODISCOVER] Loading grind_tasks_agi_research.json
+[AUTODISCOVER] Loading grind_tasks_agi_wave2.json
+[AUTODISCOVER] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+[AUTODISCOVER] Loading grind_tasks_architecture.json
+[AUTODISCOVER] Loading grind_tasks_backup.json
+[AUTODISCOVER] Loading grind_tasks_cleanup_and_research.json
+[AUTODISCOVER] Loading grind_tasks_found_issues.json
+[AUTODISCOVER] Loading grind_tasks_integration.json
+[AUTODISCOVER] Loading grind_tasks_meta_challenge.json
+[AUTODISCOVER] Loading grind_tasks_meta_wave2.json
+[AUTODISCOVER] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+[AUTODISCOVER] Loading grind_tasks_polish.json
+[AUTODISCOVER] Loading grind_tasks_priority_dashboard.json
+[AUTODISCOVER] Loading grind_tasks_research_backed.json
+[AUTODISCOVER] Loading grind_tasks_self_evolve.json
+[AUTODISCOVER] Loading grind_tasks_self_growth.json
+[AUTODISCOVER] Loading grind_tasks_tech_debt.json
+[AUTODISCOVER] Loading grind_tasks_ui.json
+[AUTODISCOVER] Loading grind_tasks_wave6.json
+[AUTODISCOVER] Loading grind_tasks_wave7.json
+[AUTODISCOVER] Loading grind_tasks_wave8.json
+[SAFETY] Validating tasks...
+[SAFETY] 210/210 tasks passed validation.
+[RESUME] Found checkpoint with 133 completed tasks
+============================================================
+  UNIFIED GRIND SPAWNER (Groq)
+============================================================
+  Tasks:    210 total, 77 remaining
+  Engine:   Groq (compound auto-selects model)
+  Waves:    1 (parallel within each wave)
+------------------------------------------------------------
+
+[WAVE 1] Starting 74 tasks in parallel...
+WARNING: Task was sanitized (dangerous patterns removed)
+WARNING: Task was sanitized (dangerous patterns removed)
+[1] START: KERNEL: Analyze Linux io_uring.c for race conditio...
+[89] START: REMOVE CLAUDE REFERENCES: Search grind_spawner_uni...
+[2] START: META: Analyze self-observation data and generate n...
+[88] START: REMOVE CLAUDE CODE: In inference_engine.py, remove...
+[1] DONE (1s)
+[90] START: CLEAN DOCKER CONFIG: In docker-compose.yml, remove...
+[SAFETY] BLOCKED write to protected file: experiments/exp_20260203_220119_unified_session_89/grind_spawner_unified.py
+[89] DONE (5s)
+[91] START: SEARCH AND DESTROY: Use grep/find to locate ANY fi...
+[2] EDITED: grind_tasks_meta_wave2.json
+[2] DONE (6s) - 1 files
+[92] START: FIX DASHBOARD HTML: In dashboard_vision.html, ther...
+[CAUTION] Writing to sensitive file: inference_engine.py
+[SAFETY] BLOCKED overwrite of inference_engine.py: 6727b -> 3113b (46%)
+[88] DONE (8s)
+[93] START: FIX DASHBOARD JS: In dashboard_vision.js line 104,...
+[SAFETY] BLOCKED overwrite of docker-compose.yml: 4695b -> 616b (13%)
+[90] DONE (7s)
+[94] START: ADD MISSING ENDPOINT: The dashboard tries to fetch...
+[91] CREATED: experiments\exp_20260203_220124_unified_session_91\src\anthropic_client.py, experiments\exp_20260203_220124_unified_session_91\src\claude_fallback.py, experiments\exp_20260203_220124_unified_session_91\src\main.py
+[91] DONE (8s) - 3 files
+[95] START: ADD FAVICON: Create a simple favicon.ico or add a ...
+[93] DONE (6s)
+[96] START: AI RESEARCH - SELF-IMPROVEMENT: Research and docum...
+[SAFETY] BLOCKED overwrite of dashboard_vision.html: 2394b -> 777b (32%)
+[92] DONE (8s)
+[97] START: AI RESEARCH - EMERGENT CAPABILITIES: Analyze the g...
+[94] EDITED: dashboard_server.py, dashboard_server.py
+[94] DONE (9s) - 2 files
+[98] START: AI RESEARCH - ARCHITECTURE EVOLUTION: Based on cur...
+[95] CREATED: experiments\exp_20260203_220132_unified_session_95\dashboard_vision.html
+[95] DONE (7s) - 1 files
+[95] PROMOTED: dashboard_vision.html
+[99] START: Add comprehensive error handling for request proce...
+[96] EDITED: AI_RESEARCH_FINDINGS.md
+[96] DONE (8s) - 1 files
+[100] EXCEPTION: 'charmap' codec can't encode character '\u2011' in
+[101] START: Replace temporary configuration placeholder with d...
+[97] CREATED: experiments\exp_20260203_220133_unified_session_97\EMERGENT_CAPABILITIES.md
+[97] DONE (10s) - 1 files
+[97] PROMOTED: EMERGENT_CAPABILITIES.md
+[102] START: Implement caching layer for frequently accessed re...
+[98] EDITED: ARCHITECTURE_EVOLUTION_PROPOSAL.md
+[98] DONE (10s) - 1 files
+[103] START: Fix password hashing bug that skips salt generatio...
+[99] CREATED: experiments\exp_20260203_220139_unified_session_99\request_error_handler.py
+[99] DONE (9s) - 1 files
+[104] EXCEPTION: 'charmap' codec can't encode character '\u2011' in
+[105] START: PROBLEM: You (the swarm) write code to experiments...
+[101] CREATED: experiments\exp_20260203_220141_unified_session_101\config.py
+[101] DONE (7s) - 1 files
+[106] START: Implement intelligent git workflow for the swarm. ...
+[102] CREATED: experiments\exp_20260203_220143_unified_session_102\cache_layer.py
+[102] DONE (8s) - 1 files
+[107] START: Implement self-testing for swarm output. Before an...
+[103] DONE (8s)
+[108] START: Build the experiment promotion system. When an exp...
+[105] EDITED: integrate.sh, integration.yml
+[105] DONE (8s) - 2 files
+[109] START: Implement a quality gate that all swarm output mus...
+[SAFETY] BLOCKED overwrite of extracted_code_1.py: 8168b -> 766b (9%)
+[107] CREATED: extracted_code_2.txt
+[107] DONE (9s) - 1 files
+[110] START: After successful integration, clean up the experim...
+[SAFETY] BLOCKED overwrite of extracted_code_1.sh: 2870b -> 163b (5%)
+[106] DONE (12s)
+[111] START: AUTONOMOUS RESEARCH: Analyze the current swarm arc...
+[109] EDITED: quality_gate.py
+[109] DONE (8s) - 1 files
+[112] START: RATE LIMIT INTELLIGENCE: Implement adaptive rate l...
+[110] CREATED: experiments\exp_20260203_220200_unified_session_110\manifest.json, experiments\exp_20260203_220200_unified_session_110\cleanup_experiments.py
+[110] DONE (4s) - 2 files
+[110] PROMOTED: manifest.json
+[113] START: PARALLEL EFFICIENCY: Analyze current parallel exec...
+[108] EDITED: experiment_promotion.py
+[108] DONE (12s) - 1 files
+[114] START: SELF-IMPROVEMENT RESEARCH: Search the codebase for...
+[111] EDITED: experiments_sandbox.py
+[111] DONE (7s) - 1 files
+[115] START: LEARNING FROM FAILURES: Parse all grind_logs/*.jso...
+[CAUTION] Writing to sensitive file: experiments/exp_20260203_220204_unified_session_112/inference_engine.py
+[112] CREATED: experiments\exp_20260203_220204_unified_session_112\inference_engine.py
+[112] DONE (7s) - 1 files
+[116] START: TASK DECOMPOSITION IMPROVEMENT: The current decomp...
+[114] DONE (6s)
+[117] START: CHECKPOINT OPTIMIZATION: The swarm restarts lose c...
+[113] CREATED: experiments\exp_20260203_220205_unified_session_113\dynamic_parallel.py
+[113] DONE (8s) - 1 files
+[118] START: COST PREDICTION: Build a cost estimator. Before ru...
+[115] CREATED: experiments\exp_20260203_220208_unified_session_115\failure_patterns.json
+[115] DONE (6s) - 1 files
+[115] PROMOTED: failure_patterns.json
+[119] START: ENGINE SELECTION INTELLIGENCE: Current engine sele...
+[116] DONE (5s)
+[120] START: INTEGRATION SWEEP: List all files in experiments/ ...
+[117] CREATED: experiments\exp_20260203_220212_unified_session_117\checkpoint_manager.py
+[117] DONE (8s) - 1 files
+[121] START: CLEANUP: Remove empty experiment folders. Archive ...
+[118] CREATED: experiments\exp_20260203_220214_unified_session_118\cost_estimator.py
+[118] DONE (8s) - 1 files
+[122] START: SELF-REPORT: Generate a markdown report SELF_IMPRO...
+[120] CREATED: experiments\exp_20260203_220216_unified_session_120\integration_report.txt
+[120] DONE (8s) - 1 files
+[128] START: CRITICAL FIX: The dashboard at localhost:8420 load...
+[119] EDITED: engine_stats.py
+[119] DONE (10s) - 1 files
+[129] START: VERIFY CSS ROUTE: In dashboard_server.py, ensure t...
+[121] DONE (8s)
+[130] START: FIX HTML STRUCTURE: In dashboard_vision.html, ther...
+[122] EDITED: SELF_IMPROVEMENT_REPORT.md
+[122] DONE (7s) - 1 files
+[131] START: FIX JS LOADING: In dashboard_vision.js, there's an...BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\extracted_code_1.py (8168 bytes) with smaller content (1833 bytes, 22%)
+Failed to parse patch block: invalid literal for int() with base 10: 'class PersonaMemory:'
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\extracted_code_1.py (8168 bytes) with smaller content (125 bytes, 1%)
+BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\extracted_code_1.json (2351 bytes) with smaller content (707 bytes, 30%)
+
+[128] EDITED: dashboard_server.py
+[128] DONE (7s) - 1 files
+[132] START: TEST AND VERIFY: After fixes, the dashboard at htt...
+[SAFETY] BLOCKED overwrite of extracted_code_1.py: 8168b -> 1833b (22%)
+[129] DONE (8s)
+[154] START: Implement IIT-inspired self-model metrics and stor...
+[130] EDITED: D:\codingProjects\claude_parasite_brain_suck\dashboard_vision.html
+[130] DONE (6s) - 1 files
+[155] START: Build a narrative identity tracker that updates pe...
+[131] DONE (7s)
+[156] START: Create a meta-learning loop that periodically re-i...
+[132] EDITED: dashboard.css
+[132] DONE (13s) - 1 files
+[157] START: Develop a hedging-detector benchmark using the sel...
+[155] DONE (10s)
+[158] START: Integrate self:experience logging into the main re...
+[SAFETY] BLOCKED overwrite of extracted_code_1.py: 8168b -> 125b (1%)
+[154] DONE (12s)
+[159] START: Design a self-reflection prompt that queries perso...
+[156] CREATED: experiments\exp_20260203_220236_unified_session_156\meta_learning_loop.py
+[156] DONE (10s) - 1 files
+[160] START: Run an experiment in experiments/ folder: simulate...
+[157] CREATED: experiments\exp_20260203_220243_unified_session_157\hedging_detector_benchmark.py
+[157] DONE (4s) - 1 files
+[161] START: Write a utility to export self_patterns.json as a ...
+[158] CREATED: experiments\exp_20260203_220244_unified_session_158\experience_logger.py, experiments\exp_20260203_220244_unified_session_158\response_pipeline_with_logging.py
+[158] DONE (5s) - 2 files
+[162] START: Add a scheduled task that reviews the last 100 sel...
+[159] CREATED: experiments\exp_20260203_220244_unified_session_159\self_reflection_prompt.txt
+[159] DONE (5s) - 1 files
+[163] START: Document the self-observation schema and publish a...
+[160] CREATED: experiments\exp_20260203_220246_unified_session_160\conflict_simulation.py
+[160] DONE (8s) - 1 files
+[171] Budget exhausted - stopping
+[171] FAILED: Budget exhausted
+[172] Budget exhausted - stopping
+[172] FAILED: Budget exhausted
+[173] Budget exhausted - stopping
+[173] FAILED: Budget exhausted
+[174] Budget exhausted - stopping
+[174] FAILED: Budget exhausted
+[175] Budget exhausted - stopping
+[175] FAILED: Budget exhausted
+[176] Budget exhausted - stopping
+[176] FAILED: Budget exhausted
+[177] Budget exhausted - stopping
+[177] FAILED: Budget exhausted
+[178] Budget exhausted - stopping
+[178] FAILED: Budget exhausted
+[179] Budget exhausted - stopping
+[179] FAILED: Budget exhausted
+[180] Budget exhausted - stopping
+[180] FAILED: Budget exhausted
+[181] Budget exhausted - stopping
+[181] FAILED: Budget exhausted
+[182] Budget exhausted - stopping
+[182] FAILED: Budget exhausted
+[183] Budget exhausted - stopping
+[183] FAILED: Budget exhausted
+[184] Budget exhausted - stopping
+[184] FAILED: Budget exhausted
+[185] Budget exhausted - stopping
+[185] FAILED: Budget exhausted
+[186] Budget exhausted - stopping
+[186] FAILED: Budget exhausted
+[187] Budget exhausted - stopping
+[187] FAILED: Budget exhausted
+[188] Budget exhausted - stopping
+[188] FAILED: Budget exhausted
+[189] Budget exhausted - stopping
+[189] FAILED: Budget exhausted
+[190] Budget exhausted - stopping
+[190] FAILED: Budget exhausted
+[191] Budget exhausted - stopping
+[191] FAILED: Budget exhausted
+[192] Budget exhausted - stopping
+[192] FAILED: Budget exhausted
+[161] CREATED: experiments\exp_20260203_220247_unified_session_161\export_self_patterns.py
+[161] DONE (8s) - 1 files
+[162] DONE (8s)
+[SAFETY] BLOCKED overwrite of extracted_code_1.json: 2351b -> 707b (30%)
+[163] DONE (8s)
+[WAVE 1] Complete
+
+[ITERATION 2] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[211] Budget exhausted - stopping
+[211] FAILED: Budget exhausted
+[214] Budget exhausted - stopping
+[214] FAILED: Budget exhausted
+[213] Budget exhausted - stopping
+[213] FAILED: Budget exhausted
+[212] Budget exhausted - stopping
+[212] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[216] Budget exhausted - stopping
+[216] FAILED: Budget exhausted
+[215] Budget exhausted - stopping
+[215] FAILED: Budget exhausted
+[217] Budget exhausted - stopping
+[217] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[218] Budget exhausted - stopping
+[218] FAILED: Budget exhausted
+[219] Budget exhausted - stopping
+[219] FAILED: Budget exhausted
+[220] Budget exhausted - stopping
+[220] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[221] Budget exhausted - stopping
+[221] FAILED: Budget exhausted
+[222] Budget exhausted - stopping
+[222] FAILED: Budget exhausted
+[224] Budget exhausted - stopping
+[224] FAILED: Budget exhausted
+[223] Budget exhausted - stopping
+[223] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[225] Budget exhausted - stopping
+[225] FAILED: Budget exhausted
+[226] Budget exhausted - stopping
+[226] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[227] Budget exhausted - stopping
+[227] FAILED: Budget exhausted
+[228] Budget exhausted - stopping
+[228] FAILED: Budget exhausted
+[229] Budget exhausted - stopping
+[229] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[230] Budget exhausted - stopping
+[230] FAILED: Budget exhausted
+[233] Budget exhausted - stopping
+[233] FAILED: Budget exhausted
+[231] Budget exhausted - stopping
+[231] FAILED: Budget exhausted
+[232] Budget exhausted - stopping
+[232] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 3] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[235] Budget exhausted - stopping
+[235] FAILED: Budget exhausted
+[237] Budget exhausted - stopping
+[237] FAILED: Budget exhausted
+[236] Budget exhausted - stopping
+[236] FAILED: Budget exhausted
+[234] Budget exhausted - stopping
+[234] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[238] Budget exhausted - stopping
+[238] FAILED: Budget exhausted
+[240] Budget exhausted - stopping
+[240] FAILED: Budget exhausted
+[239] Budget exhausted - stopping
+[239] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[242] Budget exhausted - stopping
+[242] FAILED: Budget exhausted
+[243] Budget exhausted - stopping
+[243] FAILED: Budget exhausted
+[241] Budget exhausted - stopping
+[241] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[244] Budget exhausted - stopping
+[244] FAILED: Budget exhausted
+[246] Budget exhausted - stopping
+[246] FAILED: Budget exhausted
+[245] Budget exhausted - stopping
+[245] FAILED: Budget exhausted
+[247] Budget exhausted - stopping
+[247] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[249] Budget exhausted - stopping
+[249] FAILED: Budget exhausted
+[248] Budget exhausted - stopping
+[248] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[250] Budget exhausted - stopping
+[250] FAILED: Budget exhausted
+[251] Budget exhausted - stopping
+[251] FAILED: Budget exhausted
+[252] Budget exhausted - stopping
+[252] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[253] Budget exhausted - stopping
+[253] FAILED: Budget exhausted
+[254] Budget exhausted - stopping
+[254] FAILED: Budget exhausted
+[255] Budget exhausted - stopping
+[255] FAILED: Budget exhausted
+[256] Budget exhausted - stopping
+[256] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 4] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[258] Budget exhausted - stopping
+[258] FAILED: Budget exhausted
+[260] Budget exhausted - stopping
+[260] FAILED: Budget exhausted
+[257] Budget exhausted - stopping
+[257] FAILED: Budget exhausted
+[259] Budget exhausted - stopping
+[259] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[261] Budget exhausted - stopping
+[261] FAILED: Budget exhausted
+[262] Budget exhausted - stopping
+[262] FAILED: Budget exhausted
+[263] Budget exhausted - stopping
+[263] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[264] Budget exhausted - stopping
+[264] FAILED: Budget exhausted
+[265] Budget exhausted - stopping
+[265] FAILED: Budget exhausted
+[266] Budget exhausted - stopping
+[266] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[268] Budget exhausted - stopping
+[268] FAILED: Budget exhausted
+[267] Budget exhausted - stopping
+[267] FAILED: Budget exhausted
+[269] Budget exhausted - stopping
+[269] FAILED: Budget exhausted
+[270] Budget exhausted - stopping
+[270] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[272] Budget exhausted - stopping
+[272] FAILED: Budget exhausted
+[271] Budget exhausted - stopping
+[271] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[273] Budget exhausted - stopping
+[273] FAILED: Budget exhausted
+[275] Budget exhausted - stopping
+[275] FAILED: Budget exhausted
+[274] Budget exhausted - stopping
+[274] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[276] Budget exhausted - stopping
+[276] FAILED: Budget exhausted
+[277] Budget exhausted - stopping
+[277] FAILED: Budget exhausted
+[278] Budget exhausted - stopping
+[278] FAILED: Budget exhausted
+[279] Budget exhausted - stopping
+[279] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 5] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[280] Budget exhausted - stopping
+[280] FAILED: Budget exhausted
+[281] Budget exhausted - stopping
+[281] FAILED: Budget exhausted
+[282] Budget exhausted - stopping
+[282] FAILED: Budget exhausted
+[283] Budget exhausted - stopping
+[283] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[284] Budget exhausted - stopping
+[284] FAILED: Budget exhausted
+[285] Budget exhausted - stopping
+[285] FAILED: Budget exhausted
+[286] Budget exhausted - stopping
+[286] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[287] Budget exhausted - stopping
+[287] FAILED: Budget exhausted
+[289] Budget exhausted - stopping
+[289] FAILED: Budget exhausted
+[288] Budget exhausted - stopping
+[288] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[290] Budget exhausted - stopping
+[290] FAILED: Budget exhausted
+[293] Budget exhausted - stopping
+[293] FAILED: Budget exhausted
+[292] Budget exhausted - stopping
+[292] FAILED: Budget exhausted
+[291] Budget exhausted - stopping
+[291] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[294] Budget exhausted - stopping
+[294] FAILED: Budget exhausted
+[295] Budget exhausted - stopping
+[295] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[296] Budget exhausted - stopping
+[296] FAILED: Budget exhausted
+[297] Budget exhausted - stopping
+[297] FAILED: Budget exhausted
+[298] Budget exhausted - stopping
+[298] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[299] Budget exhausted - stopping
+[299] FAILED: Budget exhausted
+[300] Budget exhausted - stopping
+[300] FAILED: Budget exhausted
+[301] Budget exhausted - stopping
+[301] FAILED: Budget exhausted
+[302] Budget exhausted - stopping
+[302] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 6] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[303] Budget exhausted - stopping
+[303] FAILED: Budget exhausted
+[304] Budget exhausted - stopping
+[304] FAILED: Budget exhausted
+[305] Budget exhausted - stopping
+[305] FAILED: Budget exhausted
+[306] Budget exhausted - stopping
+[306] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[307] Budget exhausted - stopping
+[307] FAILED: Budget exhausted
+[309] Budget exhausted - stopping
+[309] FAILED: Budget exhausted
+[308] Budget exhausted - stopping
+[308] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[310] Budget exhausted - stopping
+[310] FAILED: Budget exhausted
+[312] Budget exhausted - stopping
+[312] FAILED: Budget exhausted
+[311] Budget exhausted - stopping
+[311] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[313] Budget exhausted - stopping
+[313] FAILED: Budget exhausted
+[314] Budget exhausted - stopping
+[314] FAILED: Budget exhausted
+[316] Budget exhausted - stopping
+[316] FAILED: Budget exhausted
+[315] Budget exhausted - stopping
+[315] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[317] Budget exhausted - stopping
+[317] FAILED: Budget exhausted
+[318] Budget exhausted - stopping
+[318] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[319] Budget exhausted - stopping
+[319] FAILED: Budget exhausted
+[320] Budget exhausted - stopping
+[320] FAILED: Budget exhausted
+[321] Budget exhausted - stopping
+[321] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[322] Budget exhausted - stopping
+[322] FAILED: Budget exhausted
+[323] Budget exhausted - stopping
+[323] FAILED: Budget exhausted
+[325] Budget exhausted - stopping
+[325] FAILED: Budget exhausted
+[324] Budget exhausted - stopping
+[324] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 7] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[326] Budget exhausted - stopping
+[326] FAILED: Budget exhausted
+[327] Budget exhausted - stopping
+[327] FAILED: Budget exhausted
+[329] Budget exhausted - stopping
+[329] FAILED: Budget exhausted
+[328] Budget exhausted - stopping
+[328] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[330] Budget exhausted - stopping
+[330] FAILED: Budget exhausted
+[332] Budget exhausted - stopping
+[332] FAILED: Budget exhausted
+[331] Budget exhausted - stopping
+[331] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[333] Budget exhausted - stopping
+[333] FAILED: Budget exhausted
+[334] Budget exhausted - stopping
+[334] FAILED: Budget exhausted
+[335] Budget exhausted - stopping
+[335] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[336] Budget exhausted - stopping
+[336] FAILED: Budget exhausted
+[339] Budget exhausted - stopping
+[339] FAILED: Budget exhausted
+[338] Budget exhausted - stopping
+[338] FAILED: Budget exhausted
+[337] Budget exhausted - stopping
+[337] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[340] Budget exhausted - stopping
+[340] FAILED: Budget exhausted
+[341] Budget exhausted - stopping
+[341] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[342] Budget exhausted - stopping
+[342] FAILED: Budget exhausted
+[343] Budget exhausted - stopping
+[343] FAILED: Budget exhausted
+[344] Budget exhausted - stopping
+[344] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[346] Budget exhausted - stopping
+[346] FAILED: Budget exhausted
+[348] Budget exhausted - stopping
+[348] FAILED: Budget exhausted
+[345] Budget exhausted - stopping
+[345] FAILED: Budget exhausted
+[347] Budget exhausted - stopping
+[347] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 8] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[349] Budget exhausted - stopping
+[349] FAILED: Budget exhausted
+[350] Budget exhausted - stopping
+[350] FAILED: Budget exhausted
+[351] Budget exhausted - stopping
+[351] FAILED: Budget exhausted
+[352] Budget exhausted - stopping
+[352] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[353] Budget exhausted - stopping
+[353] FAILED: Budget exhausted
+[355] Budget exhausted - stopping
+[355] FAILED: Budget exhausted
+[354] Budget exhausted - stopping
+[354] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[356] Budget exhausted - stopping
+[356] FAILED: Budget exhausted
+[357] Budget exhausted - stopping
+[357] FAILED: Budget exhausted
+[358] Budget exhausted - stopping
+[358] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[360] Budget exhausted - stopping
+[360] FAILED: Budget exhausted
+[361] Budget exhausted - stopping
+[361] FAILED: Budget exhausted
+[362] Budget exhausted - stopping
+[362] FAILED: Budget exhausted
+[359] Budget exhausted - stopping
+[359] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[363] Budget exhausted - stopping
+[363] FAILED: Budget exhausted
+[364] Budget exhausted - stopping
+[364] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[365] Budget exhausted - stopping
+[365] FAILED: Budget exhausted
+[366] Budget exhausted - stopping
+[366] FAILED: Budget exhausted
+[367] Budget exhausted - stopping
+[367] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[369] Budget exhausted - stopping
+[369] FAILED: Budget exhausted
+[368] Budget exhausted - stopping
+[368] FAILED: Budget exhausted
+[370] Budget exhausted - stopping
+[370] FAILED: Budget exhausted
+[371] Budget exhausted - stopping
+[371] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 9] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[372] Budget exhausted - stopping
+[372] FAILED: Budget exhausted
+[373] Budget exhausted - stopping
+[373] FAILED: Budget exhausted
+[374] Budget exhausted - stopping
+[374] FAILED: Budget exhausted
+[375] Budget exhausted - stopping
+[375] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[376] Budget exhausted - stopping
+[376] FAILED: Budget exhausted
+[378] Budget exhausted - stopping
+[378] FAILED: Budget exhausted
+[377] Budget exhausted - stopping
+[377] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[380] Budget exhausted - stopping
+[380] FAILED: Budget exhausted
+[381] Budget exhausted - stopping
+[381] FAILED: Budget exhausted
+[379] Budget exhausted - stopping
+[379] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[382] Budget exhausted - stopping
+[382] FAILED: Budget exhausted
+[383] Budget exhausted - stopping
+[383] FAILED: Budget exhausted
+[385] Budget exhausted - stopping
+[385] FAILED: Budget exhausted
+[384] Budget exhausted - stopping
+[384] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[386] Budget exhausted - stopping
+[386] FAILED: Budget exhausted
+[387] Budget exhausted - stopping
+[387] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[388] Budget exhausted - stopping
+[388] FAILED: Budget exhausted
+[389] Budget exhausted - stopping
+[389] FAILED: Budget exhausted
+[390] Budget exhausted - stopping
+[390] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[391] Budget exhausted - stopping
+[391] FAILED: Budget exhausted
+[393] Budget exhausted - stopping
+[393] FAILED: Budget exhausted
+[392] Budget exhausted - stopping
+[392] FAILED: Budget exhausted
+[394] Budget exhausted - stopping
+[394] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+[ITERATION 10] No pending tasks. Scanning for new task files...
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_agi_wave2.json: Extra data: line 84 column 1 (char 2270)
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_found_issues.json: 'charmap' codec can't encode character '\u2011' in position 26: character maps to <undefined>
+  [!] Failed to load D:\codingProjects\claude_parasite_brain_suck\grind_tasks_meta_wave2.json: Extra data: line 50 column 1 (char 1748)
+  [+] Loaded: Implement setupNodeDrag(), handleNodeDrag(), stopNodeDrag() ...
+  [+] Loaded: Add CSS for drag handles in dashboard_vision.css: .drag-hand...
+  [+] Loaded: Implement saveNodePosition() and loadNodePosition() function...
+  [+] Loaded: Modify updateConnectionLines() to be called continuously dur...
+  [+] Loaded: Implement updateTreeScale() and calculateOptimalScale() in d...
+  [+] Loaded: Add CSS for scaled trees: transform-origin center, smooth sc...
+  [+] Loaded: Implement createFloatingChat() and setupChatDrag() in dashbo...
+  [+] Loaded: Add CSS for floating chat module in dashboard_vision.css: .f...
+  [+] Loaded: Implement saveChatPosition() and loadChatPosition() using lo...
+  [+] Loaded: Implement collapseTree(), expandTree(), toggleTreeCollapse()...
+  [+] Loaded: Implement the thunk-thunk-thunk collapse animation: deepest ...
+  [+] Loaded: Create .tree-mini-summary element showing tree icon, task ti...
+  [+] Loaded: Add CSS for .tree-mini-summary, .mini-expand-btn, staggered ...
+  [+] Loaded: Add state.workspace.trees Map to track multiple parallel tas...
+  [+] Loaded: Ensure tree operations (scale, collapse, drag) affect only t...
+  [+] Loaded: Implement smartLayoutTrees() in dashboard_vision.js. Calcula...
+  [+] Loaded: Implement collision detection when spawning new trees. Find ...
+  [+] Loaded: Add responsive window.onresize handler that recalculates lay...
+  [+] Loaded: Add keyboard handlers for accessibility: Enter to send in ch...
+  [+] Loaded: Add title attributes and tooltips to all control buttons (co...
+  [+] Loaded: Final visual polish pass: consistent hover states, smooth tr...
+  [+] Loaded: Add throttled connection line updates during drag. Use CSS t...
+
+[WAVE 1] Starting 4 tasks in parallel...
+[395] Budget exhausted - stopping
+[395] FAILED: Budget exhausted
+[396] Budget exhausted - stopping
+[396] FAILED: Budget exhausted
+[398] Budget exhausted - stopping
+[398] FAILED: Budget exhausted
+[397] Budget exhausted - stopping
+[397] FAILED: Budget exhausted
+[WAVE 1] Complete
+
+[WAVE 2] Starting 3 tasks in parallel...
+[399] Budget exhausted - stopping
+[399] FAILED: Budget exhausted
+[400] Budget exhausted - stopping
+[400] FAILED: Budget exhausted
+[401] Budget exhausted - stopping
+[401] FAILED: Budget exhausted
+[WAVE 2] Complete
+
+[WAVE 3] Starting 3 tasks in parallel...
+[402] Budget exhausted - stopping
+[402] FAILED: Budget exhausted
+[404] Budget exhausted - stopping
+[404] FAILED: Budget exhausted
+[403] Budget exhausted - stopping
+[403] FAILED: Budget exhausted
+[WAVE 3] Complete
+
+[WAVE 4] Starting 4 tasks in parallel...
+[405] Budget exhausted - stopping
+[405] FAILED: Budget exhausted
+[406] Budget exhausted - stopping
+[406] FAILED: Budget exhausted
+[407] Budget exhausted - stopping
+[407] FAILED: Budget exhausted
+[408] Budget exhausted - stopping
+[408] FAILED: Budget exhausted
+[WAVE 4] Complete
+
+[WAVE 5] Starting 2 tasks in parallel...
+[410] Budget exhausted - stopping
+[410] FAILED: Budget exhausted
+[409] Budget exhausted - stopping
+[409] FAILED: Budget exhausted
+[WAVE 5] Complete
+
+[WAVE 6] Starting 3 tasks in parallel...
+[411] Budget exhausted - stopping
+[411] FAILED: Budget exhausted
+[412] Budget exhausted - stopping
+[412] FAILED: Budget exhausted
+[413] Budget exhausted - stopping
+[413] FAILED: Budget exhausted
+[WAVE 6] Complete
+
+[WAVE 7] Starting 4 tasks in parallel...
+[414] Budget exhausted - stopping
+[414] FAILED: Budget exhausted
+[415] Budget exhausted - stopping
+[415] FAILED: Budget exhausted
+[416] Budget exhausted - stopping
+[416] FAILED: Budget exhausted
+[417] Budget exhausted - stopping
+[417] FAILED: Budget exhausted
+[WAVE 7] Complete
+
+============================================================
+  FINAL STATS
+============================================================
+  Engine:       Groq
+  Total Cost:   $0.0534
+  Total Calls:  0
+  Iterations:   10
+============================================================
+
+[CHECKPOINT] Saved progress: 183/417 tasks

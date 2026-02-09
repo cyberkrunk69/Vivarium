@@ -1,0 +1,40 @@
+{
+    "task_id": "...",
+    "source": "user:<session_id>" | "swarm:background",
+    "timestamp": "...",
+    "payload": {...}
+  }
+  ```
+* **Event Bus** – Implemented with **Redis Streams** (`lan_events`). Consumers filter by `source`.
+* **UI Tagging** – Front‑end renders:
+  * **Your Tasks** – highlighted in *blue* with label `You`.
+  * **Network Activity** – shown in *gray* with label `Network`.
+
+---
+
+## 4. Real‑Time Status Dashboard
+1. **WebSocket Endpoint** – `/ws/session/<session_id>` streams filtered events:
+   * `user_events` – events where `source == "user:<session_id>"`
+   * `network_events` – all other events.
+2. **Dashboard Layout**  
+   * **Left Pane** – “Your Tasks” (live list, cancel button).  
+   * **Right Pane** – “Network Activity” (read‑only view of swarm tasks).  
+   * **Status Bar** – Shows session health (`heartbeat`, `container state`).
+
+---
+
+## 5. Lifecycle & Cleanup
+1. **Graceful Exit** – When a user disconnects, the client sends `session_end`. The gateway stops the container, archives the workspace to `archive/<session_id>/`, and removes the registry entry.
+2. **Forced Cleanup** – If heartbeat timeout occurs, the same cleanup routine runs automatically.
+3. **Admin Override** – Admin can terminate any session via the admin console (calls `SessionManager.terminate(session_id)`).
+
+---
+
+## 6. Security Considerations
+* **Read‑Only Core Files** – `grind_spawner*.py`, `safety_*.py` are mounted read‑only inside every container.
+* **Rate Limiting** – Per‑IP request throttling (max 10 task submissions per second) to mitigate abuse.
+* **Audit Log** – All session actions (create, start task, stop task, destroy) are logged to `audit.log` with timestamps and IP.
+
+---
+
+## 7. Deployment Diagram

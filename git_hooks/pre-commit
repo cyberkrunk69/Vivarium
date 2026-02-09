@@ -1,0 +1,39 @@
+#!/bin/sh
+python -m unittest discover -s tests
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Pre‑commit hook: run the test suite and abort on failure.
+# ------------------------------------------------------------
+set -e
+
+echo "Running pytest before commit..."
+pytest -q
+echo "All tests passed. Continuing commit."
+chmod +x git_hooks/pre-commit
+#!/usr/bin/env bash
+# Pre‑commit hook: run pytest and enforce custom version‑control rules
+
+# Run the test suite
+echo "Running pytest..."
+pytest
+TEST_RESULT=$?
+
+if [ $TEST_RESULT -ne 0 ]; then
+    echo "Tests failed. Commit aborted."
+    exit $TEST_RESULT
+fi
+
+# Enforce custom version‑control compliance
+echo "Enforcing version‑control compliance..."
+python - <<'PY'
+import sys
+try:
+    from version_control import enforce_compliance
+    enforce_compliance()
+except Exception as e:
+    print(f"Version‑control compliance check failed: {e}")
+    sys.exit(1)
+PY
+
+echo "All checks passed. Proceeding with commit."
+exit 0

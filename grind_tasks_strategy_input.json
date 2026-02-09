@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "id": "strategy_analysis",
+      "description": "Strategic analysis: Blitzkrieg market strategy for autonomous AI swarm system. User plans 2-day refinement sprint, then account deletion. Goal: Move fast, topple verticals, maintain architectural secrecy until market position is unassailable. Competitive advantage: (1) Assembled system already operational, (2) Extreme cost efficiency via Groq, (3) Knowledge base scraper can target any vertical, (4) Anthropic can't adopt this model without cannibalizing their business. Question: What are the critical paths to revenue in the next 2 days? What should be prioritized for maximum velocity? Which verticals are most vulnerable to rapid knowledge-base-driven disruption?",
+      "budget": 0.25,
+      "model": "llama-3.3-70b-versatile",
+      "expected_output": "Strategic recommendations with prioritized action items",
+      "dependencies": []
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LAN Session Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #log { white-space: pre-wrap; background:#f8f8f8; padding:10px; border:1px solid #ddd; height:400px; overflow:auto; }
+    </style>
+</head>
+<body>
+    <h1>LAN Session Dashboard</h1>
+    <div id="log"></div>
+
+    <script>
+        const logDiv = document.getElementById('log');
+        const ws = new WebSocket('ws://' + location.hostname + ':8765');
+
+        ws.onopen = () => {
+            logDiv.textContent += '[connected]\\n';
+        };
+
+        ws.onmessage = (event) => {
+            // Simple display of raw messages; a real UI would parse and format.
+            logDiv.textContent += event.data + '\\n';
+            logDiv.scrollTop = logDiv.scrollHeight;
+        };
+
+        ws.onclose = () => {
+            logDiv.textContent += '[disconnected]\\n';
+        };
+
+        ws.onerror = (err) => {
+            console.error('WebSocket error', err);
+        };
+    </script>
+</body>
+</html>

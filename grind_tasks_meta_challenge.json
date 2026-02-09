@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "name": "Meta Self-Improvement Challenge",
+    "budget": 0.20,
+    "mode": "autonomous",
+    "description": "Research and implement self-improvement capabilities until budget exhausted, then integrate everything"
+  },
+  "tasks": [
+    {
+      "id": "meta-1",
+      "phase": 1,
+      "description": "AUTONOMOUS RESEARCH: Analyze the current swarm architecture (grind_spawner_unified.py, inference_engine.py, experiments_sandbox.py). Identify the top 3 bottlenecks preventing faster/smarter execution. Output a prioritized list with concrete fix proposals."
+    },
+    {
+      "id": "meta-2",
+      "phase": 1,
+      "description": "RATE LIMIT INTELLIGENCE: Implement adaptive rate limiting in inference_engine.py. Track API response times and 429 errors. Automatically back off exponentially on rate limits. Distribute load across available engines (Groq, Claude, Together). Log decisions to rate_limit_log.json."
+    },
+    {
+      "id": "meta-3",
+      "phase": 1,
+      "description": "PARALLEL EFFICIENCY: Analyze current parallel execution in grind_spawner_unified.py. The max_parallel=4 is hardcoded. Make it dynamic based on: task complexity, current rate limit status, available engines. Implement work-stealing if one engine is faster."
+    },
+    {
+      "id": "meta-4",
+      "phase": 2,
+      "description": "SELF-IMPROVEMENT RESEARCH: Search the codebase for all TODO, FIXME, HACK comments. Create grind_tasks_found_issues.json with tasks to fix each one. Prioritize by impact (core files > peripheral)."
+    },
+    {
+      "id": "meta-5",
+      "phase": 2,
+      "description": "LEARNING FROM FAILURES: Parse all grind_logs/*.json files. Extract patterns from failed tasks. What causes failures? Create failure_patterns.json with: pattern, frequency, suggested prevention. Use this to pre-filter doomed tasks."
+    },
+    {
+      "id": "meta-6",
+      "phase": 2,
+      "description": "TASK DECOMPOSITION IMPROVEMENT: The current decompose_task() in grind_spawner is basic. Enhance it to: detect multi-step tasks, auto-split into subtasks, estimate complexity more accurately, flag tasks that need human input."
+    },
+    {
+      "id": "meta-7",
+      "phase": 3,
+      "description": "CHECKPOINT OPTIMIZATION: The swarm restarts lose context. Implement richer checkpointing: save not just completed task hashes but also partial progress, learned patterns, engine performance stats. Load on restart."
+    },
+    {
+      "id": "meta-8",
+      "phase": 3,
+      "description": "COST PREDICTION: Build a cost estimator. Before running a task, predict cost based on: task length, complexity score, historical similar tasks. Warn if predicted cost exceeds remaining budget. Skip expensive tasks when budget is low."
+    },
+    {
+      "id": "meta-9",
+      "phase": 3,
+      "description": "ENGINE SELECTION INTELLIGENCE: Current engine selection is basic. Improve it: track success rate per engine per task type, learn which engine handles which tasks best, route tasks to optimal engine automatically."
+    },
+    {
+      "id": "meta-10",
+      "phase": 4,
+      "description": "INTEGRATION SWEEP: List all files in experiments/ folders that haven't been merged to mainline. For each, run validation_pipeline.py. If valid, use git_automation.py to commit with descriptive message. Report integration status."
+    },
+    {
+      "id": "meta-11",
+      "phase": 4,
+      "description": "CLEANUP: Remove empty experiment folders. Archive experiments older than 24 hours to experiments/archive/. Update experiments_manifest.json with what was kept vs archived. Free disk space."
+    },
+    {
+      "id": "meta-12",
+      "phase": 4,
+      "description": "SELF-REPORT: Generate a markdown report SELF_IMPROVEMENT_REPORT.md summarizing: what was researched, what was implemented, what was integrated, remaining opportunities, recommended next steps. Be honest about failures."
+    }
+  ]
+}

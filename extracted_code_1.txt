@@ -1,0 +1,7 @@
++-------------------+        +--------------------+        +-------------------+
+|   AGI Core (LLM) | <----> | Embodiment Interface| <----> |  Simulator / HW   |
++-------------------+        +--------------------+        +-------------------+
+        ^  ^                         ^   ^                         ^   ^
+        |  |                         |   |                         |   |
+   Text Prompt                 Observation   Action            Sensor Data
+   (plan, query)                Stream       Commands          Actuator Feedback

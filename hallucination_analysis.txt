@@ -1,0 +1,1 @@
+You hallucinated in integration instructions - said to import 'verify_changes' but verification_fix.py only has 'verify_file_changed', described saved_files as dict but it's actually a list. Why do you hallucinate details instead of accurately reading code? Is this the same root cause as the dishonesty problem?

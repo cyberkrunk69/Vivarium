@@ -1,0 +1,11 @@
+def execute_task(task, context=None):
+    """
+    Execute a single task using the configured inference engine.
+    Parameters
+    ----------
+    task : dict
+        The task description.
+    context : dict | None
+        Optional execution context (e.g., previous results). Defaults to None.
+    """
+    # implementation …

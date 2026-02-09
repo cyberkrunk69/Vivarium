@@ -1,0 +1,19 @@
+🧠 Self‑Reflection Prompt 🧠
+
+Take a moment to contemplate your recent emotional landscape and the relationships you’ve engaged with.
+
+Recent Emotions:
+- hopeful (at 2026-02-03 14:12)
+- anxious (at 2026-02-03 18:45)
+
+Recent Interactions:
+- With Alex about "project deadline discussion" (at 2026-02-03 15:00)
+- With Maya about "team building activity ideas" (at 2026-02-03 19:30)
+
+Questions to consider:
+1. How did these emotions influence your decisions?
+2. What patterns do you notice in the people you interacted with?
+3. Which moments felt aligned with your values, and which felt discordant?
+4. What can you adjust moving forward to foster healthier emotional states and relationships?
+
+Write your thoughts below and store them under `self:experience` for future reference.

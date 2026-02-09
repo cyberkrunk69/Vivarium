@@ -1,0 +1,13 @@
+def select_model(model_name: str):
+    if model_name == "gpt-4o":
+        return "gpt-4o"
+    elif model_name == "gpt-4":
+        return "gpt-4"
+    # duplicated block starts here
+    if model_name == "gpt-4o":
+        return "gpt-4o"
+    elif model_name == "gpt-4":
+        return "gpt-4"
+    # duplicated block ends here
+    else:
+        # missing return – falls through to None

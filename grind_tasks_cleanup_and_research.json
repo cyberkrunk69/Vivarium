@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "name": "Claude Removal + Dashboard Fix + AI Research",
+    "budget": 0.10,
+    "mode": "autonomous",
+    "description": "Remove all Claude/Anthropic code, fix dashboard errors, then conduct AI research"
+  },
+  "tasks": [
+    {
+      "id": "cleanup-1",
+      "phase": 1,
+      "description": "REMOVE CLAUDE CODE: In inference_engine.py, remove the entire CLAUDE engine type, the get_claude_engine function, any imports related to anthropic/claude, and the fallback logic that switches to Claude when Groq budget is hit. The system should ONLY use Groq."
+    },
+    {
+      "id": "cleanup-2",
+      "phase": 1,
+      "description": "REMOVE CLAUDE REFERENCES: Search grind_spawner_unified.py for any code that references Claude, anthropic, or switches engines on budget hit. Remove all such code. The spawner should only ever use Groq."
+    },
+    {
+      "id": "cleanup-3",
+      "phase": 1,
+      "description": "CLEAN DOCKER CONFIG: In docker-compose.yml, remove ANTHROPIC_API_KEY from all environment sections. Remove any comments mentioning Claude. Keep only GROQ_API_KEY."
+    },
+    {
+      "id": "cleanup-4",
+      "phase": 1,
+      "description": "SEARCH AND DESTROY: Use grep/find to locate ANY file in the codebase that imports anthropic, references claude, or mentions Claude as a fallback. List them all. For each Python file found, remove the Claude-related code."
+    },
+    {
+      "id": "dashboard-1",
+      "phase": 2,
+      "description": "FIX DASHBOARD HTML: In dashboard_vision.html, there are TWO <!DOCTYPE html> declarations (line 1 and line 74). This is invalid HTML. Remove the first document (lines 1-73) which is just a log panel prototype, keeping only the full Living Dashboard (lines 74-108)."
+    },
+    {
+      "id": "dashboard-2",
+      "phase": 2,
+      "description": "FIX DASHBOARD JS: In dashboard_vision.js line 104, there's 'export { smartLayoutTrees }' mixed with CommonJS module.exports. This causes errors in browsers. Remove the ES6 export line, keep only the CommonJS pattern OR wrap in proper module detection."
+    },
+    {
+      "id": "dashboard-3",
+      "phase": 2,
+      "description": "ADD MISSING ENDPOINT: The dashboard tries to fetch /progress-stream but gets 404. In dashboard_server.py, add a /progress-stream endpoint that returns SSE (Server-Sent Events) with task progress updates from swarm_checkpoint.json."
+    },
+    {
+      "id": "dashboard-4",
+      "phase": 2,
+      "description": "ADD FAVICON: Create a simple favicon.ico or add a <link rel='icon'> that points to a data URI in dashboard_vision.html to prevent 404 errors in console."
+    },
+    {
+      "id": "research-1",
+      "phase": 3,
+      "description": "AI RESEARCH - SELF-IMPROVEMENT: Research and document 5 concrete ways the swarm can improve its own performance. Focus on: prompt engineering patterns, task decomposition strategies, parallel execution optimization, error recovery mechanisms, and cost reduction techniques. Output to AI_RESEARCH_FINDINGS.md."
+    },
+    {
+      "id": "research-2",
+      "phase": 3,
+      "description": "AI RESEARCH - EMERGENT CAPABILITIES: Analyze the grind_logs to identify any emergent behaviors or unexpected capabilities the swarm has developed. Document patterns where the AI exceeded task requirements or found novel solutions. Output findings to EMERGENT_CAPABILITIES.md."
+    },
+    {
+      "id": "research-3",
+      "phase": 3,
+      "description": "AI RESEARCH - ARCHITECTURE EVOLUTION: Based on current performance data, propose the next evolution of the swarm architecture. Consider: multi-agent coordination, memory persistence, skill specialization, and recursive self-improvement. Output to ARCHITECTURE_EVOLUTION_PROPOSAL.md."
+    }
+  ]
+}

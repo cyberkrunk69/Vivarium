@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "id": "rebuild_dashboard",
+      "description": "WRITE A COMPLETE HTML FILE named dashboard_modern.html. This is a web page, not a Python script. Current dashboard.html has critical console errors - needs full rewrite. Requirements: Single HTML file with embedded <style> and <script> tags. Features: (1) Rainbow border animations on active nodes, (2) Thunk-thunk-thunk LIFO collapse (120ms stagger), (3) Draggable nodes with localStorage persistence, (4) Auto-scaling trees, (5) Floating draggable chat module, (6) Engine/model badges (CLAUDE=blue, GROQ=orange), (7) SSE connection to /events endpoint for real-time updates, (8) Node colors: indigo #6366f1, purple #8b5cf6, cyan #06b6d4, amber #f59e0b. Must be valid HTML5 with NO syntax errors, NO undefined variables, proper CSS/JS separation. Output: Complete ready-to-serve HTML file. Reference UX_MOTION_SPEC.md and UIUX_INTERACTION_SPEC.md for requirements.",
+      "budget": 0.75,
+      "model": "llama-3.3-70b-versatile",
+      "expected_output": "dashboard_modern.html - Single complete HTML file with embedded CSS and JavaScript, ready to open in browser",
+      "dependencies": []
+    }
+  ]
+}

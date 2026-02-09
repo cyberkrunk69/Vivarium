@@ -1,0 +1,6 @@
+[
+  {
+    "timestamp": "2026-02-04T00:00:00Z",
+    "lesson": "Implemented a minimal KnowledgeGraph (nodes, edges, code‑base ingestion, and depth‑limited traversal). This foundation supports concept mapping for Wave 10 and can be extended with additional node/edge types as the system evolves."
+  }
+]

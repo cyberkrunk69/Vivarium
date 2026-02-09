@@ -1,0 +1,51 @@
+[
+  {
+    "task": "TECH DEBT: Implement RLIF (Reinforcement Learning from Immediate Feedback)\n\nCreate the immediate learning system that extracts rules from user interactions.\n\nARCHITECTURE:\n1. Detect user sentiment in responses (frustration, approval, confusion)\n2. When negative: spin up analyzer to understand what went wrong\n3. Extract inverse rule: 'NEVER do X' or 'ALWAYS do Y'\n4. Store rule immediately in learned_lessons.json\n5. Inject relevant rules into future prompts\n\nIMPLEMENTATION:\n- rlif_detector.py - sentiment/frustration detection\n- rlif_analyzer.py - root cause analysis (uses larger model for serious errors)\n- rlif_rules.py - rule extraction and storage\n- Integration with grind_spawner_unified.py\n\nEXAMPLE RULES TO EXTRACT:\n- 'Before overwriting folders, compare versions first'\n- 'Use PowerShell for Windows, not Unix commands in Bash tool'\n- 'Never blindly delete without checking'\n\nOUTPUT: Full RLIF implementation",
+    "budget": 2.00,
+    "model": "groq/compound",
+    "priority": "critical",
+    "phase": 0
+  },
+  {
+    "task": "TECH DEBT: Wire Together AI Verifier into Production\n\nThe together_client.py exists but verification isn't fully wired.\n\nREQUIREMENTS:\n1. Every task completion should run through verifier\n2. Use GPT-OSS 20B ($0.05/$0.20) - cheap verification\n3. Verifier checks:\n   - Did the task actually complete?\n   - Is the output valid (syntax, size, content)?\n   - Any obvious errors?\n4. Log verification results\n5. Block task completion if REJECT\n\nINTEGRATION POINTS:\n- grind_spawner_unified.py (already has placeholder)\n- smart_executor.py\n\nOUTPUT: Fully wired verification system",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 0
+  },
+  {
+    "task": "TECH DEBT: Implement Intent Gatekeeper Node\n\nCreate the first node in the architecture - captures and preserves user intent.\n\nFUNCTION:\n1. Parse user request\n2. Extract: goal, constraints, preferences, anti-goals\n3. Store as structured intent object\n4. Inject into every downstream prompt\n5. Periodically check: 'Are we still aligned with original intent?'\n\nIMPLEMENTATION:\n- intent_gatekeeper.py\n- Intent dataclass with: goal, constraints, preferences, anti_goals, clarifications\n- Integration with spawner\n\nPREVENTS: Agent drift, scope creep, forgetting original goal\n\nOUTPUT: intent_gatekeeper.py",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 1
+  },
+  {
+    "task": "TECH DEBT: Implement User Proxy Node (CEO Node)\n\nCreate a persistent representation of the user's intent/personality.\n\nFUNCTION:\n1. Accumulate user preferences over time\n2. Represent user in internal debates\n3. Veto outputs that don't match user style\n4. Ask 'Would the user approve this?' before marking complete\n\nIMPLEMENTATION:\n- user_proxy.py\n- UserProxy class with:\n  - preferences (accumulated from interactions)\n  - style (communication patterns)\n  - anti_patterns (things user hates)\n  - simulate_response(output) -> approval/rejection\n\nINTEGRATION: Called before final task completion\n\nOUTPUT: user_proxy.py",
+    "budget": 1.00,
+    "model": "groq/compound",
+    "priority": "medium",
+    "phase": 2
+  },
+  {
+    "task": "TECH DEBT: Implement Tool-First Router\n\nCreate the tool lookup system that checks tool store before using LLM.\n\nHIERARCHY:\n1. Check tool store for exact match\n2. Check for composable components\n3. Fall back to LLM generation\n4. Store new tool after successful execution\n\nIMPLEMENTATION:\n- tool_router.py\n- ToolStore class with:\n  - lookup(task_description) -> tool or None\n  - store(tool_name, code, metadata)\n  - compose(component_list) -> assembled tool\n- Integration with spawner\n\nGOAL: 'Every LLM call is a failure to have built the right tool'\n\nOUTPUT: tool_router.py + tool_store.json",
+    "budget": 1.50,
+    "model": "groq/compound",
+    "priority": "high",
+    "phase": 1
+  },
+  {
+    "task": "TECH DEBT: Clean Up Extracted Code Files\n\nThere are 35+ extracted_code_*.* files cluttering the repo.\n\n1. List all extracted_code_* files\n2. Check if any are imported/referenced\n3. Delete unreferenced ones\n4. Move any useful ones to proper locations with proper names\n\nOUTPUT: Clean repo, report of what was deleted/moved",
+    "budget": 0.25,
+    "model": "groq/compound",
+    "priority": "low",
+    "phase": 0
+  },
+  {
+    "task": "TECH DEBT: Prune Experiments Directory\n\nThere are 1800+ experiment directories, most are garbage.\n\n1. List experiments older than 7 days\n2. Check for useful output (non-empty, unique files)\n3. Delete empty/duplicate experiments\n4. Keep only valuable ones\n5. Report: X deleted, Y kept, Z bytes freed\n\nBE CAREFUL: Don't delete anything from last 24 hours\n\nOUTPUT: Pruned experiments/, report",
+    "budget": 0.50,
+    "model": "groq/compound",
+    "priority": "low",
+    "phase": 0
+  }
+]

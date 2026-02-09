@@ -1,0 +1,2 @@
+GROQ_API_KEY = "YOUR_GROQ_API_KEY"
+client = Groq(api_key=GROQ_API_KEY)

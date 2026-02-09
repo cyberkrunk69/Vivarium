@@ -1,0 +1,28 @@
+         2628582 function calls (2558346 primitive calls) in 2.725 seconds
+
+   Ordered by: cumulative time
+   List reduced from 5793 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    2.729    2.729 D:\codingProjects\claude_parasite_brain_suck\startup_profiler.py:45(profile_startup)
+ 12103/36    0.014    0.000    2.700    0.075 D:\codingProjects\claude_parasite_brain_suck\startup_profiler.py:22(profile_import)
+ 12473/36    0.022    0.000    2.700    0.075 {built-in method builtins.__import__}
+  1434/28    0.010    0.000    2.700    0.096 <frozen importlib._bootstrap>:1349(_find_and_load)
+  1394/28    0.007    0.000    2.699    0.096 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+  1361/30    0.006    0.000    2.693    0.090 <frozen importlib._bootstrap>:911(_load_unlocked)
+  1167/29    0.004    0.000    2.692    0.093 <frozen importlib._bootstrap_external>:1020(exec_module)
+  3273/58    0.004    0.000    2.679    0.046 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+  1480/29    0.054    0.000    2.678    0.092 {built-in method builtins.exec}
+        1    0.000    0.000    1.247    1.247 D:\codingProjects\claude_parasite_brain_suck\skills\skill_registry.py:1(<module>)
+ 1566/855    0.003    0.000    1.232    0.001 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        1    0.000    0.000    1.195    1.195 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\__init__.py:1(<module>)
+        1    0.001    0.001    1.192    1.192 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\base.py:1(<module>)
+        1    0.000    0.000    1.184    1.184 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\utils\__init__.py:1(<module>)
+        1    0.000    0.000    1.164    1.164 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\utils\_chunking.py:1(<module>)
+        1    0.000    0.000    1.163    1.163 D:\codingProjects\claude_parasite_brain_suck\memory_synthesis.py:1(<module>)
+        1    0.000    0.000    1.163    1.163 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\utils\_param_validation.py:1(<module>)
+        1    0.000    0.000    1.162    1.162 D:\codingProjects\claude_parasite_brain_suck\utils\math_utils.py:1(<module>)
+        1    0.000    0.000    1.153    1.153 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\utils\_array_api.py:1(<module>)
+        1    0.000    0.000    1.153    1.153 C:\Users\filiu\miniconda3\Lib\site-packages\sklearn\utils\fixes.py:1(<module>)
+
+
