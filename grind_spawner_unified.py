@@ -138,7 +138,7 @@ ARTIFACT FORMAT (preferred)
 FULL FILE CONTENT HERE
 </artifact>
 
-Do the work now. If you make changes, include all necessary files as artifacts.
+If you take this task, do the work now. If you make changes, include all necessary files as artifacts.
 """
 
     def execute(self) -> Dict[str, Any]:

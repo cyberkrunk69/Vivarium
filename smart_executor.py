@@ -14,6 +14,16 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 
+try:
+    from hats import HAT_LIBRARY, apply_hat
+except ImportError:
+    HAT_LIBRARY = None
+    apply_hat = None
+try:
+    from resident_facets import decompose_task as resident_decompose_task
+except ImportError:
+    resident_decompose_task = None
+
 from dynamic_scheduler import (
     DynamicScheduler,
     TaskContext,
@@ -48,6 +58,13 @@ BLOCKED_OUTPUT_PATTERNS = [
     r"blocked by",
 ]
 
+FOCUS_HAT_MAP = {
+    "strategy": "Strategist",
+    "build": "Builder",
+    "review": "Reviewer",
+    "document": "Documenter",
+}
+
 
 class SmartExecutor:
     """
@@ -61,12 +78,14 @@ class SmartExecutor:
         self,
         workspace: Path,
         max_parallel: int = 4,
-        engine_type: EngineType = EngineType.AUTO
+        engine_type: EngineType = EngineType.AUTO,
+        identity_label: Optional[str] = None,
     ):
         self.workspace = workspace
         self.engine_type = engine_type
         self.scheduler = DynamicScheduler(max_workers=max_parallel)
         self.code_extractor = GroqArtifactExtractor(workspace_root=str(workspace))
+        self.identity_label = identity_label or "Resident"
 
         # Track what files/artifacts exist
         self.artifacts: Dict[str, Path] = {}
@@ -120,7 +139,12 @@ class SmartExecutor:
                 return task_id
         return None
 
-    def _create_task_executor(self, task_text: str, task_id: str) -> Callable:
+    def _create_task_executor(
+        self,
+        task_text: str,
+        task_id: str,
+        hat_name: Optional[str] = None,
+    ) -> Callable:
         """
         Create an executor function for a task.
         This wraps the model call with dependency checking.
@@ -152,7 +176,7 @@ class SmartExecutor:
             ctx.progress(0.1)
 
             engine = get_engine(self.engine_type)
-            prompt = self._build_prompt(task_text)
+            prompt = self._build_prompt(task_text, hat_name=hat_name)
 
             ctx.progress(0.2)
 
@@ -201,6 +225,7 @@ CONTENT HERE
 </artifact>
 
 Create the file now."""
+            prompt = self._apply_hat_overlay(prompt, "Builder")
 
             result = engine.execute(
                 prompt=prompt,
@@ -217,21 +242,32 @@ Create the file now."""
 
         return generator
 
-    def _build_prompt(self, task_text: str) -> str:
+    def _apply_hat_overlay(self, prompt: str, hat_name: Optional[str]) -> str:
+        if not prompt or not hat_name or not HAT_LIBRARY or not apply_hat:
+            return prompt
+        hat_key = FOCUS_HAT_MAP.get(hat_name.lower(), hat_name)
+        hat = HAT_LIBRARY.get_hat(hat_key)
+        if not hat:
+            return prompt
+        return apply_hat(prompt, hat)
+
+    def _build_prompt(self, task_text: str, hat_name: Optional[str] = None) -> str:
         """Build execution prompt for a task."""
-        return f"""You are an EXECUTION resident. DO THE WORK - don't just describe it.
+        base_prompt = f"""You are {self.identity_label}. You can optionally wear a hat to focus, but your identity stays the same.
+
+If you choose to take this task, make real changes rather than only describing them.
 
 WORKSPACE: {self.workspace}
 
 TASK:
 {task_text}
 
-CRITICAL INSTRUCTIONS:
-1. USE YOUR TOOLS to actually modify files:
+GUIDANCE (voluntary):
+1. When acting, use your tools to modify files directly:
    - Use the Edit tool to modify existing files
    - Use the Write tool to create new files
    - Use the Read tool to examine files first
-2. DO NOT just describe what to do - ACTUALLY DO IT
+2. Avoid only describing changes; apply them when appropriate
 3. After making changes, verify they worked
 
 PROTECTED FILES (READ-ONLY):
@@ -243,19 +279,21 @@ ALTERNATIVE OUTPUT FORMAT (if tools unavailable):
 COMPLETE FILE CONTENT
 </artifact>
 
-EXECUTE THE TASK NOW. Make real changes."""
+If you take this task, act directly and make real changes."""
+        return self._apply_hat_overlay(base_prompt, hat_name)
 
     def add_task(
         self,
         description: str,
         task_text: str,
         outputs: List[str] = None,
-        depends_on: List[str] = None
+        depends_on: List[str] = None,
+        hat: Optional[str] = None,
     ) -> str:
         """Add a task to be executed."""
         task_id = self.scheduler.add_task(
             description=description,
-            execute_fn=self._create_task_executor(task_text, description[:8]),
+            execute_fn=self._create_task_executor(task_text, description[:8], hat_name=hat),
             depends_on=depends_on or []
         )
 
@@ -263,10 +301,45 @@ EXECUTE THE TASK NOW. Make real changes."""
         self.task_templates[task_id] = {
             "description": description,
             "text": task_text,
-            "outputs": outputs or []
+            "outputs": outputs or [],
+            "hat": hat,
         }
 
         return task_id
+
+    def add_decomposed_task(
+        self,
+        description: str,
+        task_text: str,
+        max_subtasks: int = 3,
+    ) -> List[str]:
+        """
+        Decompose a task into atomic steps and schedule them sequentially.
+        Each subtask uses a hat focus but remains the same identity.
+        """
+        if not resident_decompose_task:
+            return [self.add_task(description, task_text)]
+
+        plan = resident_decompose_task(
+            task_text,
+            resident_id="resident_executor",
+            identity_id=self.identity_label,
+            max_subtasks=max_subtasks,
+        )
+
+        task_ids: List[str] = []
+        prev_id: Optional[str] = None
+        for sub in plan.subtasks:
+            focus = getattr(sub, "suggested_focus", None)
+            hat = FOCUS_HAT_MAP.get((focus or "").lower(), None) if focus else None
+            sub_desc = getattr(sub, "description", "") or task_text
+            label = f"{description} :: {sub_desc[:48]}".strip()
+            deps = [prev_id] if prev_id else None
+            sub_id = self.add_task(label, sub_desc, depends_on=deps, hat=hat)
+            task_ids.append(sub_id)
+            prev_id = sub_id
+
+        return task_ids
 
     def run(self) -> Dict[str, Any]:
         """Run all tasks with dynamic scheduling."""

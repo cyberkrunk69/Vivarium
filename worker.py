@@ -13,10 +13,10 @@ import sys
 import time
 import uuid
 import httpx
-from typing import Callable
+from typing import Callable, Iterable
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from utils import read_json, append_jsonl, read_jsonl, get_timestamp, ensure_dir, format_error
 from config import (
     LOCK_TIMEOUT_SECONDS,
@@ -35,6 +35,11 @@ try:
     from resident_facets import decompose_task as resident_decompose_task
 except ImportError:
     resident_decompose_task = None
+try:
+    from hats import HAT_LIBRARY, apply_hat
+except ImportError:
+    HAT_LIBRARY = None
+    apply_hat = None
 
 # ============================================================================
 # CONSTANTS
@@ -50,6 +55,12 @@ MAX_IDLE_CYCLES: int = 10  # Exit after N consecutive idle checks
 DEFAULT_INTENSITY: str = "medium"
 DEFAULT_TASK_TYPE: str = "grind"
 DEFAULT_MIN_SCORE: float = float(os.environ.get("RESIDENT_MIN_SCORE", "0"))
+FOCUS_HAT_MAP = {
+    "strategy": "Strategist",
+    "build": "Builder",
+    "review": "Reviewer",
+    "document": "Documenter",
+}
 
 # Generate unique resident ID (keep worker_id for compatibility in logs)
 RESIDENT_ID: str = f"resident_{uuid.uuid4().hex[:8]}"
@@ -231,6 +242,123 @@ def _build_facet_plan_text(plan: Any) -> str:
     return "\n".join(lines)
 
 
+def _should_delegate_task(task: Dict[str, Any]) -> bool:
+    mode = str(task.get("decompose") or "").lower().strip()
+    if mode in {"atomic", "delegate", "delegated", "sharded"}:
+        return True
+    return bool(task.get("delegate") or task.get("atomic"))
+
+
+def _split_budget(min_budget: float, max_budget: float, parts: int) -> Tuple[float, float]:
+    if parts <= 1:
+        return min_budget, max_budget
+    per_min = min_budget / parts if min_budget else min_budget
+    per_max = max_budget / parts if max_budget else max_budget
+    if per_min and per_max and per_min > per_max:
+        per_min = per_max
+    return per_min, per_max
+
+
+def _apply_hat_overlay(prompt: str, focus: Optional[str]) -> str:
+    if not prompt or not focus or not HAT_LIBRARY or not apply_hat:
+        return prompt
+    hat_name = FOCUS_HAT_MAP.get(focus.lower(), focus.title())
+    hat = HAT_LIBRARY.get_hat(hat_name)
+    if not hat:
+        return prompt
+    return apply_hat(prompt, hat)
+
+
+def _execute_delegated_subtasks(
+    task_id: str,
+    plan: Any,
+    api_endpoint: str,
+    resident_ctx: Optional["ResidentContext"],
+    min_budget: float,
+    max_budget: float,
+    intensity: str,
+    model: Optional[str],
+) -> Dict[str, Any]:
+    subtasks: Iterable[Any] = getattr(plan, "subtasks", []) or []
+    subtasks_list = list(subtasks)
+    if not subtasks_list:
+        return {"status": "failed", "result_summary": None, "errors": "No subtasks generated"}
+
+    per_min, per_max = _split_budget(min_budget, max_budget, len(subtasks_list))
+    results: List[str] = []
+
+    with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
+        for idx, sub in enumerate(subtasks_list, start=1):
+            subtask_id = getattr(sub, "subtask_id", None) or f"subtask_{idx:02d}"
+            focus = getattr(sub, "suggested_focus", None)
+            sub_prompt = getattr(sub, "description", "") or ""
+            sub_prompt = _apply_hat_overlay(sub_prompt, focus)
+            if resident_ctx and sub_prompt:
+                sub_prompt = resident_ctx.apply_to_prompt(sub_prompt)
+
+            identity_fields = {}
+            if resident_ctx:
+                identity_fields["identity_id"] = resident_ctx.identity.identity_id
+
+            append_execution_event(
+                task_id,
+                "subtask_started",
+                subtask_id=subtask_id,
+                focus=focus,
+                **identity_fields,
+            )
+
+            payload = {
+                "prompt": sub_prompt,
+                "model": model,
+                "min_budget": per_min,
+                "max_budget": per_max,
+                "intensity": intensity,
+                "task_id": task_id,
+                "subtask_id": subtask_id,
+            }
+            if resident_ctx:
+                payload["resident_id"] = resident_ctx.resident_id
+                payload["identity_id"] = resident_ctx.identity.identity_id
+
+            response = client.post(f"{api_endpoint}/grind", json=payload)
+            if response.status_code != 200:
+                error_msg = f"API returned {response.status_code}: {response.text}"
+                append_execution_event(
+                    task_id,
+                    "subtask_failed",
+                    subtask_id=subtask_id,
+                    focus=focus,
+                    errors=error_msg,
+                    **identity_fields,
+                )
+                return {
+                    "status": "failed",
+                    "result_summary": None,
+                    "errors": error_msg,
+                }
+
+            result = response.json()
+            results.append(result.get("result", f"{subtask_id} completed"))
+            append_execution_event(
+                task_id,
+                "subtask_completed",
+                subtask_id=subtask_id,
+                focus=focus,
+                result_summary=result.get("result"),
+                model=result.get("model"),
+                **identity_fields,
+            )
+
+    summary = " | ".join(results)
+    return {
+        "status": "completed",
+        "result_summary": summary,
+        "errors": None,
+        "model": model,
+    }
+
+
 def execute_task(
     task: Dict[str, Any],
     api_endpoint: str,
@@ -269,12 +397,35 @@ def execute_task(
     _log("INFO", f"Executing task {task_id} (budget: ${min_budget}-${max_budget}, intensity: {intensity})")
 
     should_decompose = bool(task.get("decompose") or task.get("split") or task.get("facet"))
-    if resident_ctx and prompt and resident_decompose_task and should_decompose:
+    should_delegate = _should_delegate_task(task)
+    if command or mode == "local":
+        should_delegate = False
+
+    plan = None
+    if resident_ctx and prompt and resident_decompose_task and (should_decompose or should_delegate):
+        max_subtasks = task.get("max_subtasks")
+        if not isinstance(max_subtasks, int) or max_subtasks <= 0:
+            max_subtasks = 3
         plan = resident_decompose_task(
             prompt,
             resident_id=resident_ctx.resident_id,
             identity_id=resident_ctx.identity.identity_id,
+            max_subtasks=max_subtasks,
         )
+
+    if plan and should_delegate:
+        return _execute_delegated_subtasks(
+            task_id=task_id,
+            plan=plan,
+            api_endpoint=api_endpoint,
+            resident_ctx=resident_ctx,
+            min_budget=min_budget,
+            max_budget=max_budget,
+            intensity=intensity,
+            model=model,
+        )
+
+    if plan and should_decompose:
         prompt = f"{prompt}\n\n{_build_facet_plan_text(plan)}"
 
     if resident_ctx and prompt:
