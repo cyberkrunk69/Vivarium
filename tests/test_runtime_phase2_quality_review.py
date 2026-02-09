@@ -18,6 +18,28 @@ class _StaticVerifier:
         return self._result
 
 
+class _StubResidentContext:
+    class _Identity:
+        identity_id = "identity_phase5"
+
+    identity = _Identity()
+
+
+class _StubEnrichment:
+    def __init__(self):
+        self.calls = []
+
+    def grant_free_time(self, identity_id, tokens, reason):
+        self.calls.append(
+            {"identity_id": identity_id, "tokens": tokens, "reason": reason}
+        )
+        return {
+            "free_time": tokens,
+            "journal": 0,
+            "granted": {"free_time": tokens, "journal": 0},
+        }
+
+
 def test_runtime_contract_includes_phase2_review_statuses():
     assert "pending_review" in KNOWN_EXECUTION_STATUSES
     assert "approved" in KNOWN_EXECUTION_STATUSES
@@ -97,4 +119,85 @@ def test_post_execution_review_requeue_then_fail_after_max_attempts(monkeypatch,
     assert second_review["status"] == "failed"
     assert second_review["review_attempt"] == 2
     assert "after 2 attempt(s)" in second_review["errors"]
+
+
+def test_post_execution_review_approved_applies_phase5_reward(monkeypatch, tmp_path):
+    monkeypatch.setattr(worker, "WORKER_QUALITY_GATES", None)
+    monkeypatch.setattr(worker, "EXECUTION_LOG", tmp_path / "execution_log.jsonl")
+    monkeypatch.setattr(
+        worker,
+        "WORKER_TASK_VERIFIER",
+        _StaticVerifier(
+            VerificationResult(
+                verdict=Verdict.APPROVE,
+                confidence=0.9,
+                issues=[],
+                suggestions=[],
+            )
+        ),
+    )
+    enrichment = _StubEnrichment()
+    monkeypatch.setattr(worker, "WORKER_ENRICHMENT", enrichment)
+
+    task = {"id": "task_phase5_reward", "prompt": "Ship patch", "max_budget": 0.20}
+    result = {
+        "status": "completed",
+        "result_summary": "done",
+        "errors": None,
+        "model": "local",
+        "budget_used": 0.05,
+    }
+    review = worker._run_post_execution_review(
+        task,
+        result,
+        resident_ctx=_StubResidentContext(),
+        previous_review_attempt=0,
+    )
+
+    assert review["status"] == "approved"
+    assert review["phase5_reward_applied"] is True
+    assert review["phase5_reward_tokens_requested"] > 0
+    assert review["phase5_reward_tokens_awarded"] == review["phase5_reward_tokens_requested"]
+    assert review["phase5_reward_identity"] == "identity_phase5"
+    assert enrichment.calls
+    assert enrichment.calls[0]["reason"].startswith("worker_approved_under_budget:task_phase5_reward")
+
+
+def test_post_execution_review_approved_skips_phase5_reward_without_budget_savings(monkeypatch, tmp_path):
+    monkeypatch.setattr(worker, "WORKER_QUALITY_GATES", None)
+    monkeypatch.setattr(worker, "EXECUTION_LOG", tmp_path / "execution_log.jsonl")
+    monkeypatch.setattr(
+        worker,
+        "WORKER_TASK_VERIFIER",
+        _StaticVerifier(
+            VerificationResult(
+                verdict=Verdict.APPROVE,
+                confidence=0.95,
+                issues=[],
+                suggestions=[],
+            )
+        ),
+    )
+    enrichment = _StubEnrichment()
+    monkeypatch.setattr(worker, "WORKER_ENRICHMENT", enrichment)
+
+    task = {"id": "task_phase5_no_reward", "prompt": "Ship patch", "max_budget": 0.10}
+    result = {
+        "status": "completed",
+        "result_summary": "done",
+        "errors": None,
+        "model": "local",
+        "budget_used": 0.12,
+    }
+    review = worker._run_post_execution_review(
+        task,
+        result,
+        resident_ctx=_StubResidentContext(),
+        previous_review_attempt=0,
+    )
+
+    assert review["status"] == "approved"
+    assert review["phase5_reward_applied"] is False
+    assert review["phase5_reward_reason"] == "not_under_budget"
+    assert enrichment.calls == []
 
