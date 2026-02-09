@@ -65,6 +65,10 @@ try:
 except ImportError:
     QualityGateManager = None
     QualityGateError = Exception
+try:
+    from tool_router import get_router as get_tool_router
+except ImportError:
+    get_tool_router = None
 
 # ============================================================================
 # CONSTANTS
@@ -103,6 +107,7 @@ WORKER_ID: str = RESIDENT_ID
 WORKER_SAFETY_GATEWAY = None
 WORKER_TASK_VERIFIER = None
 WORKER_QUALITY_GATES = None
+WORKER_TOOL_ROUTER = None
 
 
 # ============================================================================
@@ -156,8 +161,20 @@ def _init_quality_gate_manager():
         return None
 
 
+def _init_worker_tool_router():
+    if get_tool_router is None:
+        _log("WARN", "tool_router module unavailable; tool-first routing disabled.")
+        return None
+    try:
+        return get_tool_router()
+    except Exception as exc:
+        _log("WARN", f"Failed to initialize tool router: {exc}")
+        return None
+
+
 WORKER_TASK_VERIFIER = _init_worker_task_verifier()
 WORKER_QUALITY_GATES = _init_quality_gate_manager()
+WORKER_TOOL_ROUTER = _init_worker_tool_router()
 
 
 
@@ -838,6 +855,8 @@ def execute_task(
             },
         }
 
+    tool_route_info: Dict[str, Any] = {}
+
     safety_passed, safety_report = _run_worker_safety_check(task_id, prompt, command, mode)
     if not safety_passed:
         blocked_reason = safety_report.get("blocked_reason", "blocked by worker safety gateway")
@@ -847,6 +866,7 @@ def execute_task(
             "errors": f"Safety check failed: {blocked_reason}",
             "safety_passed": False,
             "safety_report": safety_report,
+            **tool_route_info,
         }
 
     _log("INFO", f"Executing task {task_id} (budget: ${min_budget}-${max_budget}, intensity: {intensity})")
@@ -891,6 +911,36 @@ def execute_task(
     if resident_ctx and prompt:
         prompt = resident_ctx.apply_to_prompt(prompt)
 
+    if prompt and mode != "local" and not command and WORKER_TOOL_ROUTER is not None:
+        try:
+            route_result = WORKER_TOOL_ROUTER.route(prompt, context={"task_id": task_id})
+            if route_result and getattr(route_result, "found", False) and getattr(route_result, "tool", None):
+                routed_tool = route_result.tool
+                tool_name = str(routed_tool.get("name") or "unnamed_tool")
+                tool_description = str(routed_tool.get("description") or "").strip()
+                tool_code = str(routed_tool.get("code") or "").strip()
+                tool_route = str(getattr(route_result, "route", "unknown"))
+                tool_confidence = float(getattr(route_result, "confidence", 0.0))
+                tool_route_info = {
+                    "tool_route": tool_route,
+                    "tool_name": tool_name,
+                    "tool_confidence": tool_confidence,
+                }
+                if tool_code:
+                    prompt = (
+                        "RELEVANT TOOL CONTEXT (reuse before new generation)\n"
+                        f"TOOL_NAME: {tool_name}\n"
+                        f"TOOL_ROUTE: {tool_route}\n"
+                        f"TOOL_CONFIDENCE: {tool_confidence:.2f}\n"
+                        f"TOOL_DESCRIPTION: {tool_description or 'n/a'}\n\n"
+                        f"{tool_code}\n\n"
+                        "TASK:\n"
+                        f"{prompt}"
+                    )
+                _log("INFO", f"Tool router selected {tool_name} via {tool_route} for {task_id}")
+        except Exception as exc:
+            _log("WARN", f"Tool routing failed for {task_id}: {exc}")
+
     payload = {
         "prompt": prompt,
         "model": model,
@@ -921,6 +971,7 @@ def execute_task(
                 "model": result.get("model"),
                 "safety_passed": bool((api_safety_report or safety_report).get("passed", True)),
                 "safety_report": api_safety_report or safety_report,
+                **tool_route_info,
             }
 
         error_msg = f"API returned {response.status_code}: {response.text}"
@@ -931,6 +982,7 @@ def execute_task(
             "errors": error_msg,
             "safety_passed": safety_passed,
             "safety_report": safety_report,
+            **tool_route_info,
         }
     except httpx.ConnectError as e:
         error_msg = f"Cannot connect to API at {api_endpoint}: {e}"
@@ -941,6 +993,7 @@ def execute_task(
             "errors": error_msg,
             "safety_passed": safety_passed,
             "safety_report": safety_report,
+            **tool_route_info,
         }
     except httpx.TimeoutException as e:
         error_msg = f"API request timeout: {e}"
@@ -951,6 +1004,7 @@ def execute_task(
             "errors": error_msg,
             "safety_passed": safety_passed,
             "safety_report": safety_report,
+            **tool_route_info,
         }
     except json.JSONDecodeError as e:
         error_msg = f"Invalid API response: {e}"
@@ -961,6 +1015,7 @@ def execute_task(
             "errors": error_msg,
             "safety_passed": safety_passed,
             "safety_report": safety_report,
+            **tool_route_info,
         }
 
 
@@ -1044,6 +1099,9 @@ def find_and_execute_task(
                 model=result.get("model"),
                 safety_passed=result.get("safety_passed"),
                 safety_report=result.get("safety_report"),
+                tool_route=result.get("tool_route"),
+                tool_name=result.get("tool_name"),
+                tool_confidence=result.get("tool_confidence"),
                 **identity_fields,
             )
 
@@ -1074,6 +1132,9 @@ def find_and_execute_task(
                     quality_gate_decision=review_result.get("quality_gate_decision"),
                     quality_gate_change_id=review_result.get("quality_gate_change_id"),
                     quality_gate_error=review_result.get("quality_gate_error"),
+                    tool_route=result.get("tool_route"),
+                    tool_name=result.get("tool_name"),
+                    tool_confidence=result.get("tool_confidence"),
                     **identity_fields,
                 )
 

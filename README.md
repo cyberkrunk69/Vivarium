@@ -53,7 +53,7 @@ Short version of build order:
 3. **Wire quality gates post-execution**
    - Connect `quality_gates.py` + critic checks to task lifecycle transitions (`pending_review`, `approved`, `requeue`).
 4. **Restore tool-first compounding loop**
-   - Repair skill registry/tool router compatibility and route suitable tasks through tools before LLM generation.
+   - Restore `SkillRegistry`/`tool_router` compatibility and route suitable tasks through tool context before full LLM generation.
 5. **Promote intent/planning pipeline into production**
    - Integrate intent gatekeeping and deterministic decomposition into the canonical queue flow.
 6. **Deepen identity + governance loops**
@@ -87,9 +87,8 @@ Important artifacts that existed in history but are absent now:
 
 Historical code-quality signal worth acting on:
 
-- `tool_router.py` expects `SkillRegistry`, `retrieve_skill`, `compose_skills`.
-- Current `skills/skill_registry.py` is minimal and does not expose those interfaces.
-- Result: `tool_router` import currently fails (`ImportError` on `SkillRegistry`), so tool-first routing is not production-ready.
+- `tool_router.py` expects `SkillRegistry`, `retrieve_skill`, `compose_skills` (now restored in `skills/skill_registry.py`).
+- Canonical `worker.py` now runs tool-first routing before LLM dispatch and logs routing metadata (`tool_route`, `tool_name`, `tool_confidence`).
 - `swarm_orchestrator_v2.py` and `worker_pool.py` currently contain legacy/generated fragments and are not safe as production orchestration entrypoints.
 
 The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
@@ -230,6 +229,7 @@ Notable route groups:
 - dependency gating via `depends_on`
 - explicit halt/pause file controls (when used)
 - post-execution critic + quality-gate transitions (`pending_review` -> `approved` / `requeue`)
+- pre-LLM tool routing and reusable tool-context injection (`tool_router` + skill registry)
 
 ### Available modules (not automatically on the `/grind` path)
 
@@ -237,7 +237,7 @@ Notable route groups:
 - `safety_validator.py` (safe write/checkpoint flow)
 - `secure_api_wrapper.py`
 
-These exist and are test-covered in `tests/`; safety and quality modules are now wired into the canonical `worker.py` lifecycle, while direct `/grind` API calls can still bypass worker-only transitions.
+These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker.py` lifecycle, while direct `/grind` API calls can still bypass worker-only transitions.
 
 ---
 

@@ -27,6 +27,10 @@ experimental until repaired and re-validated.
   - `pending_review` -> `approved` for accepted outputs
   - `pending_review` -> `requeue` (or `failed` after retry limit) for rejected outputs
   - quality-gate state is mirrored in `quality_gate_queue.json` (`needs_qa` / `rejected`)
+- Tool-first routing lifecycle is now explicit in the worker path:
+  - prompt tasks are routed through `tool_router` before `/grind` LLM dispatch
+  - matched tool context is injected into the prompt for reuse-first execution
+  - route metadata is recorded in execution events (`tool_route`, `tool_name`, `tool_confidence`)
 
 ## Safety and budget guarantees in this path
 
@@ -43,5 +47,5 @@ experimental until repaired and re-validated.
 
 ```bash
 python3 -m py_compile worker.py swarm.py control_panel.py runtime_contract.py
-pytest -q tests/test_runtime_phase0_phase1.py tests/test_runtime_phase2_quality_review.py
+pytest -q tests/test_runtime_phase0_phase1.py tests/test_runtime_phase2_quality_review.py tests/test_runtime_phase3_tool_routing.py
 ```
