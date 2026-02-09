@@ -56,6 +56,15 @@ try:
     from safety_gateway import SafetyGateway
 except ImportError:
     SafetyGateway = None
+try:
+    from task_verifier import TaskVerifier
+except ImportError:
+    TaskVerifier = None
+try:
+    from quality_gates import QualityGateManager, QualityGateError
+except ImportError:
+    QualityGateManager = None
+    QualityGateError = Exception
 
 # ============================================================================
 # CONSTANTS
@@ -83,6 +92,7 @@ RESIDENT_SHARD_ID_RAW: str = os.environ.get("RESIDENT_SHARD_ID", "auto").strip()
 RESIDENT_SCAN_LIMIT: int = int(os.environ.get("RESIDENT_SCAN_LIMIT", "0"))
 RESIDENT_BACKOFF_MAX: int = int(os.environ.get("RESIDENT_BACKOFF_MAX", "5"))
 RESIDENT_JITTER_MAX: float = float(os.environ.get("RESIDENT_JITTER_MAX", "0.5"))
+MAX_REQUEUE_ATTEMPTS: int = int(os.environ.get("RESIDENT_MAX_REQUEUE_ATTEMPTS", "3"))
 
 _EXECUTION_LOG_STATE: Dict[str, Any] = {"offset": 0, "size": 0, "tasks": {}}
 _SCAN_CURSOR: int = 0
@@ -91,6 +101,8 @@ _SCAN_CURSOR: int = 0
 RESIDENT_ID: str = f"resident_{uuid.uuid4().hex[:8]}"
 WORKER_ID: str = RESIDENT_ID
 WORKER_SAFETY_GATEWAY = None
+WORKER_TASK_VERIFIER = None
+WORKER_QUALITY_GATES = None
 
 
 # ============================================================================
@@ -120,6 +132,32 @@ def _init_worker_safety_gateway():
 
 
 WORKER_SAFETY_GATEWAY = _init_worker_safety_gateway()
+
+
+def _init_worker_task_verifier():
+    if TaskVerifier is None:
+        _log("WARN", "task_verifier module unavailable; review lifecycle will fail open.")
+        return None
+    try:
+        return TaskVerifier()
+    except Exception as exc:
+        _log("WARN", f"Failed to initialize task verifier: {exc}")
+        return None
+
+
+def _init_quality_gate_manager():
+    if QualityGateManager is None:
+        _log("WARN", "quality_gates module unavailable; quality state updates disabled.")
+        return None
+    try:
+        return QualityGateManager(WORKSPACE)
+    except Exception as exc:
+        _log("WARN", f"Failed to initialize quality gate manager: {exc}")
+        return None
+
+
+WORKER_TASK_VERIFIER = _init_worker_task_verifier()
+WORKER_QUALITY_GATES = _init_quality_gate_manager()
 
 
 
@@ -284,7 +322,7 @@ def check_dependencies_complete(task: Dict[str, Any], execution_log: Dict[str, A
 def is_task_done(task_id: str, execution_log: Dict[str, Any]) -> bool:
     """Check if a task is already completed or failed."""
     task_status = execution_log.get("tasks", {}).get(task_id, {}).get("status")
-    return task_status in ("completed", "failed")
+    return task_status in ("completed", "approved", "ready_for_merge", "failed")
 
 
 def _task_shard(task_id: str, shard_count: int) -> int:
@@ -402,6 +440,195 @@ def _run_worker_safety_check(
     passed, report = WORKER_SAFETY_GATEWAY.pre_execute_safety_check(task_text)
     report["task_id"] = task_id
     return passed, report
+
+
+def _resolve_files_for_review(task: Dict[str, Any], result: Dict[str, Any]) -> List[str]:
+    file_candidates: List[str] = []
+    for source in (task, result):
+        for key in ("files_created", "files_modified", "artifacts"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                file_candidates.append(value.strip())
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, str) and item.strip():
+                        file_candidates.append(item.strip())
+
+    resolved: List[str] = []
+    for raw_path in file_candidates:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = WORKSPACE / path
+        resolved.append(str(path))
+    return resolved
+
+
+def _quality_gate_author_id(task: Dict[str, Any], resident_ctx: Optional["ResidentContext"]) -> str:
+    if resident_ctx and getattr(resident_ctx, "identity", None):
+        return resident_ctx.identity.identity_id
+    return (
+        task.get("identity_id")
+        or task.get("resident_identity")
+        or task.get("author_id")
+        or RESIDENT_ID
+    )
+
+
+def _ensure_quality_gate_change(task: Dict[str, Any], resident_ctx: Optional["ResidentContext"]) -> Optional[str]:
+    if WORKER_QUALITY_GATES is None:
+        return None
+
+    change_id = task.get("id", "unknown")
+    try:
+        state = WORKER_QUALITY_GATES.load_state()
+        if change_id in state.get("changes", {}):
+            return change_id
+
+        title = (
+            task.get("title")
+            or task.get("prompt")
+            or task.get("description")
+            or task.get("task")
+            or f"Task {change_id}"
+        )
+        description = task.get("description") or task.get("prompt") or task.get("task") or ""
+        author_id = _quality_gate_author_id(task, resident_ctx)
+        WORKER_QUALITY_GATES.submit_change_for_vote(
+            title=str(title)[:240],
+            description=str(description),
+            author_id=str(author_id),
+            change_id=str(change_id),
+        )
+        return change_id
+    except Exception as exc:
+        _log("WARN", f"Quality gate bootstrap failed for {change_id}: {exc}")
+        return None
+
+
+def _record_quality_gate_review(
+    task: Dict[str, Any],
+    resident_ctx: Optional["ResidentContext"],
+    *,
+    approved: bool,
+) -> Dict[str, Any]:
+    if WORKER_QUALITY_GATES is None:
+        return {
+            "quality_gate_status": "unavailable",
+            "quality_gate_decision": None,
+            "quality_gate_change_id": None,
+        }
+
+    change_id = _ensure_quality_gate_change(task, resident_ctx)
+    if not change_id:
+        return {
+            "quality_gate_status": "error",
+            "quality_gate_decision": None,
+            "quality_gate_change_id": None,
+        }
+
+    decision = "approved" if approved else "rejected"
+    try:
+        change = WORKER_QUALITY_GATES.record_change_vote(change_id, decision)
+        return {
+            "quality_gate_status": change.get("status"),
+            "quality_gate_decision": decision,
+            "quality_gate_change_id": change_id,
+        }
+    except QualityGateError as exc:
+        _log("WARN", f"Quality gate decision failed for {change_id}: {exc}")
+        return {
+            "quality_gate_status": "error",
+            "quality_gate_decision": decision,
+            "quality_gate_change_id": change_id,
+            "quality_gate_error": str(exc),
+        }
+
+
+def _run_post_execution_review(
+    task: Dict[str, Any],
+    result: Dict[str, Any],
+    resident_ctx: Optional["ResidentContext"],
+    previous_review_attempt: int,
+) -> Dict[str, Any]:
+    task_id = task.get("id", "unknown")
+    files_created = _resolve_files_for_review(task, result)
+    verification_payload = {
+        "success": result.get("status") == "completed",
+        "error": result.get("errors"),
+        "result": result.get("result_summary"),
+        "model": result.get("model"),
+    }
+
+    verdict_name = "APPROVE"
+    confidence = 1.0
+    issues: List[str] = []
+    suggestions: List[str] = []
+    approved = True
+
+    if WORKER_TASK_VERIFIER is not None:
+        try:
+            verification = WORKER_TASK_VERIFIER.verify_task_output(
+                task=task,
+                output=verification_payload,
+                files_created=files_created,
+            )
+            verdict_name = getattr(getattr(verification, "verdict", None), "value", "APPROVE")
+            confidence = float(getattr(verification, "confidence", 1.0))
+            issues = list(getattr(verification, "issues", []) or [])
+            suggestions = list(getattr(verification, "suggestions", []) or [])
+            approved = bool(verification.should_accept())
+        except Exception as exc:
+            _log("WARN", f"Task verifier failed for {task_id}, failing open: {exc}")
+    else:
+        suggestions = ["Task verifier unavailable; accepted without critic review."]
+
+    review_attempt = previous_review_attempt + (0 if approved else 1)
+    append_execution_event(
+        task_id,
+        "pending_review",
+        review_verdict=verdict_name,
+        review_confidence=confidence,
+        review_issues=issues,
+        review_suggestions=suggestions,
+        review_attempt=review_attempt,
+    )
+
+    quality_gate = _record_quality_gate_review(task, resident_ctx, approved=approved)
+    review_summary = {
+        "review_verdict": verdict_name,
+        "review_confidence": confidence,
+        "review_issues": issues,
+        "review_suggestions": suggestions,
+        "review_attempt": review_attempt,
+        **quality_gate,
+    }
+
+    if approved:
+        return {
+            "status": "approved",
+            "result_summary": result.get("result_summary"),
+            "errors": None,
+            **review_summary,
+        }
+
+    rejection_reason = "; ".join(issues) if issues else "critic rejected task output"
+    if review_attempt >= max(1, MAX_REQUEUE_ATTEMPTS):
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": (
+                f"Quality gate rejected task after {review_attempt} attempt(s): "
+                f"{rejection_reason}"
+            ),
+            **review_summary,
+        }
+
+    return {
+        "status": "requeue",
+        "result_summary": None,
+        "errors": f"Quality gate rejected task: {rejection_reason}",
+        **review_summary,
+    }
 
 
 def _execute_delegated_subtasks(
@@ -789,6 +1016,14 @@ def find_and_execute_task(
 
         _log("INFO", f"Acquired lock for {task_id}")
         try:
+            last_event = execution_log.get("tasks", {}).get(task_id, {})
+            try:
+                previous_review_attempt = int(last_event.get("review_attempt", 0))
+            except (TypeError, ValueError):
+                previous_review_attempt = 0
+            if last_event.get("status") not in {"requeue", "pending_review"}:
+                previous_review_attempt = 0
+
             identity_fields = {}
             if resident_ctx:
                 identity_fields["identity_id"] = resident_ctx.identity.identity_id
@@ -811,7 +1046,38 @@ def find_and_execute_task(
                 safety_report=result.get("safety_report"),
                 **identity_fields,
             )
-            _log("INFO", f"Completed task {task_id} - {result['status']}")
+
+            final_status = result["status"]
+            if final_status == "completed":
+                review_result = _run_post_execution_review(
+                    task=task,
+                    result=result,
+                    resident_ctx=resident_ctx,
+                    previous_review_attempt=previous_review_attempt,
+                )
+                final_status = review_result["status"]
+                append_execution_event(
+                    task_id,
+                    final_status,
+                    completed_at=get_timestamp(),
+                    result_summary=review_result.get("result_summary"),
+                    errors=review_result.get("errors"),
+                    model=result.get("model"),
+                    safety_passed=result.get("safety_passed"),
+                    safety_report=result.get("safety_report"),
+                    review_verdict=review_result.get("review_verdict"),
+                    review_confidence=review_result.get("review_confidence"),
+                    review_issues=review_result.get("review_issues"),
+                    review_suggestions=review_result.get("review_suggestions"),
+                    review_attempt=review_result.get("review_attempt"),
+                    quality_gate_status=review_result.get("quality_gate_status"),
+                    quality_gate_decision=review_result.get("quality_gate_decision"),
+                    quality_gate_change_id=review_result.get("quality_gate_change_id"),
+                    quality_gate_error=review_result.get("quality_gate_error"),
+                    **identity_fields,
+                )
+
+            _log("INFO", f"Completed task {task_id} - {final_status}")
         finally:
             release_lock(task_id)
             _log("INFO", f"Released lock for {task_id}")
