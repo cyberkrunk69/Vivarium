@@ -131,6 +131,7 @@ Optional config:
 Optional queue sharding:
 - Create queue_shards/queue_<shard_id>.json files and set RESIDENT_SHARD_COUNT.
 - When queue_shards/ exists, residents read only their shard file.
+- Helper: python tools/shard_queue.py --shards 2000 --clean
 
 ## Control Panel UI (Web)
 The control panel is the real-time web UI for monitoring, budgets, and spawner

@@ -37,6 +37,7 @@ Add tasks manually and run residents to execute them.
 Queue shard files (optional):
 - Create queue_shards/queue_<shard_id>.json files and set RESIDENT_SHARD_COUNT.
 - When queue_shards/ exists, residents read only their shard file.
+- Helper: python tools/shard_queue.py --shards 2000 --clean
 
 ### Step 1: Clear Previous State (optional)
 ```bash
