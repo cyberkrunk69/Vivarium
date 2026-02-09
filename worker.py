@@ -14,6 +14,7 @@ import time
 import uuid
 import httpx
 from typing import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
@@ -61,6 +62,7 @@ FOCUS_HAT_MAP = {
     "review": "Reviewer",
     "document": "Documenter",
 }
+DEFAULT_SUBTASK_PARALLELISM: int = int(os.environ.get("RESIDENT_SUBTASK_PARALLELISM", "3"))
 
 # Generate unique resident ID (keep worker_id for compatibility in logs)
 RESIDENT_ID: str = f"resident_{uuid.uuid4().hex[:8]}"
@@ -278,6 +280,7 @@ def _execute_delegated_subtasks(
     max_budget: float,
     intensity: str,
     model: Optional[str],
+    parallelism: Optional[int] = None,
 ) -> Dict[str, Any]:
     subtasks: Iterable[Any] = getattr(plan, "subtasks", []) or []
     subtasks_list = list(subtasks)
@@ -285,72 +288,122 @@ def _execute_delegated_subtasks(
         return {"status": "failed", "result_summary": None, "errors": "No subtasks generated"}
 
     per_min, per_max = _split_budget(min_budget, max_budget, len(subtasks_list))
-    results: List[str] = []
+    max_parallel = parallelism if isinstance(parallelism, int) and parallelism > 0 else DEFAULT_SUBTASK_PARALLELISM
+    max_parallel = max(1, min(max_parallel, len(subtasks_list)))
 
-    with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
-        for idx, sub in enumerate(subtasks_list, start=1):
-            subtask_id = getattr(sub, "subtask_id", None) or f"subtask_{idx:02d}"
-            focus = getattr(sub, "suggested_focus", None)
-            sub_prompt = getattr(sub, "description", "") or ""
-            sub_prompt = _apply_hat_overlay(sub_prompt, focus)
-            if resident_ctx and sub_prompt:
-                sub_prompt = resident_ctx.apply_to_prompt(sub_prompt)
+    def run_subtask(index: int, sub: Any) -> Dict[str, Any]:
+        subtask_id = getattr(sub, "subtask_id", None) or f"subtask_{index:02d}"
+        focus = getattr(sub, "suggested_focus", None)
+        sub_prompt = getattr(sub, "description", "") or ""
+        sub_prompt = _apply_hat_overlay(sub_prompt, focus)
+        if resident_ctx and sub_prompt:
+            sub_prompt = resident_ctx.apply_to_prompt(sub_prompt)
 
-            identity_fields = {}
-            if resident_ctx:
-                identity_fields["identity_id"] = resident_ctx.identity.identity_id
+        identity_fields = {}
+        if resident_ctx:
+            identity_fields["identity_id"] = resident_ctx.identity.identity_id
 
+        append_execution_event(
+            task_id,
+            "subtask_started",
+            subtask_id=subtask_id,
+            focus=focus,
+            **identity_fields,
+        )
+
+        payload = {
+            "prompt": sub_prompt,
+            "model": model,
+            "min_budget": per_min,
+            "max_budget": per_max,
+            "intensity": intensity,
+            "task_id": task_id,
+            "subtask_id": subtask_id,
+        }
+        if resident_ctx:
+            payload["resident_id"] = resident_ctx.resident_id
+            payload["identity_id"] = resident_ctx.identity.identity_id
+
+        try:
+            with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
+                response = client.post(f"{api_endpoint}/grind", json=payload)
+        except httpx.ConnectError as exc:
+            error_msg = f"Connection error: {exc}"
             append_execution_event(
                 task_id,
-                "subtask_started",
+                "subtask_failed",
                 subtask_id=subtask_id,
                 focus=focus,
+                errors=error_msg,
                 **identity_fields,
             )
-
-            payload = {
-                "prompt": sub_prompt,
-                "model": model,
-                "min_budget": per_min,
-                "max_budget": per_max,
-                "intensity": intensity,
-                "task_id": task_id,
+            return {
+                "status": "failed",
+                "error": error_msg,
                 "subtask_id": subtask_id,
+                "index": index,
             }
-            if resident_ctx:
-                payload["resident_id"] = resident_ctx.resident_id
-                payload["identity_id"] = resident_ctx.identity.identity_id
 
-            response = client.post(f"{api_endpoint}/grind", json=payload)
-            if response.status_code != 200:
-                error_msg = f"API returned {response.status_code}: {response.text}"
-                append_execution_event(
-                    task_id,
-                    "subtask_failed",
-                    subtask_id=subtask_id,
-                    focus=focus,
-                    errors=error_msg,
-                    **identity_fields,
-                )
-                return {
-                    "status": "failed",
-                    "result_summary": None,
-                    "errors": error_msg,
-                }
-
-            result = response.json()
-            results.append(result.get("result", f"{subtask_id} completed"))
+        if response.status_code != 200:
+            error_msg = f"API returned {response.status_code}: {response.text}"
             append_execution_event(
                 task_id,
-                "subtask_completed",
+                "subtask_failed",
                 subtask_id=subtask_id,
                 focus=focus,
-                result_summary=result.get("result"),
-                model=result.get("model"),
+                errors=error_msg,
                 **identity_fields,
             )
+            return {
+                "status": "failed",
+                "error": error_msg,
+                "subtask_id": subtask_id,
+                "index": index,
+            }
 
-    summary = " | ".join(results)
+        result = response.json()
+        append_execution_event(
+            task_id,
+            "subtask_completed",
+            subtask_id=subtask_id,
+            focus=focus,
+            result_summary=result.get("result"),
+            model=result.get("model"),
+            **identity_fields,
+        )
+        return {
+            "status": "completed",
+            "result": result.get("result", f"{subtask_id} completed"),
+            "subtask_id": subtask_id,
+            "index": index,
+        }
+
+    results_by_index: Dict[int, str] = {}
+    failures: List[str] = []
+
+    with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+        futures = {
+            executor.submit(run_subtask, idx, sub): idx
+            for idx, sub in enumerate(subtasks_list, start=1)
+        }
+        for future in as_completed(futures):
+            outcome = future.result()
+            if outcome.get("status") != "completed":
+                failures.append(outcome.get("error", "subtask failed"))
+            else:
+                results_by_index[outcome.get("index", 0)] = outcome.get("result", "subtask completed")
+
+    if failures:
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": "; ".join(failures),
+        }
+
+    summary = " | ".join(
+        results_by_index[idx]
+        for idx in sorted(results_by_index.keys())
+    )
     return {
         "status": "completed",
         "result_summary": summary,
@@ -414,6 +467,7 @@ def execute_task(
         )
 
     if plan and should_delegate:
+        subtask_parallelism = task.get("subtask_parallelism")
         return _execute_delegated_subtasks(
             task_id=task_id,
             plan=plan,
@@ -423,6 +477,7 @@ def execute_task(
             max_budget=max_budget,
             intensity=intensity,
             model=model,
+            parallelism=subtask_parallelism,
         )
 
     if plan and should_decompose:
