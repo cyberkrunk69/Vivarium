@@ -72,6 +72,7 @@ Recent history shows a major cleanup and rollback cycle. Key findings:
 - **`5b6a0b6`** - backup commit ("before clean rollback") preserved many deleted assets.
 - **`75b046c`** - introduced a `/vision` dashboard route in historical `progress_server.py` (file now absent).
 - **AutoHive (public)** - contains useful orchestration/economics patterns plus wiring mismatches; details in `CROSS_REPO_TIMELINE.md`.
+- **Developer provenance note** - this work is reported as almost entirely vibe-coded (roughly 10-20 manually typed lines total), with full Claude Code JSONL telemetry backups (including thinking blocks and tool calls) available for future intent-drift forensics.
 
 Important artifacts that existed in history but are absent now:
 

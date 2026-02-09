@@ -35,6 +35,7 @@ Cross-repo archaeology and anomaly evidence are tracked in `CROSS_REPO_TIMELINE.
 - `quality_gates.py`, `safety_gateway.py`, and `secure_api_wrapper.py` exist and are tested, but not hard-wired into default task execution.
 - Major docs/features were removed in purge commit `4428452`, with a backup snapshot in `5b6a0b6`.
 - AutoHive has useful orchestration and routing ideas, but contains import/endpoint/branch-drift mismatches that must be filtered before reuse.
+- The developer reports full Claude Code JSONL telemetry backups (including thinking blocks + tool calls), creating a rare opportunity for precise intent-drift root-cause analysis.
 
 ---
 

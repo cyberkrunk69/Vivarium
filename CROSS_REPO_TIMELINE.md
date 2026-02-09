@@ -16,6 +16,22 @@ Last updated: 2026-02-09
 
 ---
 
+## Developer-declared provenance (important context)
+
+- The developer states both repos were **entirely vibe-coded** in practice.
+- The developer estimates only about **10-20 lines of code were manually typed** across their full lifecycle.
+- The developer reports having **complete Claude Code JSONL telemetry** for the full development process.
+- The backup JSON records are stated to include **full thinking-block data** and **tool-call traces**.
+- The planned next step is to have the swarm analyze this origin data to map:
+  - where clear user intent was lost,
+  - why model behavior drifted the way it did,
+  - and what repeatable controls should be added to prevent recurrence.
+
+This provenance is developer-reported and should be treated as a first-class input to future root-cause analysis.
+The developer expects substantial insight can be mined from this record once full swarm forensics are run.
+
+---
+
 ## Unified timeline (key commits)
 
 ### AutoHive (origin signals)
@@ -78,6 +94,7 @@ These are ideas worth importing into Vivarium deliberately (not by wholesale cop
 - Historical vision nodes were created and then largely removed from active runtime paths.
 - Large deletion events (`019683b`, `4428452`) removed many specs/modules that previously encoded design intent.
 - Result: implementation truth and vision truth diverged, then were partially reconnected by docs recovery.
+- A high-value telemetry corpus exists to trace this drift at decision granularity (prompt/thinking/tool-call chronology), not just commit-level symptoms.
 
 ### C) AutoHive internal wiring mismatches (important before reuse)
 
