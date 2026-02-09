@@ -15,6 +15,28 @@ Today, the repo is in an "implemented core + partially wired vision" state. This
 
 ---
 
+## Current state snapshot (2026-02-09)
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Phase 0 - Canonical runtime | Implemented | `worker.py + swarm.py + control_panel.py` are the default production path. |
+| Phase 1 - Safety gating | Implemented in worker path | Worker preflight safety checks run before task dispatch. |
+| Phase 2 - Quality/critic lifecycle | Implemented | Post-execution review transitions include `pending_review`, `approved`, `requeue`, and `failed`. |
+| Phase 3 - Tool-first compounding | Implemented | Tool routing runs before LLM dispatch and logs route metadata. |
+| Phase 4 - Intent + decomposition | Implemented (foundation) | Complex prompts can be decomposed into dependency-aware subtasks in queue flow. |
+| Phase 5 - Social/economic loop | Implemented (initial) | Approved under-budget tasks can grant identity rewards via `swarm_enrichment`, deduplicated per task+identity via `.swarm/phase5_reward_ledger.json`. |
+| Phase 6 - Multi-user/LAN + vision dashboard | Planned | Design references exist; not reintroduced into runtime yet. |
+| Phase 7 - Autonomous improvement checkpoints | Planned | Proposal/review/apply loop and rollback hardening still pending. |
+
+Latest validated runtime regression checks:
+
+```bash
+python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runtime_phase0_phase1.py tests/test_runtime_phase3_tool_routing.py tests/test_runtime_phase4_intent_decomposition.py
+# Result: 22 passed
+```
+
+---
+
 ## Current architecture (as implemented)
 
 ```mermaid
@@ -32,6 +54,14 @@ flowchart LR
     SP --> IE[inference_engine.py]
     IE --> G
 ```
+
+---
+
+## Known gaps (active)
+
+- Direct `POST /grind` API calls can bypass worker-only lifecycle hooks (quality review transitions, tool-routing metadata, intent/decomposition flow, and Phase 5 reward ledgering).
+- `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental/non-canonical until repaired and re-validated.
+- Phase 6 and Phase 7 outcomes are still roadmap items, not runtime defaults.
 
 ---
 
@@ -234,6 +264,7 @@ Notable route groups:
 - post-execution critic + quality-gate transitions (`pending_review` -> `approved` / `requeue`)
 - pre-LLM tool routing and reusable tool-context injection (`tool_router` + skill registry)
 - intent capture + deterministic decomposition with dependency-aware subtask compilation in the queue worker path
+- Phase 5 reward grants are deduplicated per task+identity and recorded in `.swarm/phase5_reward_ledger.json`
 
 ### Available modules (not automatically on the `/grind` path)
 
