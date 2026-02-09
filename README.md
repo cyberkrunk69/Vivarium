@@ -229,15 +229,15 @@ Notable route groups:
 - lock-based concurrency protection (`task_locks`)
 - dependency gating via `depends_on`
 - explicit halt/pause file controls (when used)
+- post-execution critic + quality-gate transitions (`pending_review` -> `approved` / `requeue`)
 
 ### Available modules (not automatically on the `/grind` path)
 
 - `safety_gateway.py`
 - `safety_validator.py` (safe write/checkpoint flow)
 - `secure_api_wrapper.py`
-- `quality_gates.py`
 
-These exist and are test-covered in `tests/`, but they are not automatically inserted into every worker task execution path.
+These exist and are test-covered in `tests/`; safety and quality modules are now wired into the canonical `worker.py` lifecycle, while direct `/grind` API calls can still bypass worker-only transitions.
 
 ---
 

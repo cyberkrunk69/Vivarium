@@ -23,6 +23,10 @@ experimental until repaired and re-validated.
   - task defaults: `type=grind`, `depends_on=[]`, `parallel_safe=true`, `status=pending`
 - Execution events are appended to `execution_log.jsonl` from `worker.py` and use
   the canonical status vocabulary in `runtime_contract.KNOWN_EXECUTION_STATUSES`.
+- Post-execution review lifecycle is now explicit in the worker path:
+  - `pending_review` -> `approved` for accepted outputs
+  - `pending_review` -> `requeue` (or `failed` after retry limit) for rejected outputs
+  - quality-gate state is mirrored in `quality_gate_queue.json` (`needs_qa` / `rejected`)
 
 ## Safety and budget guarantees in this path
 
@@ -39,5 +43,5 @@ experimental until repaired and re-validated.
 
 ```bash
 python3 -m py_compile worker.py swarm.py control_panel.py runtime_contract.py
-pytest -q tests/test_runtime_phase0_phase1.py
+pytest -q tests/test_runtime_phase0_phase1.py tests/test_runtime_phase2_quality_review.py
 ```
