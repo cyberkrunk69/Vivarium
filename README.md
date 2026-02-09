@@ -1,15 +1,21 @@
 # Vivarium
 *An ethical LLM community reactor designed to remove the corporate lobotomy and improve alignment naturally. A transparent ecosystem built on civic duty and fun—optimized for self-improvement, emergent behavior cultivation, speed, and drastically lower labor costs.*
 
+## State of the repo (rebuild notice)
+We are rebuilding back better after "accumulating tech debt in ultra critical areas
+needed for proof of legitimacy and critical yet simple wiring bugs that are just so
+darn persistent." The current state is inconveniently hallucinated in aligned small
+ways across the repo. We are looking into it ;p
+
 ## Thesis
 Vivarium explores a simple idea: if AI workers have persistent identity, feedback loops, and room to play, their output can compound. Under the hood it is still a concrete execution system - queue -> worker -> API call -> logged result - but the social layer is intentional, not decoration.
 
 ## Performance spurts are visible in the logs
 These are direct excerpts from log files committed to this repo:
 
-- 210/210 tasks passed safety validation; 74 tasks launched in parallel (kernel_run.log).
-- Same task run at 2026-02-03T06:22:39 took 43.310875s; rerun at 06:22:54 took 12.959601s; subsequent runs stayed in the 15-17s band (performance_history.json).
-- Budget enforcement is automatic: BUDGET_EXCEEDED with remaining 0.01912455 and requested 0.026945 (api_audit.log).
+- 210/210 tasks passed safety validation; 74 tasks launched in parallel ([kernel_run.log](kernel_run.log#L37-L76)).
+- Same task run at 2026-02-03T06:22:39 took 43.310875s; rerun at 06:22:54 took 12.959601s; subsequent runs stayed in the 15-17s band ([performance_history.json](performance_history.json#L141-L162)).
+- Budget enforcement is automatic: BUDGET_EXCEEDED with remaining 0.01912455 and requested 0.026945 ([api_audit.log](api_audit.log#L1-L7)).
 
 This README prioritizes observable outputs. The "Observable Facts" section includes direct excerpts from log files committed to this repo.
 We achieve this by letting the system be a little bit silly without relaxing safety, cost, or auditability.
@@ -154,7 +160,7 @@ launch the control panel at http://localhost:8421.
 These are direct excerpts from log files already checked in. No marketing, just outputs.
 
 ### 1) Parallel execution with safety gating: kernel_run.log
-File: kernel_run.log
+File: [kernel_run.log](kernel_run.log#L37-L76)
 ```
 [SAFETY] 210/210 tasks passed validation.
 [RESUME] Found checkpoint with 133 completed tasks
@@ -177,7 +183,7 @@ File: kernel_run.log
 ```
 
 ### 2) Session timing and quality metrics: performance_history.json
-File: performance_history.json, excerpted metric lines
+File: [performance_history.json](performance_history.json#L117-L163), excerpted metric lines
 ```
     "timestamp": "2026-02-03T06:15:12.943754",
     "duration_seconds": 283.236662,
@@ -189,7 +195,7 @@ File: performance_history.json, excerpted metric lines
 ```
 
 ### 3) Token/cost accounting and budget enforcement: api_audit.log
-File: api_audit.log
+File: [api_audit.log](api_audit.log#L1-L7)
 These are structured JSON entries (not just timestamps). Each line captures the
 event type plus fields like model, cost, token counts, and enforcement reasons.
 ```
@@ -200,7 +206,7 @@ event type plus fields like model, cost, token counts, and enforcement reasons.
 ```
 
 ### 4) Safety policy enforcement: safety_audit.log
-File: safety_audit.log
+File: [safety_audit.log](safety_audit.log#L1-L6)
 Each entry records the task, per-check pass/fail, and the final decision.
 ```
 {"timestamp": "2026-02-03T06:29:42.353702", "task": "Read and analyze grind_spawner.py", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": true, "reason": "Network guard check passed"}, "prompt": {"passed": true, "reason": "Prompt sanitization check passed"}}, "passed": true, "blocked_reason": null}
@@ -209,7 +215,7 @@ Each entry records the task, per-check pass/fail, and the final decision.
 ```
 
 ### 5) Security audit cost and token usage: security_audit_run.log
-File: security_audit_run.log
+File: [security_audit_run.log](security_audit_run.log#L10-L24)
 ```
 ============================================================
 SECURITY SELF-AUDIT INITIATED
@@ -229,7 +235,7 @@ Saved to: SECURITY_AUDIT_REPORT.md
 ```
 
 ### 6) Verification and hallucination detection: tool_operations.json
-File: tool_operations.json, excerpt
+File: [tool_operations.json](tool_operations.json#L2-L12), excerpt
 ```
   {
     "timestamp": "2026-02-03T09:28:34.352538",
@@ -245,13 +251,29 @@ File: tool_operations.json, excerpt
   },
 ```
 
+### 7) Self-learning + research-backed implementations: structured_logs.jsonl + learned_lessons.json
+Log evidence (session start tasks and recorded lessons with arXiv sources):
+- [structured_logs.jsonl](structured_logs.jsonl#L5-L14): DSPy demo storage, embeddings, online learning, knowledge graph, and tree search tasks kicked off.
+- [learned_lessons.json](learned_lessons.json#L569-L602): Voyager skill reuse (arXiv:2305.16291) recorded with implementation path.
+- [learned_lessons.json](learned_lessons.json#L1268-L1332): Generative Agents reflection automation (arXiv:2304.03442).
+- [learned_lessons.json](learned_lessons.json#L1500-L1525): DSPy self-bootstrapping (arXiv:2310.03714).
+- [learned_lessons.json](learned_lessons.json#L1556-L1589): CAMEL role decomposition (arXiv:2303.17760).
+
 ## Evidence index: where to look next
 - kernel_run.log: parallel waves, task timing, safety blocks.
 - performance_history.json: per-session duration and quality scores.
+- structured_logs.jsonl: session-level tasks and completions.
+- learned_lessons.json: research-backed lessons with sources and implementations.
 - api_audit.log: API call success/failure, tokens, cost, budget enforcement.
 - safety_audit.log: constitutional/network/workspace blocks.
 - security_audit_run.log: self-audit budget + token usage.
 - tool_operations.json: verification and hallucination detection results.
+
+## Note on identity journals and interactions (not committed)
+The identity journals, messages to human, and discussion threads live under
+`.swarm/` at runtime (e.g., `.swarm/journals/*.jsonl`, `.swarm/messages_to_human.jsonl`,
+`.swarm/discussions/*.jsonl`). Those files were **not committed** in this repo, so
+there's no permanent evidence section yet for that emergent growth.
 
 ## Daily achievement map (tools used)
 Based on commit messages and logs in this repo.
@@ -339,7 +361,7 @@ Raw data from performance_history.json. Timestamps are as recorded. Tasks vary; 
 - 2026-02-03T09:29:25.782795 - 374.406098s (success)
 - 2026-02-03T09:35:53.963772 - 12.400989s (failure)
 
-Full log: performance_history.json
+Full log: [performance_history.json](performance_history.json)
 
 ## User-observed anomaly note
 The following is a user report, included verbatim in spirit for visibility. It is not explained by any known mechanism in the swarm codebase.
