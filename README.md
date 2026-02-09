@@ -40,6 +40,7 @@ flowchart LR
 For the full, phased execution plan plus acceptance criteria, see:
 
 - **[`VISION_ROADMAP.md`](./VISION_ROADMAP.md)**
+- **[`CROSS_REPO_TIMELINE.md`](./CROSS_REPO_TIMELINE.md)** (Vivarium + AutoHive timeline, "gold" extraction, anomaly map)
 
 Short version of build order:
 
@@ -70,6 +71,7 @@ Recent history shows a major cleanup and rollback cycle. Key findings:
 - **`4428452`** - "Purge Claude/Anthropic artifacts and docs" removed many architecture/vision documents and experimental modules.
 - **`5b6a0b6`** - backup commit ("before clean rollback") preserved many deleted assets.
 - **`75b046c`** - introduced a `/vision` dashboard route in historical `progress_server.py` (file now absent).
+- **AutoHive (public)** - contains useful orchestration/economics patterns plus wiring mismatches; details in `CROSS_REPO_TIMELINE.md`.
 
 Important artifacts that existed in history but are absent now:
 

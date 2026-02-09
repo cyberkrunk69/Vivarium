@@ -4,6 +4,8 @@ This is the implementation path from current state to full-scope vision.
 
 It is intentionally ordered to maximize safety and compounding, while minimizing "big rewrite" risk.
 
+Cross-repo archaeology and anomaly evidence are tracked in `CROSS_REPO_TIMELINE.md`.
+
 ---
 
 ## North-star outcomes
@@ -32,6 +34,7 @@ It is intentionally ordered to maximize safety and compounding, while minimizing
 - `swarm_orchestrator_v2.py` and `worker_pool.py` are present but currently not reliable production orchestration code.
 - `quality_gates.py`, `safety_gateway.py`, and `secure_api_wrapper.py` exist and are tested, but not hard-wired into default task execution.
 - Major docs/features were removed in purge commit `4428452`, with a backup snapshot in `5b6a0b6`.
+- AutoHive has useful orchestration and routing ideas, but contains import/endpoint/branch-drift mismatches that must be filtered before reuse.
 
 ---
 
@@ -204,6 +207,8 @@ These are high-value historical artifacts to selectively recover (not blindly re
 | Vision dashboard route | `75b046c:progress_server.py` | Port `/vision` concept into current control panel endpoints. |
 | Backup snapshot | commit `5b6a0b6` | Triage for salvageable modules; avoid reviving corrupted artifacts wholesale. |
 | Rich skill registry (historical) | `6aec98c:skills/skill_registry.py` | Restore compatible interfaces needed by `tool_router.py`. |
+| AutoHive provider tiering + cost table | `autohive:config.json`, `autohive/src/api_client.py` | Adapt as explicit model-routing policy with tests and budget guards. |
+| AutoHive local daemon orchestration | `autohive/local/.claude/{worker-daemon.py,spawn-worker.py}` | Reuse manifest/PID/worktree patterns, but normalize branch handling and add reliability tests first. |
 
 ---
 
