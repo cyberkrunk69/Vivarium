@@ -15,17 +15,17 @@ Vivarium is a multi-agent AI orchestration system with persistent identity, toke
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      GRIND SPAWNER                              │
-│                  (Session Orchestrator)                         │
-│     Task decomposition, model selection, session management     │
+│                    VOLUNTEER POOL                               │
+│         (grind_spawner_unified.py is optional)                  │
+│   Workers can also join directly via worker.py run              │
 └─────────────────────────────────────────────────────────────────┘
-                                │
-            ┌───────────────────┼───────────────────┐
-            ▼                   ▼                   ▼
-     ┌──────────┐        ┌──────────┐        ┌──────────┐
-     │ Session  │        │ Session  │        │ Session  │
-     │    1     │        │    2     │        │    N     │
-     └──────────┘        └──────────┘        └──────────┘
+                               │
+           ┌───────────────────┼───────────────────┐
+           ▼                   ▼                   ▼
+    ┌──────────┐        ┌──────────┐        ┌──────────┐
+    │ Session  │        │ Session  │        │ Session  │
+    │    1     │        │    2     │        │    N     │
+    └──────────┘        └──────────┘        └──────────┘
             │                   │                   │
             └───────────────────┼───────────────────┘
                                 ▼
@@ -250,7 +250,7 @@ Vivarium/
 │   ├── spawner_config.json     # Spawner configuration
 │   └── spawner_process.json    # Running process info
 ├── control_panel.py            # Web UI server
-├── grind_spawner_unified.py    # Session orchestrator
+├── grind_spawner_unified.py    # Volunteer pool launcher (optional)
 ├── swarm_identity.py           # Identity management
 ├── swarm_enrichment.py         # Token economy
 ├── swarm_discussion.py         # Chat system
@@ -284,7 +284,9 @@ Vivarium/
 python control_panel.py
 # → http://localhost:8421
 
-# Start spawner (via control panel or CLI)
+# Start volunteer workers (via control panel or CLI)
+python worker.py run
+# Optional: start spawner (convenience launcher)
 python grind_spawner_unified.py --task "Your task" --budget 0.10 --sessions 3
 ```
 

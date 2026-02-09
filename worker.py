@@ -1,5 +1,5 @@
 """
-Parallel Worker for Vivarium Orchestrator
+Parallel Worker for Vivarium Volunteer Community
 
 Uses file-based lock protocol for coordination between multiple workers.
 Lock Protocol from: EXECUTION_SWARM_SYSTEM.md (legacy orchestrator spec)

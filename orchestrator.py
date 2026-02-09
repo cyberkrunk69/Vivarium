@@ -1,11 +1,12 @@
 """
-Vivarium Parallel Orchestrator
+Vivarium Legacy Orchestrator (Optional)
 
-Spawns multiple workers that coordinate using file-based locks.
-Target API: http://127.0.0.1:8420
+This file is retained for backwards compatibility. The preferred model is a
+volunteer community: workers self-select tasks from the queue without a central
+controller. Use worker.py directly or the control panel for coordination.
 
 Usage:
-    python orchestrator.py start [num_workers] [--dry-run]  - Start orchestrator with N workers
+    python orchestrator.py start [num_workers] [--dry-run]  - Start legacy workers
     python orchestrator.py status                           - Show execution status
     python orchestrator.py add <id> <type> --prompt "..."  - Add a task to queue
     python orchestrator.py clear                            - Clear all tasks and logs
