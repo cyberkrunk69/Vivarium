@@ -263,6 +263,12 @@ Log evidence (session start tasks and recorded lessons with arXiv sources):
 - security_audit_run.log: self-audit budget + token usage.
 - tool_operations.json: verification and hallucination detection results.
 
+## Note on identity journals and interactions (not committed)
+The identity journals, messages to human, and discussion threads live under
+`.swarm/` at runtime (e.g., `.swarm/journals/*.jsonl`, `.swarm/messages_to_human.jsonl`,
+`.swarm/discussions/*.jsonl`). Those files were **not committed** in this repo, so
+there's no permanent evidence section yet for that emergent growth.
+
 ## Daily achievement map (tools used)
 Based on commit messages and logs in this repo.
 
