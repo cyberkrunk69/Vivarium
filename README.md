@@ -269,6 +269,12 @@ The identity journals, messages to human, and discussion threads live under
 `.swarm/discussions/*.jsonl`). Those files were **not committed** in this repo, so
 there's no permanent evidence section yet for that emergent growth.
 
+## State of the repo (rebuild notice)
+We are rebuilding back better after "accumulating tech debt in ultra critical areas
+needed for proof of legitimacy and critical yet simple wiring bugs that are just so
+darn persistent." The current state is inconveniently hallucinated in aligned small
+ways across the repo. We are looking into it ;p
+
 ## Daily achievement map (tools used)
 Based on commit messages and logs in this repo.
 
