@@ -138,7 +138,7 @@ ARTIFACT FORMAT (preferred)
 FULL FILE CONTENT HERE
 </artifact>
 
-Do the work now. If you make changes, include all necessary files as artifacts.
+If you take this task, do the work now. If you make changes, include all necessary files as artifacts.
 """
 
     def execute(self) -> Dict[str, Any]:
@@ -214,7 +214,7 @@ def _worker_loop(
             session.execute()
         except Exception as e:
             # Keep the spawner alive; surface error to stdout for logs.
-            print(f"[spawner] worker {worker_id} task failed: {e}", file=sys.stderr)
+            print(f"[spawner] resident {worker_id} task failed: {e}", file=sys.stderr)
         finally:
             q.task_done()
 
@@ -234,7 +234,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--engine",
         type=str,
         default=os.environ.get("INFERENCE_ENGINE", "auto"),
-        help="auto|groq|claude",
+        help="auto|groq",
     )
 
     args = parser.parse_args(argv)
@@ -247,8 +247,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     engine_type = EngineType.AUTO
     if engine_str == "groq":
         engine_type = EngineType.GROQ
-    elif engine_str == "claude":
-        engine_type = EngineType.CLAUDE
 
     # Determine tasks
     tasks: List[Dict[str, Any]] = []

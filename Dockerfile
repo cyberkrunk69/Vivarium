@@ -4,10 +4,10 @@ WORKDIR /app
 
 # =============================================================================
 # BLACK SWARM - Network Isolated Self-Improving AI Runtime
-# Supports both Claude Code CLI and Groq API backends
+# Groq-only inference backend
 # =============================================================================
 
-# Install system dependencies including Node.js for Claude Code
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     iptables \
     dnsutils \
@@ -17,14 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js (required for Claude Code CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
 
 # Install Python dependencies
 COPY requirements-groq.txt .
@@ -47,8 +39,8 @@ RUN useradd -m -u 1000 swarm && \
 # Environment
 ENV PYTHONUNBUFFERED=1
 ENV WORKSPACE=/app
-# Default to auto engine selection
-ENV INFERENCE_ENGINE=auto
+# Default to Groq engine selection
+ENV INFERENCE_ENGINE=groq
 
 # Switch to non-root user (critical security hardening)
 USER swarm

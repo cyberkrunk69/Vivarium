@@ -1,9 +1,0 @@
-Traceback (most recent call last):
-  File "D:\codingProjects\claude_parasite_brain_suck\grind_spawner_unified.py", line 36, in <module>
-    from safety_gateway import SafetyGateway
-  File "D:\codingProjects\claude_parasite_brain_suck\safety_gateway.py", line 13, in <module>
-    from experiments_sandbox import is_core_protected
-  File "D:\codingProjects\claude_parasite_brain_suck\experiments_sandbox.py", line 295, in <module>
-    _DATA_CACHE: dict[str, Any] = {}
-                           ^^^
-NameError: name 'Any' is not defined. Did you mean: 'any'?

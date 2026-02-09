@@ -4,7 +4,6 @@ import re
 def auto_tag_lessons(lessons):
     knowledge_packs = {
         "categories": [
-            "claude",
             "groq",
             "api:spotify",
             "api:github",
@@ -12,7 +11,6 @@ def auto_tag_lessons(lessons):
             "ui"
         ],
         "lessons": {
-            "claude": [],
             "groq": [],
             "api:spotify": [],
             "api:github": [],
@@ -23,9 +21,7 @@ def auto_tag_lessons(lessons):
 
     for lesson in lessons:
         content = lesson["content"]
-        if re.search(r"claude|optimal|techniques", content, re.IGNORECASE):
-            knowledge_packs["lessons"]["claude"].append(lesson)
-        elif re.search(r"groq|optimizations|efficient", content, re.IGNORECASE):
+        if re.search(r"groq|optimizations|efficient|optimal|techniques", content, re.IGNORECASE):
             knowledge_packs["lessons"]["groq"].append(lesson)
         elif re.search(r"spotify|music|streaming", content, re.IGNORECASE):
             knowledge_packs["lessons"]["api:spotify"].append(lesson)

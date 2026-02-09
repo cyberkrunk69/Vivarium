@@ -50,8 +50,8 @@ prompt = """You are building a modern dashboard for an autonomous AI swarm orche
 5. **Multi-Tree Workspace** - Support multiple parallel task trees
 
 **Engine/Model Visibility:**
-- Engine badges: CLAUDE (blue #1e90ff), GROQ (orange #ff8c00)
-- Model name display (e.g., "claude-sonnet-4", "llama-3.3-70b")
+- Engine badge: GROQ (orange #ff8c00)
+- Model name display (e.g., "llama-3.3-70b")
 - Selection reason tooltip
 - Real-time cost and token tracking
 - Summary panel with engine split and cost breakdown
@@ -73,8 +73,8 @@ prompt = """You are building a modern dashboard for an autonomous AI swarm orche
   "type": "node_update",
   "node_id": "worker-7",
   "status": "running",
-  "engine": "CLAUDE",
-  "model": "claude-sonnet-4",
+  "engine": "GROQ",
+  "model": "llama-3.3-70b-versatile",
   "reason": "Complex task",
   "tokens_used": 1245,
   "cost": 0.018

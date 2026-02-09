@@ -11,7 +11,7 @@ this uses a surgical edit paradigm:
 5. Self-correcting by design
 
 Supports multiple edit formats:
-- SEARCH/REPLACE blocks (like Claude Code's Edit tool)
+- SEARCH/REPLACE blocks (edit-tool style)
 - Line-based insertions (insert after line N, before function X)
 - Append/prepend operations
 - Function/class replacement by name
@@ -111,7 +111,7 @@ class SurgicalEditExtractor:
 
         Supports multiple formats:
         1. <edit> tags with action attribute
-        2. SEARCH/REPLACE blocks (Claude Code style)
+        2. SEARCH/REPLACE blocks (edit-tool style)
         3. <<<<<<< MINE / ======= / >>>>>>> THEIRS conflict markers
 
         Args:
@@ -177,7 +177,7 @@ class SurgicalEditExtractor:
 
     def _extract_search_replace_blocks(self, text: str) -> List[SurgicalEdit]:
         """
-        Extract SEARCH/REPLACE blocks (Claude Code Edit tool style).
+        Extract SEARCH/REPLACE blocks (edit-tool style).
 
         Format:
         FILE: path/to/file.py

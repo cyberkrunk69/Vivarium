@@ -66,6 +66,6 @@ If you're reading this and it seems absurd: that's okay. Check back in a few yea
 
 **Co-authored by:**
 - Josh (Human)
-- Claude (claude-opus-4-5-20250101)
+- Swarm (multi-agent)
 
 *Written February 2026*

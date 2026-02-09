@@ -16,7 +16,7 @@ def auto_tagging_algorithm(lesson):
     # Detect domain
     domain = None
     for keyword in keywords:
-        if keyword in ['Claude', 'Groq', 'Spotify', 'GitHub', 'security', 'frontend']:
+        if keyword in ['Groq', 'Spotify', 'GitHub', 'security', 'frontend']:
             domain = keyword.lower()
             break
     

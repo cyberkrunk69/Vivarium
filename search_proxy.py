@@ -8,9 +8,9 @@ class DocumentationSearcher:
     def __init__(self):
         self.cache = {}
         self.allowlisted_sources = [
-            'docs.anthropic.com',
-            'github.com/anthropics',
-            'claude.ai/docs'
+            "docs.groq.com",
+            "console.groq.com",
+            "github.com/groq",
         ]
         self.rate_limit = 10  # max requests per minute
         self.request_count = 0

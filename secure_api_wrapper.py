@@ -3,7 +3,7 @@
 Secure API Wrapper - Defense in Depth at the API Layer
 
 CRITICAL SECURITY INFRASTRUCTURE:
-This module wraps ALL LLM API calls (Groq, OpenAI, Anthropic) with mandatory
+This module wraps ALL LLM API calls (Groq, OpenAI, etc.) with mandatory
 security checks. No code should call LLM APIs directly - they must go through
 this wrapper.
 
@@ -159,7 +159,7 @@ class SecureAPIWrapper:
     Secure wrapper for all LLM API calls.
 
     This is the ONLY way code should call LLM APIs. Direct calls to
-    groq_client, openai, anthropic, etc. should be refactored to use this.
+    groq_client, openai, etc. should be refactored to use this.
     """
 
     def __init__(

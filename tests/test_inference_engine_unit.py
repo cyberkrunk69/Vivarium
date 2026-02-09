@@ -28,8 +28,5 @@ def test_get_engine_type_from_env(monkeypatch):
     monkeypatch.setenv("INFERENCE_ENGINE", "GROQ")
     assert get_engine_type_from_env() == EngineType.GROQ
 
-    monkeypatch.setenv("INFERENCE_ENGINE", "claude")
-    assert get_engine_type_from_env() == EngineType.CLAUDE
-
     monkeypatch.setenv("INFERENCE_ENGINE", "")
     assert get_engine_type_from_env() == EngineType.AUTO

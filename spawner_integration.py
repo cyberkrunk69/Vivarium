@@ -8,6 +8,6 @@ def integrate_knowledge_packs(spawner, task_text):
 
 # Example usage:
 spawner = {}  # Initialize spawner object
-task_text = "Use Claude-specific prompting patterns for optimal results"
+task_text = "Use model-specific prompting patterns for optimal results"
 integrate_knowledge_packs(spawner, task_text)
 print(spawner.prompt_context)

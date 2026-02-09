@@ -1,11 +1,12 @@
 """
-Vivarium Parallel Orchestrator
+Vivarium Legacy Orchestrator (Optional)
 
-Spawns multiple workers that coordinate using file-based locks.
-Target API: http://127.0.0.1:8420
+This file is retained for backwards compatibility. The preferred model is a
+volunteer community: residents self-select tasks from the queue without a central
+controller. Use worker.py directly or the control panel for coordination.
 
 Usage:
-    python orchestrator.py start [num_workers] [--dry-run]  - Start orchestrator with N workers
+    python orchestrator.py start [num_workers] [--dry-run]  - Start legacy residents
     python orchestrator.py status                           - Show execution status
     python orchestrator.py add <id> <type> --prompt "..."  - Add a task to queue
     python orchestrator.py clear                            - Clear all tasks and logs
@@ -261,17 +262,25 @@ def show_status() -> None:
     print("EXECUTION STATUS")
     print("=" * 50)
 
-    queue = read_json(QUEUE_FILE)
-    if not EXECUTION_LOG.exists():
-        print(f"ERROR: Execution log not found: {EXECUTION_LOG}")
-        return
-
-    events = read_jsonl(EXECUTION_LOG, default=[])
+    queue = read_json(QUEUE_FILE, default={"tasks": []})
+    events = read_jsonl(EXECUTION_LOG, default=[]) if EXECUTION_LOG.exists() else []
     task_index: Dict[str, Dict] = {}
     for event in events:
         task_id = event.get("task_id")
         if task_id:
             task_index[task_id] = event
+
+    if not task_index:
+        legacy_path = WORKSPACE / "execution_log.json"
+        legacy_log = read_json(legacy_path, default=None)
+        if legacy_log and isinstance(legacy_log, dict):
+            legacy_tasks = legacy_log.get("tasks", {})
+            if isinstance(legacy_tasks, dict):
+                task_index = legacy_tasks
+
+    if not task_index and not events and not EXECUTION_LOG.exists():
+        print(f"ERROR: Execution log not found: {EXECUTION_LOG}")
+        return
 
     total_tasks = len(queue.get("tasks", []))
     completed = sum(1 for t in task_index.values() if t.get("status") == "completed")
@@ -431,6 +440,14 @@ def clear_all() -> None:
 
     EXECUTION_LOG.parent.mkdir(parents=True, exist_ok=True)
     EXECUTION_LOG.write_text("")
+
+    legacy_path = WORKSPACE / "execution_log.json"
+    if legacy_path.exists():
+        write_json(legacy_path, {
+            "version": "1.0",
+            "tasks": {},
+            "swarm_summary": {}
+        })
 
     if LOCKS_DIR.exists():
         for lock in LOCKS_DIR.glob("*.lock"):

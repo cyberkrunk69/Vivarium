@@ -1,5 +1,0 @@
-Cloning into 'claude-code'...
-remote: Enumerating objects: 1, done.
-remote: Counting objects: 1, done.
-remote: Total 1 (delta 0), reused 0 (delta 0), pack-reused 1
-Receiving objects: 100% (1/1), 12.31 KiB | 0 bytes/s, done.

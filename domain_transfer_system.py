@@ -1275,7 +1275,7 @@ for _domain in ["code", "math", "ui", "debug", "physics"]:
 """
 domain_transfer_system.py
 
-Core framework for cross‑domain transfer learning within the CLAUDE‑Parasite‑Brain‑Suck project.
+Core framework for cross-domain transfer learning within the swarm project.
 Provides:
 - AbstractTask: unified representation of any task (code, math, UI, physics, etc.).
 - TaskRegistry: global store for task instances and their embeddings.

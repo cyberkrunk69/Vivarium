@@ -15,7 +15,7 @@ def is_port_open(port: int, host: str = "127.0.0.1") -> bool:
 lan_server.py
 --------------
 
-Dual‑server implementation for the Claude Parasite Brain Suck project.
+Dual-server implementation for the swarm project.
 
 - **AdminServer** – binds only to 127.0.0.1 (loopback).  Handles privileged
   administrative requests.

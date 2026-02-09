@@ -84,7 +84,7 @@ AI works on multiple improvements simultaneously
 | Tree Search | Explores multiple solutions, picks the best | LATS |
 | Knowledge Graph | Maps how concepts connect | HippoRAG |
 | Semantic Search | Finds relevant skills/lessons by meaning | Voyager/HippoRAG |
-| Opus Orchestrator | Automatically spawns senior AI for strategy | Custom |
+| Strategy Planner | Spawns senior strategy reviews on demand | Custom |
 
 ---
 

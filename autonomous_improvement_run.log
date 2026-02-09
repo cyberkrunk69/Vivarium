@@ -1,3 +1,0 @@
-No artifacts found in response, attempting fallback extraction
-Failed to parse patch block: invalid literal for int() with base 10: 'document.addEventListener('
-BLOCKED: Refusing to overwrite D:\codingProjects\claude_parasite_brain_suck\dashboard_vision.html (4256 bytes) with smaller content (1154 bytes, 27%)

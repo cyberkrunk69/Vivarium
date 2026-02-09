@@ -29,7 +29,7 @@ def profile_imports():
     # Heavy imports (potentially slow)
     heavy_start = time.time()
 
-    from roles import RoleType, decompose_task, get_role, get_role_chain, format_handoff, RoleExecutor
+    from resident_facets import decompose_task
     from prompt_optimizer import collect_demonstrations, get_relevant_demonstrations, optimize_prompt
     from memory_synthesis import MemorySynthesis, should_synthesize
     from message_pool import get_message_pool
@@ -81,11 +81,13 @@ def profile_grind_session_init():
     detect_injection_attempt("Test optimization task")
     times["task_sanitization"] = time.time() - sanitize_start
 
-    # Task decomposition
+    # Task decomposition (resident facets)
     decomp_start = time.time()
-    from roles import decompose_task, RoleExecutor, RoleType
-    task_decomposition = decompose_task("Test optimization task")
-    role_executor = RoleExecutor(RoleType.CODER, "Test task")
+    task_decomposition = decompose_task(
+        "Test optimization task",
+        resident_id="resident_profile",
+        identity_id="identity_profile",
+    )
     times["task_decomposition"] = time.time() - decomp_start
 
     # Performance tracker
@@ -124,7 +126,7 @@ def profile_grind_session_init():
 
 def profile_prompt_generation():
     """Profile prompt generation performance."""
-    from roles import decompose_task, get_role_chain, get_role
+    from resident_facets import decompose_task
     from context_builder import ContextBuilder
     from failure_patterns import FailurePatternDetector
     from prompt_optimizer import collect_demonstrations, get_relevant_demonstrations
@@ -135,17 +137,14 @@ def profile_prompt_generation():
     start = time.time()
     times = {}
 
-    # Task decomposition
+    # Task decomposition (resident facets)
     decomp_start = time.time()
-    task_decomposition = decompose_task(task)
+    task_decomposition = decompose_task(
+        task,
+        resident_id="resident_profile",
+        identity_id="identity_profile",
+    )
     times["decomposition"] = time.time() - decomp_start
-
-    # Role chain
-    role_start = time.time()
-    role_chain = get_role_chain(task_decomposition["complexity"])
-    current_role = role_chain[0]
-    role_obj = get_role(current_role)
-    times["role_processing"] = time.time() - role_start
 
     # Context building (expensive)
     context_start = time.time()

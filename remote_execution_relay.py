@@ -1329,7 +1329,7 @@ from urllib.parse import urlparse, parse_qs
 # ----------------------------------------------------------------------
 # Listens for persistent TCP connections from RemoteExecutionClient instances,
 # maintains a mapping of machine_id -> socket, and exposes a simple HTTP API
-# for external callers (e.g., the Claude swarm) to request command execution
+# for external callers (e.g., external swarms) to request command execution
 # on a specific machine.
 # ----------------------------------------------------------------------
 

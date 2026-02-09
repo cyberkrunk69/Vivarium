@@ -65,7 +65,7 @@ def profile_startup():
 
         with timer("Role system imports"):
             try:
-                from roles import RoleType, decompose_task, get_role, get_role_chain, format_handoff, RoleExecutor
+                from resident_facets import decompose_task
             except ImportError as e:
                 print(f"[PROFILE] Warning: Could not import roles: {e}")
 

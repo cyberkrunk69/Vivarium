@@ -5,8 +5,10 @@ This guide covers common workflows for the Vivarium parallel task orchestration 
 ## Architecture Overview
 
 - **swarm.py** - FastAPI server with `/grind`, `/plan`, and `/status` endpoints
-- **orchestrator.py** - Spawns and manages parallel worker processes
-- **worker.py** - Individual worker that claims and executes tasks using file locks
+- **worker.py** - Resident runtime that claims and executes tasks using file locks
+- **queue.json** - Shared task board
+- **task_locks/** - Atomic lock files for parallel coordination
+- **execution_log.jsonl** - Append-only task events
 
 ## Prerequisites
 
@@ -14,33 +16,38 @@ This guide covers common workflows for the Vivarium parallel task orchestration 
 pip install fastapi uvicorn httpx pydantic python-dotenv
 ```
 
-For AI-powered task planning, set your Together AI API key:
+For AI-powered task planning, set your Groq API key:
 ```bash
-export TOGETHER_API_KEY=your_key_here
+export GROQ_API_KEY=your_key_here
 ```
 
 ---
 
-## Workflow 1: Manual Task Execution
+## Workflow 1: Manual Task Execution (Volunteer Pull)
 
-Add tasks manually and run workers to execute them.
+Add tasks manually and run residents to execute them.
 
-### Step 1: Clear Previous State
+## Scaling knobs (for large resident counts)
+- RESIDENT_SHARD_COUNT: divide queue into shards by task id hash.
+- RESIDENT_SHARD_ID: fixed shard id or "auto" (default).
+- RESIDENT_SCAN_LIMIT: cap tasks scanned per loop (0 = full scan).
+- RESIDENT_SUBTASK_PARALLELISM: parallelism for delegated subtasks.
+- RESIDENT_BACKOFF_MAX / RESIDENT_JITTER_MAX: tune idle backoff.
+
+### Step 1: Clear Previous State (optional)
 ```bash
-python orchestrator.py clear
+rm -f task_locks/*.lock
+> execution_log.jsonl
 ```
 
 ### Step 2: Add Tasks
 ```bash
 # Basic task
-python orchestrator.py add task_001 grind
-
-# Task with custom budget and intensity
-python orchestrator.py add task_002 grind --min 0.08 --max 0.15 --intensity high
+python worker.py add task_001 "Summarize current errors"
 
 # Add multiple tasks
-python orchestrator.py add task_003 grind --intensity low
-python orchestrator.py add task_004 grind --intensity medium
+python worker.py add task_002 "Audit safety rules"
+python worker.py add task_003 "Refactor queue handling"
 ```
 
 ### Step 3: Start the API Server
@@ -49,25 +56,22 @@ python swarm.py
 # Server runs at http://127.0.0.1:8420
 ```
 
-### Step 4: Run the Orchestrator (in another terminal)
+### Step 4: Run Resident Runtimes (in other terminals)
 ```bash
-# Default: 4 parallel workers
-python orchestrator.py start
-
-# Custom worker count
-python orchestrator.py start 8
+python worker.py run
 ```
+Run as many resident processes as you want in parallel.
 
 ### Step 5: Check Status
 ```bash
-python orchestrator.py status
+curl http://127.0.0.1:8420/status
 ```
 
 ---
 
 ## Workflow 2: AI-Powered Task Planning
 
-Let Together AI analyze your codebase and generate improvement tasks.
+Let Groq analyze your codebase and generate improvement tasks.
 
 ### Step 1: Start the API Server
 ```bash
@@ -84,16 +88,16 @@ This will:
 2. Send metadata to Llama 3.3 70B for analysis
 3. Write 3-5 improvement tasks to `queue.json`
 
-### Step 3: Run the Orchestrator
+### Step 3: Run Resident Runtimes
 ```bash
-python orchestrator.py start
+python worker.py run
 ```
 
 ---
 
-## Workflow 3: Single Worker Execution
+## Workflow 3: Single Resident Session
 
-Run a single worker for debugging or lightweight tasks.
+Run a single resident session for debugging or lightweight tasks.
 
 ```bash
 # Run indefinitely until no tasks remain
@@ -107,11 +111,6 @@ python worker.py run 5
 
 ## Workflow 4: Check Execution Progress
 
-### Via CLI
-```bash
-python orchestrator.py status
-```
-
 ### Via API
 ```bash
 curl http://127.0.0.1:8420/status
@@ -119,29 +118,13 @@ curl http://127.0.0.1:8420/status
 
 ### View Execution Log
 ```bash
-cat execution_log.json
+cat execution_log.jsonl
 ```
 
-Sample output:
+Sample output (JSONL entries):
 ```json
-{
-  "version": "1.0",
-  "tasks": {
-    "task_001": {
-      "worker_id": "worker_a1b2c3d4",
-      "status": "completed",
-      "started_at": "2024-01-15T10:30:00+00:00",
-      "completed_at": "2024-01-15T10:30:05+00:00"
-    }
-  },
-  "swarm_summary": {
-    "total_tasks": 4,
-    "completed": 3,
-    "in_progress": 1,
-    "pending": 0,
-    "failed": 0
-  }
-}
+{"task_id":"task_001","worker_id":"worker_a1b2c3d4","status":"in_progress","timestamp":"2024-01-15T10:30:00+00:00"}
+{"task_id":"task_001","worker_id":"worker_a1b2c3d4","status":"completed","timestamp":"2024-01-15T10:30:05+00:00"}
 ```
 
 ---
@@ -149,21 +132,18 @@ Sample output:
 ## Workflow 5: Handle Failed Tasks
 
 ### Identify Failures
-```bash
-python orchestrator.py status
-# Shows failed tasks with error messages
-```
+Review `execution_log.jsonl` for failed statuses.
 
 ### Clear Stale Locks
-If workers crashed, locks may be stale. They auto-expire after 5 minutes, or:
+If resident sessions crashed, locks may be stale. They auto-expire after 5 minutes, or:
 ```bash
 rm task_locks/*.lock
 ```
 
 ### Retry Failed Tasks
-1. Check `execution_log.json` for failed task IDs
+1. Check `execution_log.jsonl` for failed task IDs
 2. Reset their status manually or clear and re-add
-3. Run orchestrator again
+3. Run residents again
 
 ---
 
@@ -201,8 +181,8 @@ Open http://localhost:8421
 
 | File | Purpose |
 |------|---------|
-| `queue.json` | Task queue (read by workers, written by orchestrator) |
-| `execution_log.json` | Task status and progress tracking |
+| `queue.json` | Task queue (read by residents, written by humans or /plan) |
+| `execution_log.jsonl` | Task status and progress tracking |
 | `task_locks/*.lock` | File-based locks for parallel coordination |
 
 ---
@@ -219,7 +199,7 @@ Open http://localhost:8421
 ```bash
 curl -X POST http://127.0.0.1:8420/grind \
   -H "Content-Type: application/json" \
-  -d '{"min_budget": 0.05, "max_budget": 0.10, "intensity": "medium"}'
+  -d '{"prompt": "Summarize the resident queue design"}'
 ```
 
 Response:
@@ -239,14 +219,14 @@ Response:
 - Ensure `swarm.py` is running: `python swarm.py`
 - Check it's on port 8420: `curl http://127.0.0.1:8420/status`
 
-### Workers Exit Immediately
+### Residents Exit Immediately
 - Check `queue.json` has tasks: `cat queue.json`
-- Verify tasks aren't already completed in `execution_log.json`
+- Verify tasks aren't already completed in `execution_log.jsonl`
 
 ### Stale Locks
 - Locks auto-expire after 5 minutes
 - Manual removal: `rm task_locks/*.lock`
 
-### Together AI Errors
-- Verify `TOGETHER_API_KEY` is set
+### Groq API Errors
+- Verify `GROQ_API_KEY` is set
 - Check API response in server logs

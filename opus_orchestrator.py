@@ -112,7 +112,7 @@ class OpusOrchestrator:
             {
                 "task": f"""ARCHITECTURE REVIEW: Wave {wave} Code Audit
 
-You are a senior architect. Review recent changes in D:\\codingProjects\\claude_parasite_brain_suck
+You are a senior architect. Review recent changes in D:\\codingProjects\\swarm_workspace
 
 1. Read all .py files and recent grind_logs/*.json
 2. Assess:

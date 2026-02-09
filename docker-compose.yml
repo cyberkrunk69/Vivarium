@@ -24,7 +24,6 @@ services:
     environment:
       - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - WORKSPACE=/app
     volumes:
       # Read-only mounts for code

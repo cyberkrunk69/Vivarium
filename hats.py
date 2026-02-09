@@ -145,18 +145,18 @@ class HatLibrary:
 
 DEFAULT_HATS = [
     Hat(
-        name="Planner",
+        name="Strategist",
         description="Focus on decomposition, sequencing, and clear acceptance criteria.",
         prompt=(
             "Break complex tasks into 3-5 focused subtasks. "
-            "Assign each subtask to the best-fit specialist. "
+            "Suggest a focus for each subtask without forcing assignments. "
             "Define crisp acceptance criteria and handoff notes."
         ),
         category="workflow",
-        tags=["decomposition", "coordination", "planning"],
+        tags=["decomposition", "coordination", "strategy"],
     ),
     Hat(
-        name="Coder",
+        name="Builder",
         description="Focus on clean, minimal implementation that matches requirements.",
         prompt=(
             "Implement changes with minimal surface area. "

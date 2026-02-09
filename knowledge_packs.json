@@ -1,7 +1,6 @@
 {
     "categories": [
         "founding",
-        "claude",
         "groq",
         "api:spotify",
         "api:github",
@@ -16,7 +15,6 @@
     ],
     "lessons": {
         "founding": [],
-        "claude": [],
         "groq": [],
         "api:spotify": [],
         "api:github": [],

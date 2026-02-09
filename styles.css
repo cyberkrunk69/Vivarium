@@ -43,7 +43,6 @@ html, body {
     font-weight: bold;
     color: #fff;
 }
-.badge.claude { background: #0066ff; }   /* Claude blue */
 .badge.groq   { background: #ff6600; }   /* Groq orange */
 
 /* ==== Main Layout ==== */

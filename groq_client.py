@@ -1,6 +1,6 @@
 """
 import self_observer
-Groq API Client - Drop-in replacement for Claude CLI execution.
+Groq API Client - Drop-in replacement for CLI-based execution.
 
 Provides LocalInferenceEngine that routes to Groq's API with:
 - Adaptive model selection (8B for simple, 70B for complex)
@@ -125,7 +125,7 @@ class GroqInferenceEngine:
     """
     Local inference engine using Groq API.
 
-    Replaces Claude CLI calls with Groq API requests.
+    Replaces CLI calls with Groq API requests.
     Supports adaptive model selection based on task complexity.
     """
 
