@@ -89,6 +89,7 @@ Historical code-quality signal worth acting on:
 
 - `tool_router.py` expects `SkillRegistry`, `retrieve_skill`, `compose_skills` (now restored in `skills/skill_registry.py`).
 - Canonical `worker.py` now runs tool-first routing before LLM dispatch and logs routing metadata (`tool_route`, `tool_name`, `tool_confidence`).
+- Canonical `worker.py` now performs deterministic Phase 4 intent/decomposition planning for complex prompts, compiling dependency-aware subtasks into `queue.json` before parent execution.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` currently contain legacy/generated fragments and are not safe as production orchestration entrypoints.
 
 The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
@@ -230,6 +231,7 @@ Notable route groups:
 - explicit halt/pause file controls (when used)
 - post-execution critic + quality-gate transitions (`pending_review` -> `approved` / `requeue`)
 - pre-LLM tool routing and reusable tool-context injection (`tool_router` + skill registry)
+- intent capture + deterministic decomposition with dependency-aware subtask compilation in the queue worker path
 
 ### Available modules (not automatically on the `/grind` path)
 

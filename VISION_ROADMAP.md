@@ -30,7 +30,7 @@ Cross-repo archaeology and anomaly evidence are tracked in `CROSS_REPO_TIMELINE.
 ## Current hard truths (from code + history)
 
 - Canonical runtime exists (`worker.py` + `swarm.py` + `control_panel.py`), but several advanced modules are not wired into that path.
-- `tool_router.py` now imports cleanly against `skills/skill_registry.py`; next gains should focus on raising tool-hit rate and promotion loops.
+- `tool_router.py` now imports cleanly against `skills/skill_registry.py`, and `worker.py` now adds first-pass Phase 4 intent capture + deterministic decomposition for complex prompts.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` are present but currently not reliable production orchestration code.
 - `quality_gates.py`, `safety_gateway.py`, and `secure_api_wrapper.py` exist and are tested, but not hard-wired into default task execution.
 - Major docs/features were removed in purge commit `4428452`, with a backup snapshot in `5b6a0b6`.

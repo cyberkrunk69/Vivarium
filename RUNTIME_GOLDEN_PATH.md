@@ -31,6 +31,10 @@ experimental until repaired and re-validated.
   - prompt tasks are routed through `tool_router` before `/grind` LLM dispatch
   - matched tool context is injected into the prompt for reuse-first execution
   - route metadata is recorded in execution events (`tool_route`, `tool_name`, `tool_confidence`)
+- Intent-preserving planning lifecycle is now explicit in the worker path:
+  - prompt tasks are checked with deterministic Phase 4 gut-check heuristics
+  - complex tasks are atomized into dependency-aware queue subtasks before execution
+  - extracted intent is persisted and injected into downstream prompts to reduce drift
 
 ## Safety and budget guarantees in this path
 
@@ -47,5 +51,5 @@ experimental until repaired and re-validated.
 
 ```bash
 python3 -m py_compile worker.py swarm.py control_panel.py runtime_contract.py
-pytest -q tests/test_runtime_phase0_phase1.py tests/test_runtime_phase2_quality_review.py tests/test_runtime_phase3_tool_routing.py
+pytest -q tests/test_runtime_phase0_phase1.py tests/test_runtime_phase2_quality_review.py tests/test_runtime_phase3_tool_routing.py tests/test_runtime_phase4_intent_decomposition.py
 ```

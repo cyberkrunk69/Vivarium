@@ -14,6 +14,7 @@ import time
 import uuid
 import hashlib
 import random
+import re
 import httpx
 from typing import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -69,6 +70,11 @@ try:
     from tool_router import get_router as get_tool_router
 except ImportError:
     get_tool_router = None
+try:
+    from intent_gatekeeper import UserIntent, get_gatekeeper as get_intent_gatekeeper
+except ImportError:
+    UserIntent = None
+    get_intent_gatekeeper = None
 
 # ============================================================================
 # CONSTANTS
@@ -97,6 +103,14 @@ RESIDENT_SCAN_LIMIT: int = int(os.environ.get("RESIDENT_SCAN_LIMIT", "0"))
 RESIDENT_BACKOFF_MAX: int = int(os.environ.get("RESIDENT_BACKOFF_MAX", "5"))
 RESIDENT_JITTER_MAX: float = float(os.environ.get("RESIDENT_JITTER_MAX", "0.5"))
 MAX_REQUEUE_ATTEMPTS: int = int(os.environ.get("RESIDENT_MAX_REQUEUE_ATTEMPTS", "3"))
+PHASE4_SEQUENCE_SPLIT_RE = re.compile(
+    r"\b(?:and then|then|also|plus|after that|next|finally)\b",
+    flags=re.IGNORECASE,
+)
+PHASE4_LEADING_FILLER_RE = re.compile(
+    r"^(?:please|can you|could you|i want you to|let's|lets)\s+",
+    flags=re.IGNORECASE,
+)
 
 _EXECUTION_LOG_STATE: Dict[str, Any] = {"offset": 0, "size": 0, "tasks": {}}
 _SCAN_CURSOR: int = 0
@@ -108,6 +122,7 @@ WORKER_SAFETY_GATEWAY = None
 WORKER_TASK_VERIFIER = None
 WORKER_QUALITY_GATES = None
 WORKER_TOOL_ROUTER = None
+WORKER_INTENT_GATEKEEPER = None
 
 
 # ============================================================================
@@ -172,9 +187,21 @@ def _init_worker_tool_router():
         return None
 
 
+def _init_worker_intent_gatekeeper():
+    if get_intent_gatekeeper is None:
+        _log("WARN", "intent_gatekeeper module unavailable; intent-preserving prompts disabled.")
+        return None
+    try:
+        return get_intent_gatekeeper()
+    except Exception as exc:
+        _log("WARN", f"Failed to initialize intent gatekeeper: {exc}")
+        return None
+
+
 WORKER_TASK_VERIFIER = _init_worker_task_verifier()
 WORKER_QUALITY_GATES = _init_quality_gate_manager()
 WORKER_TOOL_ROUTER = _init_worker_tool_router()
+WORKER_INTENT_GATEKEEPER = _init_worker_intent_gatekeeper()
 
 
 
@@ -429,6 +456,288 @@ def _resolve_safety_task_text(prompt: Optional[str], command: Optional[str], mod
     if mode == "local" and command:
         return command
     return prompt or command or ""
+
+
+def _resolve_task_prompt(task: Dict[str, Any]) -> Optional[str]:
+    prompt = (
+        task.get("prompt")
+        or task.get("instruction")
+        or task.get("description")
+        or task.get("atomic_instruction")
+        or task.get("task")
+    )
+    if isinstance(prompt, str):
+        return prompt
+    return None
+
+
+def _dedupe_preserve_order(items: Iterable[str]) -> List[str]:
+    seen = set()
+    deduped: List[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_string_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        coerced: List[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                coerced.append(text)
+        return coerced
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _coerce_user_intent(payload: Any) -> Optional["UserIntent"]:
+    if UserIntent is None or not isinstance(payload, dict):
+        return None
+    try:
+        return UserIntent(
+            goal=str(payload.get("goal") or ""),
+            constraints=_coerce_string_list(payload.get("constraints")),
+            preferences=_coerce_string_list(payload.get("preferences")),
+            anti_goals=_coerce_string_list(payload.get("anti_goals")),
+            clarifications=_coerce_string_list(payload.get("clarifications")),
+            original_text=str(payload.get("original_text") or ""),
+            extracted_at=str(payload.get("extracted_at") or get_timestamp()),
+            confidence=_safe_float(payload.get("confidence", 0.5), 0.5),
+        )
+    except Exception:
+        return None
+
+
+def _resolve_task_intent(task: Dict[str, Any], prompt: Optional[str]) -> Optional["UserIntent"]:
+    if WORKER_INTENT_GATEKEEPER is None:
+        return None
+
+    seeded_intent = _coerce_user_intent(task.get("phase4_intent") or task.get("intent"))
+    if seeded_intent is not None:
+        return seeded_intent
+
+    if not prompt:
+        return None
+
+    try:
+        return WORKER_INTENT_GATEKEEPER.extract_intent(prompt)
+    except Exception as exc:
+        _log("WARN", f"Intent extraction failed for {task.get('id', 'unknown')}: {exc}")
+        return None
+
+
+def _phase4_gut_check(prompt: str) -> Dict[str, Any]:
+    text = (prompt or "").strip()
+    signals: List[str] = []
+
+    if len(text) >= 220:
+        signals.append("long_prompt")
+    if text.count("\n") >= 2:
+        signals.append("multi_line")
+    if PHASE4_SEQUENCE_SPLIT_RE.search(text):
+        signals.append("sequencing_connectors")
+    punctuation_hits = text.count(",") + text.count(";")
+    if punctuation_hits >= 2 or ":" in text:
+        signals.append("compound_clauses")
+
+    complexity_score = len(signals)
+    return {
+        "complexity_score": complexity_score,
+        "signals": signals,
+        "should_decompose": complexity_score >= 2,
+    }
+
+
+def _phase4_feature_breakdown(prompt: str, intent_goal: str, max_features: int = 5) -> List[str]:
+    text = (prompt or "").strip()
+    if not text:
+        return [intent_goal] if intent_goal else []
+
+    raw_segments: List[str] = []
+    for line in text.splitlines():
+        cleaned_line = line.strip().lstrip("-*0123456789. ").strip()
+        if cleaned_line:
+            raw_segments.append(cleaned_line)
+    if not raw_segments:
+        raw_segments = [text]
+
+    candidates: List[str] = []
+    for segment in raw_segments:
+        for clause in re.split(r"[;:]", segment):
+            for piece in PHASE4_SEQUENCE_SPLIT_RE.split(clause):
+                cleaned = PHASE4_LEADING_FILLER_RE.sub("", piece.strip()).strip(" .,-")
+                if len(cleaned) >= 8:
+                    candidates.append(cleaned)
+
+    if not candidates:
+        fallback = (intent_goal or text).strip()
+        return [fallback[:240]] if fallback else []
+
+    deduped: List[str] = []
+    seen = set()
+    for candidate in candidates:
+        key = candidate.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+        if len(deduped) >= max(2, max_features):
+            break
+
+    if len(deduped) == 1 and intent_goal and deduped[0].lower() != intent_goal.strip().lower():
+        deduped.append(intent_goal.strip())
+
+    return deduped[:max(1, max_features)]
+
+
+def _phase4_is_candidate(
+    task: Dict[str, Any],
+    prompt: Optional[str],
+    command: Optional[str],
+    mode: Optional[str],
+    gut_check: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if not prompt or command or mode == "local":
+        return False
+    if task.get("phase4_planned") or task.get("phase4_generated") or task.get("phase4_skip"):
+        return False
+
+    explicit_request = bool(
+        task.get("phase4_plan_request")
+        or task.get("decompose")
+        or task.get("split")
+        or task.get("plan")
+    )
+    if explicit_request:
+        return True
+
+    if gut_check is None:
+        gut_check = _phase4_gut_check(prompt)
+    return bool(gut_check.get("should_decompose"))
+
+
+def _phase4_atomize_task(
+    task: Dict[str, Any],
+    features: List[str],
+    intent_payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    if not features:
+        return []
+
+    parent_id = str(task.get("id") or "task")
+    base_depends = list(task.get("depends_on") or [])
+    total_steps = len(features)
+
+    min_budget = _safe_float(task.get("min_budget"), DEFAULT_MIN_BUDGET)
+    max_budget = _safe_float(task.get("max_budget"), DEFAULT_MAX_BUDGET)
+    if max_budget and min_budget > max_budget:
+        min_budget = max_budget
+    per_min, per_max = _split_budget(min_budget, max_budget, total_steps)
+
+    intensity = str(task.get("intensity") or DEFAULT_INTENSITY)
+    model = task.get("model")
+    mode = task.get("mode")
+
+    subtasks: List[Dict[str, Any]] = []
+    for index, feature in enumerate(features, start=1):
+        subtask_id = f"{parent_id}__phase4_{index:02d}"
+        depends_on = [f"{parent_id}__phase4_{index - 1:02d}"] if index > 1 else list(base_depends)
+        subtask_prompt = (
+            f"Phase 4 decomposition step {index}/{total_steps} for parent task '{parent_id}'.\n"
+            f"Focus area: {feature}\n"
+            "Deliver the smallest verifiable unit that advances the parent goal."
+        )
+        subtask = normalize_task(
+            {
+                "id": subtask_id,
+                "type": "grind",
+                "prompt": subtask_prompt,
+                "min_budget": per_min,
+                "max_budget": per_max,
+                "intensity": intensity,
+                "depends_on": _dedupe_preserve_order(depends_on),
+                "parallel_safe": False,
+                "phase4_generated": True,
+                "phase4_skip": True,
+                "phase4_parent_task": parent_id,
+                "phase4_intent": intent_payload,
+            }
+        )
+        if mode:
+            subtask["mode"] = mode
+        if model:
+            subtask["model"] = model
+        subtasks.append(subtask)
+
+    return subtasks
+
+
+def _maybe_compile_phase4_plan(task: Dict[str, Any], queue: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    prompt = _resolve_task_prompt(task)
+    command = task.get("command") or task.get("shell")
+    mode = (task.get("mode") or "").lower().strip() or None
+    gut_check = _phase4_gut_check(prompt or "")
+
+    if not _phase4_is_candidate(task, prompt, command, mode, gut_check):
+        return None
+
+    task_intent = _resolve_task_intent(task, prompt)
+    if task_intent is None:
+        return None
+
+    max_subtasks = task.get("max_subtasks")
+    feature_limit = max_subtasks if isinstance(max_subtasks, int) and max_subtasks > 0 else 5
+    features = _phase4_feature_breakdown(task_intent.original_text or (prompt or ""), task_intent.goal, feature_limit)
+    explicit_request = bool(
+        task.get("phase4_plan_request")
+        or task.get("decompose")
+        or task.get("split")
+        or task.get("plan")
+    )
+    if len(features) < 2 and not explicit_request:
+        return None
+
+    intent_payload = task_intent.to_dict()
+    subtasks = _phase4_atomize_task(task, features, intent_payload)
+    if not subtasks:
+        return None
+
+    queue_tasks = queue.setdefault("tasks", [])
+    existing_ids = {str(existing.get("id")) for existing in queue_tasks if isinstance(existing, dict)}
+    new_subtasks = [subtask for subtask in subtasks if subtask["id"] not in existing_ids]
+    queue_tasks.extend(new_subtasks)
+
+    subtask_ids = [subtask["id"] for subtask in subtasks]
+    parent_dependencies = list(task.get("depends_on") or [])
+    task["depends_on"] = _dedupe_preserve_order(parent_dependencies + subtask_ids)
+    task["phase4_planned"] = True
+    task["phase4_intent"] = intent_payload
+    task["phase4_plan"] = {
+        "gut_check": gut_check,
+        "features": features,
+        "subtasks": subtask_ids,
+    }
+
+    write_json(QUEUE_FILE, normalize_queue(queue))
+
+    return {
+        "complexity_score": gut_check.get("complexity_score", 0),
+        "features": features,
+        "subtask_ids": subtask_ids,
+        "subtasks_added": len(new_subtasks),
+    }
 
 
 def _run_worker_safety_check(
@@ -823,16 +1132,11 @@ def execute_task(
     min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
     max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)
     intensity = task.get("intensity", DEFAULT_INTENSITY)
-    prompt = (
-        task.get("prompt")
-        or task.get("instruction")
-        or task.get("description")
-        or task.get("atomic_instruction")
-        or task.get("task")
-    )
+    prompt = _resolve_task_prompt(task)
     command = task.get("command") or task.get("shell")
     mode = (task.get("mode") or "").lower().strip() or None
     model = task.get("model")
+    task_intent = _resolve_task_intent(task, prompt)
     if model:
         validate_model_id(model)
 
@@ -940,6 +1244,17 @@ def execute_task(
                 _log("INFO", f"Tool router selected {tool_name} via {tool_route} for {task_id}")
         except Exception as exc:
             _log("WARN", f"Tool routing failed for {task_id}: {exc}")
+
+    if (
+        prompt
+        and mode != "local"
+        and task_intent is not None
+        and WORKER_INTENT_GATEKEEPER is not None
+    ):
+        try:
+            prompt = WORKER_INTENT_GATEKEEPER.inject_into_prompt(prompt, task_intent)
+        except Exception as exc:
+            _log("WARN", f"Intent injection failed for {task_id}: {exc}")
 
     payload = {
         "prompt": prompt,
@@ -1082,6 +1397,28 @@ def find_and_execute_task(
             identity_fields = {}
             if resident_ctx:
                 identity_fields["identity_id"] = resident_ctx.identity.identity_id
+
+            phase4_plan = _maybe_compile_phase4_plan(task, queue)
+            if phase4_plan:
+                append_execution_event(
+                    task_id,
+                    "queued",
+                    phase4_plan_generated=True,
+                    phase4_complexity_score=phase4_plan.get("complexity_score"),
+                    phase4_features=phase4_plan.get("features"),
+                    phase4_subtasks=phase4_plan.get("subtask_ids"),
+                    phase4_subtasks_added=phase4_plan.get("subtasks_added"),
+                    **identity_fields,
+                )
+                _log(
+                    "INFO",
+                    (
+                        f"Phase 4 decomposition generated for {task_id}: "
+                        f"{len(phase4_plan.get('subtask_ids', []))} subtasks"
+                    ),
+                )
+                return True
+
             append_execution_event(
                 task_id,
                 "in_progress",
