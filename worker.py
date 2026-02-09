@@ -541,15 +541,16 @@ def _resolve_task_intent(task: Dict[str, Any], prompt: Optional[str]) -> Optiona
 def _phase4_gut_check(prompt: str) -> Dict[str, Any]:
     text = (prompt or "").strip()
     signals: List[str] = []
+    has_sequence_connector = bool(PHASE4_SEQUENCE_SPLIT_RE.search(text))
 
     if len(text) >= 220:
         signals.append("long_prompt")
     if text.count("\n") >= 2:
         signals.append("multi_line")
-    if PHASE4_SEQUENCE_SPLIT_RE.search(text):
+    if has_sequence_connector:
         signals.append("sequencing_connectors")
     punctuation_hits = text.count(",") + text.count(";")
-    if punctuation_hits >= 2 or ":" in text:
+    if punctuation_hits >= 2 or ":" in text or (has_sequence_connector and punctuation_hits >= 1):
         signals.append("compound_clauses")
 
     complexity_score = len(signals)
