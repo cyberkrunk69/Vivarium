@@ -75,6 +75,10 @@ try:
 except ImportError:
     UserIntent = None
     get_intent_gatekeeper = None
+try:
+    from swarm_enrichment import get_enrichment
+except ImportError:
+    get_enrichment = None
 
 # ============================================================================
 # CONSTANTS
@@ -135,6 +139,7 @@ WORKER_TASK_VERIFIER = None
 WORKER_QUALITY_GATES = None
 WORKER_TOOL_ROUTER = None
 WORKER_INTENT_GATEKEEPER = None
+WORKER_ENRICHMENT = None
 
 
 # ============================================================================
@@ -210,10 +215,22 @@ def _init_worker_intent_gatekeeper():
         return None
 
 
+def _init_worker_enrichment():
+    if get_enrichment is None:
+        _log("WARN", "swarm_enrichment module unavailable; phase5 rewards disabled.")
+        return None
+    try:
+        return get_enrichment(WORKSPACE)
+    except Exception as exc:
+        _log("WARN", f"Failed to initialize swarm enrichment system: {exc}")
+        return None
+
+
 WORKER_TASK_VERIFIER = _init_worker_task_verifier()
 WORKER_QUALITY_GATES = _init_quality_gate_manager()
 WORKER_TOOL_ROUTER = _init_worker_tool_router()
 WORKER_INTENT_GATEKEEPER = _init_worker_intent_gatekeeper()
+WORKER_ENRICHMENT = _init_worker_enrichment()
 
 
 
@@ -912,6 +929,82 @@ def _record_quality_gate_review(
         }
 
 
+def _phase5_estimate_reward_tokens(
+    task: Dict[str, Any],
+    result: Dict[str, Any],
+    review_confidence: float,
+) -> int:
+    max_budget = _safe_float(task.get("max_budget"), 0.0)
+    budget_used = _safe_float(result.get("budget_used"), -1.0)
+    if max_budget <= 0 or budget_used < 0:
+        return 0
+
+    budget_savings = max(0.0, max_budget - budget_used)
+    if budget_savings <= 0:
+        return 0
+
+    savings_ratio = min(1.0, budget_savings / max_budget)
+    bounded_confidence = max(0.0, min(_safe_float(review_confidence, 0.5), 1.0))
+    savings_component = int(round(savings_ratio * 8))
+    confidence_component = int(round(bounded_confidence * 2))
+    return max(1, min(12, savings_component + confidence_component))
+
+
+def _maybe_apply_phase5_reward(
+    task: Dict[str, Any],
+    result: Dict[str, Any],
+    resident_ctx: Optional["ResidentContext"],
+    review_confidence: float,
+) -> Dict[str, Any]:
+    if resident_ctx is None:
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_reason": "resident_context_unavailable",
+        }
+    if WORKER_ENRICHMENT is None:
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_reason": "enrichment_unavailable",
+        }
+
+    identity_id = str(getattr(getattr(resident_ctx, "identity", None), "identity_id", "")).strip()
+    if not identity_id:
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_reason": "identity_unavailable",
+        }
+
+    tokens = _phase5_estimate_reward_tokens(task, result, review_confidence)
+    if tokens <= 0:
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_reason": "not_under_budget",
+        }
+
+    task_id = str(task.get("id") or "unknown")
+    reward_reason = f"worker_approved_under_budget:{task_id}"
+    try:
+        reward_result = WORKER_ENRICHMENT.grant_free_time(identity_id, tokens, reason=reward_reason)
+    except Exception as exc:
+        _log("WARN", f"Phase 5 reward grant failed for {task_id}: {exc}")
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_reason": "grant_failed",
+            "phase5_reward_error": str(exc),
+        }
+
+    granted = reward_result.get("granted", {}) if isinstance(reward_result, dict) else {}
+    granted_free = int(_safe_float(granted.get("free_time"), 0.0))
+    granted_journal = int(_safe_float(granted.get("journal"), 0.0))
+    return {
+        "phase5_reward_applied": True,
+        "phase5_reward_tokens_requested": tokens,
+        "phase5_reward_tokens_awarded": max(0, granted_free + granted_journal),
+        "phase5_reward_identity": identity_id,
+        "phase5_reward_reason": reward_reason,
+    }
+
+
 def _run_post_execution_review(
     task: Dict[str, Any],
     result: Dict[str, Any],
@@ -970,6 +1063,10 @@ def _run_post_execution_review(
         "review_attempt": review_attempt,
         **quality_gate,
     }
+    phase5_reward = _maybe_apply_phase5_reward(task, result, resident_ctx, confidence) if approved else {
+        "phase5_reward_applied": False,
+        "phase5_reward_reason": "review_not_approved",
+    }
 
     if approved:
         return {
@@ -977,6 +1074,7 @@ def _run_post_execution_review(
             "result_summary": result.get("result_summary"),
             "errors": None,
             **review_summary,
+            **phase5_reward,
         }
 
     rejection_reason = "; ".join(issues) if issues else "critic rejected task output"
@@ -989,6 +1087,7 @@ def _run_post_execution_review(
                 f"{rejection_reason}"
             ),
             **review_summary,
+            **phase5_reward,
         }
 
     return {
@@ -996,6 +1095,7 @@ def _run_post_execution_review(
         "result_summary": None,
         "errors": f"Quality gate rejected task: {rejection_reason}",
         **review_summary,
+        **phase5_reward,
     }
 
 
@@ -1326,6 +1426,7 @@ def execute_task(
                 "result_summary": result.get("result", "Task completed"),
                 "errors": None,
                 "model": result.get("model"),
+                "budget_used": result.get("budget_used"),
                 "safety_passed": bool((api_safety_report or safety_report).get("passed", True)),
                 "safety_report": api_safety_report or safety_report,
                 **tool_route_info,
@@ -1476,6 +1577,7 @@ def find_and_execute_task(
                 result_summary=result.get("result_summary"),
                 errors=result.get("errors"),
                 model=result.get("model"),
+                budget_used=result.get("budget_used"),
                 safety_passed=result.get("safety_passed"),
                 safety_report=result.get("safety_report"),
                 tool_route=result.get("tool_route"),
@@ -1500,6 +1602,7 @@ def find_and_execute_task(
                     result_summary=review_result.get("result_summary"),
                     errors=review_result.get("errors"),
                     model=result.get("model"),
+                    budget_used=result.get("budget_used"),
                     safety_passed=result.get("safety_passed"),
                     safety_report=result.get("safety_report"),
                     review_verdict=review_result.get("review_verdict"),
@@ -1511,6 +1614,12 @@ def find_and_execute_task(
                     quality_gate_decision=review_result.get("quality_gate_decision"),
                     quality_gate_change_id=review_result.get("quality_gate_change_id"),
                     quality_gate_error=review_result.get("quality_gate_error"),
+                    phase5_reward_applied=review_result.get("phase5_reward_applied"),
+                    phase5_reward_tokens_requested=review_result.get("phase5_reward_tokens_requested"),
+                    phase5_reward_tokens_awarded=review_result.get("phase5_reward_tokens_awarded"),
+                    phase5_reward_identity=review_result.get("phase5_reward_identity"),
+                    phase5_reward_reason=review_result.get("phase5_reward_reason"),
+                    phase5_reward_error=review_result.get("phase5_reward_error"),
                     tool_route=result.get("tool_route"),
                     tool_name=result.get("tool_name"),
                     tool_confidence=result.get("tool_confidence"),
