@@ -1,18 +1,14 @@
-import json
-from retrieval_api import retrieve_lessons, get_lessons
+"""Compatibility shim for legacy_swarm_gen.spawner."""
 
-def spawn_task(task_text):
-    domain = retrieve_lessons(task_text)
-    if domain:
-        lessons = get_lessons(domain)
-        # Inject lessons into prompt context
-        print(f"Injecting {len(lessons)} lessons into prompt context")
-    else:
-        print("No lessons found for this task")
+from legacy_swarm_gen.spawner import *  # noqa: F401,F403
+
 
 def main():
-    task_text = input("Enter task text: ")
-    spawn_task(task_text)
+    from legacy_swarm_gen.spawner import main as _main
+
+    return _main()
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
+

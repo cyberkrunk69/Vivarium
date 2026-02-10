@@ -15,6 +15,20 @@ Today, the repo is in an "implemented core + partially wired vision" state. This
 
 ---
 
+## Repository structure (cleanup pass)
+
+To reduce root-level sprawl and separate old paths from new ones:
+
+- `physics/` - shared math/physics primitives (`math_utils.py` migrated here)
+- `legacy_code/` - archived/generated legacy artifacts (`extracted_code/*`)
+- `legacy_swarm_gen/` - old swarm-generation and spawner/orchestrator scripts
+- `swarm_environment/` - fresh environment API for new swarm interaction loops
+
+Compatibility shims remain at the old root paths for key legacy entrypoints so
+existing scripts do not immediately break while migration continues.
+
+---
+
 ## Current state snapshot (2026-02-09)
 
 | Area | Status | Notes |

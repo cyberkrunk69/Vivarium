@@ -1,16 +1,4 @@
-from knowledge_packs import get_relevant_packs
-from grind_spawner import GrindSpawner
+"""Compatibility shim for legacy_swarm_gen.spawner_wrapper."""
 
-class SpawnerWrapper:
-    def __init__(self):
-        self.spawner = GrindSpawner()
+from legacy_swarm_gen.spawner_wrapper import *  # noqa: F401,F403
 
-    def execute_task(self, task_text):
-        relevant_packs = get_relevant_packs(task_text)
-        print(f'Relevant packs: {relevant_packs}')
-        # Inject relevant lessons into prompt
-        prompt = task_text
-        for pack in relevant_packs:
-            for lesson in pack.lessons:
-                prompt += f' {lesson}'
-        self.spawner.execute_task(prompt)

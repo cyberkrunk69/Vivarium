@@ -11,7 +11,7 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple
 from collections import Counter
-from utils.math_utils import cosine_similarity_dicts
+from physics.math_utils import cosine_similarity_dicts
 
 
 class MemorySynthesis:
@@ -238,7 +238,7 @@ class MemorySynthesis:
         Compute cosine similarity between two embedding vectors.
         Vectors are dicts mapping terms to TF scores.
 
-        Delegated to utils.math_utils.cosine_similarity_dicts() to avoid duplication.
+        Delegated to physics.math_utils.cosine_similarity_dicts() to avoid duplication.
         """
         return cosine_similarity_dicts(vec1, vec2)
 

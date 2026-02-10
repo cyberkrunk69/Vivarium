@@ -282,7 +282,7 @@ class IntentGatekeeper:
         registry = self._get_skill_registry()
         if registry and registry.vectorizer:
             try:
-                from utils.math_utils import cosine_similarity_vectors
+                from physics.math_utils import cosine_similarity_vectors
                 emb1 = registry.compute_embedding(text1)
                 emb2 = registry.compute_embedding(text2)
                 if emb1 is not None and emb2 is not None:

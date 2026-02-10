@@ -68,6 +68,9 @@ htmlcov/
 /vivarium/world/mutable/*
 !/vivarium/world/mutable/.gitkeep
 
+/vivarium/world/fresh_swarm/*
+!/vivarium/world/fresh_swarm/.gitkeep
+
 /vivarium/meta/audit/*
 !/vivarium/meta/audit/.gitkeep
 
