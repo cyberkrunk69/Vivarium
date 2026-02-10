@@ -203,3 +203,90 @@ def test_worker_execute_task_injects_intent_context(monkeypatch):
     assert captured["url"].endswith("/cycle")
     assert captured["headers"]["X-Vivarium-Internal-Token"]
     assert captured["payload"]["prompt"].startswith("##INTENT goal=Ship feature set")
+
+
+def test_worker_execute_task_injects_enrichment_context(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "result": "done",
+                "model": "llama-3.1-8b-instant",
+                "safety_report": {"passed": True},
+            }
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json, headers=None):
+            captured["url"] = url
+            captured["payload"] = json
+            captured["headers"] = headers
+            return _FakeResponse()
+
+    class _StubResidentContext:
+        resident_id = "resident_context"
+
+        class _Identity:
+            identity_id = "identity_context"
+            name = "Nova"
+
+        identity = _Identity()
+
+        @staticmethod
+        def apply_to_prompt(prompt: str) -> str:
+            return f"WAKEUP\n{prompt}"
+
+    class _StubEnrichment:
+        @staticmethod
+        def get_morning_messages(identity_id: str):
+            assert identity_id == "identity_context"
+            return "MORNING_MESSAGES"
+
+        @staticmethod
+        def get_enrichment_context(identity_id: str, identity_name: str):
+            assert identity_id == "identity_context"
+            assert identity_name == "Nova"
+            return "ENRICHMENT_CONTEXT"
+
+    monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", None)
+    monkeypatch.setattr(worker, "WORKER_TOOL_ROUTER", None)
+    monkeypatch.setattr(worker, "WORKER_ENRICHMENT", _StubEnrichment())
+    monkeypatch.setattr(worker, "validate_model_id", lambda _model: None)
+    monkeypatch.setattr(
+        worker,
+        "_run_worker_safety_check",
+        lambda task_id, prompt, command, mode: (
+            True,
+            {"passed": True, "task_id": task_id, "checks": {}},
+        ),
+    )
+    monkeypatch.setattr(worker.httpx, "Client", _FakeClient)
+
+    result = worker.execute_task(
+        {
+            "id": "task_phase4_enrichment",
+            "prompt": "Summarize the current state.",
+            "mode": "llm",
+            "model": "llama-3.1-8b-instant",
+        },
+        api_endpoint="http://127.0.0.1:8420",
+        resident_ctx=_StubResidentContext(),
+    )
+
+    assert result["status"] == "completed"
+    rendered_prompt = captured["payload"]["prompt"]
+    assert "WAKEUP" in rendered_prompt
+    assert "MORNING_MESSAGES" in rendered_prompt
+    assert "ENRICHMENT_CONTEXT" in rendered_prompt

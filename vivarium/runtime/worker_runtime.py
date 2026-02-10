@@ -268,6 +268,39 @@ WORKER_ENRICHMENT = _init_worker_enrichment()
 WORKER_MUTABLE_VCS = _init_mutable_version_control()
 
 
+def _build_enrichment_prompt_context(resident_ctx: Optional["ResidentContext"]) -> Optional[str]:
+    """Build optional social/economic context for the active resident."""
+    if resident_ctx is None or WORKER_ENRICHMENT is None:
+        return None
+
+    identity = getattr(resident_ctx, "identity", None)
+    identity_id = str(getattr(identity, "identity_id", "")).strip()
+    identity_name = str(getattr(identity, "name", "")).strip() or identity_id
+    if not identity_id:
+        return None
+
+    sections: List[str] = []
+    try:
+        if hasattr(WORKER_ENRICHMENT, "get_morning_messages"):
+            morning_messages = WORKER_ENRICHMENT.get_morning_messages(identity_id)
+            if isinstance(morning_messages, str) and morning_messages.strip():
+                sections.append(morning_messages.strip())
+    except Exception as exc:
+        _log("WARN", f"Failed to load morning messages for {identity_id}: {exc}")
+
+    try:
+        if hasattr(WORKER_ENRICHMENT, "get_enrichment_context"):
+            enrichment_context = WORKER_ENRICHMENT.get_enrichment_context(identity_id, identity_name)
+            if isinstance(enrichment_context, str) and enrichment_context.strip():
+                sections.append(enrichment_context.strip())
+    except Exception as exc:
+        _log("WARN", f"Failed to load enrichment context for {identity_id}: {exc}")
+
+    if not sections:
+        return None
+    return "\n\n".join(sections)
+
+
 
 
 def ensure_directories() -> None:
@@ -1530,6 +1563,9 @@ def execute_task(
 
     if resident_ctx and prompt:
         prompt = resident_ctx.apply_to_prompt(prompt)
+        enrichment_prompt = _build_enrichment_prompt_context(resident_ctx)
+        if enrichment_prompt:
+            prompt = f"{prompt}\n\n{enrichment_prompt}"
 
     if prompt and mode != "local" and not command and WORKER_TOOL_ROUTER is not None:
         try:

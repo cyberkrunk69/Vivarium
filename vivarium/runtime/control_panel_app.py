@@ -260,6 +260,12 @@ CONTROL_PANEL_HTML = '''
             box-shadow: 0 0 15px var(--red-glow);
         }
 
+        .control-btn.stop.engaged {
+            background: var(--green);
+            color: var(--bg-dark);
+            box-shadow: 0 0 15px rgba(68, 255, 68, 0.3);
+        }
+
         .spawner-status {
             display: flex;
             align-items: center;
@@ -638,7 +644,7 @@ CONTROL_PANEL_HTML = '''
         <div class="control-buttons">
             <button class="control-btn start" id="startBtn" onclick="startSpawner()" disabled>QUEUE MODE</button>
             <button class="control-btn pause" id="pauseBtn" onclick="togglePause()" disabled>DISABLED</button>
-            <button class="control-btn stop" id="stopBtn" onclick="emergencyStop()" disabled>DISABLED</button>
+            <button class="control-btn stop" id="stopBtn" onclick="toggleStop()">HALT</button>
         </div>
     </div>
 
@@ -816,6 +822,19 @@ CONTROL_PANEL_HTML = '''
                 </div>
             </details>
 
+            <!-- Collapsible: Recent Artifacts -->
+            <details class="sidebar-section">
+                <summary>
+                    Artifacts
+                    <span id="artifactCount" style="font-size: 0.65rem; color: var(--purple);"></span>
+                </summary>
+                <div class="sidebar-section-content">
+                    <div id="artifactsContainer" style="max-height: 220px; overflow-y: auto;">
+                        <p style="color: var(--text-dim); font-size: 0.75rem;">No artifacts yet</p>
+                    </div>
+                </div>
+            </details>
+
             <!-- Collapsible: Commons Crucible -->
             <details class="sidebar-section">
                 <summary>
@@ -921,6 +940,7 @@ CONTROL_PANEL_HTML = '''
         socket.on('connect', () => {
             console.log('Connected to control panel');
             loadSpawnerStatus();
+            loadStopStatus();
         });
 
         socket.on('disconnect', () => {
@@ -955,6 +975,11 @@ CONTROL_PANEL_HTML = '''
         socket.on('spawner_killed', () => {
             spawnerState = { running: false, paused: false, pid: null };
             updateSpawnerUI();
+        });
+
+        socket.on('stop_status', (data) => {
+            isStopped = !!(data && data.stopped);
+            updateKillSwitchUI();
         });
 
         function addLogEntry(entry) {
@@ -1260,6 +1285,40 @@ CONTROL_PANEL_HTML = '''
         let spawnerState = { running: false, paused: false, pid: null };
         const GOLDEN_PATH_NOTICE = 'Golden path enforced: run tasks via queue + vivarium.runtime.worker_runtime only.';
 
+        function updateKillSwitchUI() {
+            const stopBtn = document.getElementById('stopBtn');
+            const dot = document.getElementById('spawnerDot');
+            const status = document.getElementById('spawnerStatus');
+            if (!stopBtn || !dot || !status) return;
+
+            stopBtn.disabled = false;
+            stopBtn.classList.toggle('engaged', isStopped);
+            stopBtn.textContent = isStopped ? 'RESUME' : 'HALT';
+
+            if (isStopped) {
+                dot.className = 'dot stopped';
+                status.textContent = 'HALTED';
+            }
+        }
+
+        function loadStopStatus() {
+            fetch('/api/stop_status')
+                .then(r => r.json())
+                .then(data => {
+                    isStopped = !!(data && data.stopped);
+                    updateKillSwitchUI();
+                });
+        }
+
+        function toggleStop() {
+            fetch('/api/toggle_stop', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    isStopped = !!(data && data.stopped);
+                    updateKillSwitchUI();
+                });
+        }
+
         function showGoldenPathOnlyNotice() {
             alert(GOLDEN_PATH_NOTICE);
         }
@@ -1276,8 +1335,9 @@ CONTROL_PANEL_HTML = '''
             status.textContent = 'GOLDEN PATH';
             startBtn.disabled = true;
             pauseBtn.disabled = true;
-            stopBtn.disabled = true;
+            stopBtn.disabled = false;
             pauseBtn.classList.remove('paused');
+            updateKillSwitchUI();
         }
 
         function startSpawner() {
@@ -2066,6 +2126,49 @@ CONTROL_PANEL_HTML = '''
                 });
         }
 
+        function loadArtifacts() {
+            fetch('/api/artifacts/list')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('artifactsContainer');
+                    const countEl = document.getElementById('artifactCount');
+
+                    if (!data.success || !data.artifacts || data.artifacts.length === 0) {
+                        container.innerHTML = '<p style="color: var(--text-dim); font-size: 0.75rem;">No artifacts yet</p>';
+                        countEl.textContent = '';
+                        return;
+                    }
+
+                    const artifacts = data.artifacts.slice(0, 20);
+                    countEl.textContent = `(${artifacts.length})`;
+                    container.innerHTML = artifacts.map(artifact => {
+                        const safePath = String(artifact.path || '').replace(/'/g, "\\'");
+                        const iconByType = {
+                            journal: 'J',
+                            creative_work: 'W',
+                            skill: 'S',
+                        };
+                        const icon = iconByType[artifact.type] || 'F';
+                        const modified = artifact.modified
+                            ? new Date(artifact.modified).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : '';
+
+                        return `
+                            <div class="identity-card" style="margin-bottom: 0.4rem; padding: 0.5rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                                    <span style="color: var(--purple); font-size: 0.75rem; font-weight: 600;">${icon}</span>
+                                    <a href="#" onclick="viewArtifact('${safePath}'); return false;"
+                                       style="flex: 1; color: var(--teal); text-decoration: underline; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        ${artifact.name}
+                                    </a>
+                                    <span style="color: var(--text-dim); font-size: 0.65rem;">${modified}</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                });
+        }
+
         // Initial load
         setupDayVibe();
         setInterval(setupDayVibe, 60000); // Update every minute (for time-based changes)
@@ -2075,11 +2178,15 @@ CONTROL_PANEL_HTML = '''
         loadMessages();
         loadBounties();
         loadChatRooms();
+        loadArtifacts();
+        loadStopStatus();
 
         // Refresh bounties, spawner status, and chat rooms periodically
         setInterval(loadBounties, 10000);
         setInterval(loadSpawnerStatus, 5000);
         setInterval(loadChatRooms, 15000);  // Refresh chat rooms every 15 seconds
+        setInterval(loadArtifacts, 15000);
+        setInterval(loadStopStatus, 5000);
     </script>
 </body>
 </html>
@@ -2950,17 +3057,27 @@ def api_submit_to_bounty(bounty_id):
     if not bounty:
         return jsonify({'success': False, 'error': 'Bounty not found'})
 
-    if bounty.get('status') != 'open':
+    if bounty.get('status') not in ('open', 'claimed'):
         return jsonify({'success': False, 'error': 'Bounty is not open for submissions'})
 
     # Normalize slot policy and evaluate rewards
     bounty['slot_policy'] = _normalize_slot_policy(bounty.get('slot_policy'))
     bounty['slots'] = _get_slots_for_bounty(bounty)
-    current_teams = bounty.get('teams', [])
 
     identity_id = data.get('identity_id')
     description = data.get('description', '')
     artifacts = data.get('artifacts', [])
+    guild_id = str(data.get('guild_id') or '').strip() or None
+    guild_name = str(data.get('guild_name') or '').strip() or None
+    raw_members = data.get('members', [])
+    members = []
+    if isinstance(raw_members, list):
+        for member in raw_members:
+            normalized = str(member or '').strip()
+            if normalized and normalized not in members:
+                members.append(normalized)
+    if not members and identity_id:
+        members = [str(identity_id).strip()]
     slot_info = _evaluate_submission(bounty, identity_id, description, artifacts)
 
     # Create submission
@@ -2968,6 +3085,9 @@ def api_submit_to_bounty(bounty_id):
         'id': f"sub_{int(time.time()*1000)}",
         'identity_id': identity_id,
         'identity_name': data.get('identity_name', 'Unknown'),
+        'members': members,
+        'guild_id': guild_id,
+        'guild_name': guild_name,
         'description': description,
         'artifacts': artifacts,  # List of file paths
         'submitted_at': datetime.now().isoformat(),
@@ -2996,6 +3116,20 @@ def api_submit_to_bounty(bounty_id):
     if bounty['status'] == 'open' and len(bounty['teams']) == 1:
         bounty['status'] = 'claimed'
         bounty['cost_tracking']['started_at'] = datetime.now().isoformat()
+        if guild_id:
+            bounty['claimed_by'] = {
+                'type': 'guild',
+                'id': guild_id,
+                'name': guild_name or guild_id,
+                'claimed_by_identity': identity_id,
+                'claimed_by_name': data.get('identity_name', 'Unknown'),
+            }
+        elif identity_id:
+            bounty['claimed_by'] = {
+                'type': 'individual',
+                'id': identity_id,
+                'name': data.get('identity_name', 'Unknown'),
+            }
 
     save_bounties(bounties)
 
@@ -3125,12 +3259,29 @@ def api_complete_bounty(bounty_id):
             except (TypeError, ValueError):
                 bounty['slot_multiplier'] = 1.0
                 bounty['slot_reason'] = 'in_slot'
+            if not bounty.get('claimed_by'):
+                first_team = teams[0]
+                if first_team.get('guild_id'):
+                    bounty['claimed_by'] = {
+                        'type': 'guild',
+                        'id': first_team.get('guild_id'),
+                        'name': first_team.get('guild_name') or first_team.get('guild_id'),
+                        'claimed_by_identity': first_team.get('identity_id'),
+                        'claimed_by_name': first_team.get('identity_name', 'Unknown'),
+                    }
+                elif first_team.get('identity_id'):
+                    bounty['claimed_by'] = {
+                        'type': 'individual',
+                        'id': first_team.get('identity_id'),
+                        'name': first_team.get('identity_name', 'Unknown'),
+                    }
             save_bounties(bounties)
         if teams and len(teams) > 1:
             # Winner gets winner_reward, runner-up gets runner_up_reward
             result = {
                 'success': True,
                 'distributions': [],
+                'total_distributed': 0,
                 'cost_tracking': cost_tracking
             }
             for i, team in enumerate(teams):
@@ -3141,8 +3292,18 @@ def api_complete_bounty(bounty_id):
                     slot_multiplier = 1.0
                 reward = int(round(reward * max(0.0, slot_multiplier)))
                 if reward > 0:
-                    for member_id in team.get('members', []):
+                    team_members = []
+                    raw_team_members = team.get('members', [])
+                    if isinstance(raw_team_members, list):
+                        for member_id in raw_team_members:
+                            normalized_member = str(member_id or '').strip()
+                            if normalized_member and normalized_member not in team_members:
+                                team_members.append(normalized_member)
+                    if not team_members and team.get('identity_id'):
+                        team_members = [str(team.get('identity_id')).strip()]
+                    for member_id in team_members:
                         enrichment.grant_free_time(member_id, reward, f"bounty_{bounty_id}_place_{i+1}")
+                        result['total_distributed'] += reward
                         result['distributions'].append({
                             'identity': member_id,
                             'reward': reward,
