@@ -16,8 +16,8 @@ Vivarium is a multi-agent AI orchestration system with persistent identity, toke
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    RESIDENT RUNTIME                              │
-│        Canonical execution path: worker.py + swarm.py           │
-│        Control plane remains in control_panel.py                │
+│   Canonical modules: vivarium/runtime/{worker_runtime,swarm_api} │
+│   Root shims: worker.py + swarm.py + control_panel.py            │
 └─────────────────────────────────────────────────────────────────┘
                                │
            ┌───────────────────┼───────────────────┐
@@ -243,10 +243,13 @@ Vivarium/
 │   ├── human_request.json      # Current collaboration request
 │   ├── messages_to_human.jsonl # Resident → human messages
 │   └── phase5_reward_ledger.json # Reward idempotency ledger
-├── control_panel.py            # Web UI server
-├── worker.py                   # Canonical resident runtime
-├── swarm.py                    # Canonical execution API
+├── control_panel.py            # Root shim -> vivarium/runtime/control_panel_app.py
+├── worker.py                   # Root shim -> vivarium/runtime/worker_runtime.py
+├── swarm.py                    # Root shim -> vivarium/runtime/swarm_api.py
 ├── vivarium/runtime/           # Canonical runtime package
+│   ├── control_panel_app.py    # Control panel implementation
+│   ├── worker_runtime.py       # Resident runtime implementation
+│   ├── swarm_api.py            # Execution API implementation
 │   ├── runtime_contract.py     # Canonical queue/status contract
 │   ├── resident_onboarding.py  # Identity lifecycle
 │   ├── swarm_enrichment.py     # Token economy

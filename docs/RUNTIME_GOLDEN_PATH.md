@@ -11,7 +11,7 @@ Operational framing uses compressed human timescales:
 
 | Runtime layer | Status | Notes |
 | --- | --- | --- |
-| Phase 0 - canonical runtime path | Implemented | `worker.py + swarm.py + control_panel.py` are the default execution path. |
+| Phase 0 - canonical runtime path | Implemented | Root entrypoints (`worker.py + swarm.py + control_panel.py`) delegate to canonical runtime modules under `vivarium/runtime/`. |
 | Phase 1 - safety preflight | Implemented | Worker dispatch calls `SafetyGateway.pre_execute_safety_check(...)` before execution. |
 | Phase 2 - post-execution quality review | Implemented | Critic/quality lifecycle emits `pending_review`, then `approved` or `requeue`/`failed`. |
 | Phase 3 - tool-first routing | Implemented | Prompt tasks route through `tool_router` before standard `/cycle` LLM dispatch. |
@@ -27,9 +27,9 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 
 ## Canonical runtime entrypoints
 
-1. `worker.py` - queue polling, dependency checks, lock acquisition, execution event logging
-2. `swarm.py` - `/cycle` execution API (`llm` + `local`), `/plan`, `/status`
-3. `control_panel.py` - human control and observability surface
+1. `worker.py` (shim) -> `vivarium/runtime/worker_runtime.py` (queue polling, dependency checks, lock acquisition, execution event logging)
+2. `swarm.py` (shim) -> `vivarium/runtime/swarm_api.py` (`/cycle` execution API, `/plan`, `/status`)
+3. `control_panel.py` (shim) -> `vivarium/runtime/control_panel_app.py` (human control and observability surface)
 
 ## Enforcement
 
