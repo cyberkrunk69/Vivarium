@@ -137,7 +137,7 @@ class GrindRequest(BaseModel):
 
     Attributes:
         prompt: Task prompt to send to the Groq API.
-        task: Local command to execute (shell).
+        task: Local command to execute (argv parsed, no shell).
         mode: "llm" or "local". If omitted, inferred from provided fields.
         model: Optional Groq model id (must be in whitelist).
         max_tokens: Maximum completion tokens.
@@ -322,15 +322,29 @@ def _run_local_task(
     if policy_error:
         raise HTTPException(status_code=403, detail=policy_error)
 
+    try:
+        tokens = shlex.split(task, posix=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to parse local command: {exc}") from exc
+
+    env = os.environ.copy()
+    while tokens and ENV_ASSIGNMENT_RE.match(tokens[0]):
+        key, value = tokens.pop(0).split("=", 1)
+        env[key] = value
+
+    if not tokens:
+        raise HTTPException(status_code=400, detail="local mode requires an executable command")
+
     start_time = time.time()
     try:
         process = subprocess.run(
-            task,
-            shell=True,
+            tokens,
+            shell=False,
             capture_output=True,
             text=True,
             timeout=req.timeout,
             cwd=WORKSPACE,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail=f"Task timeout after {req.timeout}s")
