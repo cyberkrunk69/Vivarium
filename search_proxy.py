@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import requests
 from urllib.parse import urlparse
 from safety_web_gateway import WebGateway
 
@@ -17,30 +16,15 @@ class DocumentationSearcher:
         self.last_request_time = 0
 
     def search(self, query):
-        if self.request_count >= self.rate_limit:
-            # rate limit exceeded, wait for next minute
-            return None
-
         # check cache first
         if query in self.cache:
             return self.cache[query]
 
-        # construct search URL
-        url = f'https://www.google.com/search?q={query}'
-
-        # send request and get response
-        response = requests.get(url)
-
-        # sanitize response
-        sanitized_response = self.sanitize_response(response.text)
-
-        # cache result
-        self.cache[query] = sanitized_response
-
-        # increment request count
-        self.request_count += 1
-
-        return sanitized_response
+        # External web search is intentionally disabled.
+        # This keeps the runtime from becoming a generic outbound fetch proxy.
+        blocked = "External documentation search is disabled by security policy."
+        self.cache[query] = blocked
+        return blocked
 
     def sanitize_response(self, response):
         # strip scripts and tracking

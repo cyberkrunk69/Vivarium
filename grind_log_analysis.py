@@ -9,8 +9,8 @@ import json
 import glob
 from groq_client import execute_with_groq
 
-# Set API key
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get("GROQ_API_KEY"):
+    raise SystemExit("Set GROQ_API_KEY in environment before running grind_log_analysis.py")
 
 # Read grind log files
 log_files = glob.glob('grind_logs/*.json')

@@ -31,11 +31,20 @@ from config import SWARM_API_URL, validate_config, WORKER_TIMEOUT_SECONDS, valid
 from logger import json_log
 from safety_killswitch import KillSwitch, CircuitBreaker
 from safety_sandbox import init_sandbox
+from vivarium_scope import (
+    AUDIT_ROOT,
+    MUTABLE_LOCKS_DIR,
+    MUTABLE_QUEUE_FILE,
+    MUTABLE_ROOT,
+    ensure_scope_layout,
+)
 
-WORKSPACE = Path(__file__).parent
-QUEUE_FILE = WORKSPACE / "queue.json"
-LOCKS_DIR = WORKSPACE / "task_locks"
-EXECUTION_LOG = WORKSPACE / "execution_log.jsonl"
+ensure_scope_layout()
+CODE_ROOT = Path(__file__).parent
+WORKSPACE = MUTABLE_ROOT
+QUEUE_FILE = MUTABLE_QUEUE_FILE
+LOCKS_DIR = MUTABLE_LOCKS_DIR
+EXECUTION_LOG = AUDIT_ROOT / "execution_log.jsonl"
 
 
 def spawn_worker(worker_id: int) -> Dict:
@@ -62,7 +71,7 @@ def spawn_worker(worker_id: int) -> Dict:
     """
     try:
         result = subprocess.run(
-            [sys.executable, str(WORKSPACE / "worker.py"), "run"],
+            [sys.executable, str(CODE_ROOT / "worker.py"), "run"],
             capture_output=True,
             text=True,
             timeout=WORKER_TIMEOUT_SECONDS

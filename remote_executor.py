@@ -1,7 +1,10 @@
+"""Remote executor disabled by security policy."""
+
+DISABLED_MESSAGE = (
+    "remote_executor is disabled by security hardening. "
+    "Remote command execution is not allowed."
+)
+
+
 def execute_remotely(command, ip_address):
-    # Execute the command remotely on the user's machine
-    if validate_command(command) and filter_request(ip_address):
-        # Execute the command
-        print("Command executed remotely")
-    else:
-        print("Command execution failed")
+    raise RuntimeError(DISABLED_MESSAGE)

@@ -28,6 +28,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Callable, List
 from dataclasses import dataclass, asdict
+from vivarium_scope import AUDIT_ROOT, ensure_scope_layout
+
+ensure_scope_layout()
 
 
 class ActionType(Enum):
@@ -136,8 +139,9 @@ class ActionLogger:
     Thread-safe, writes to both file and optional callbacks (for streaming).
     """
 
-    def __init__(self, log_file: str = "action_log.jsonl", max_detail_length: int = 80):
-        self.log_file = Path(log_file)
+    def __init__(self, log_file: Optional[str] = None, max_detail_length: int = 80):
+        resolved_log = Path(log_file) if log_file else (AUDIT_ROOT / "action_log.jsonl")
+        self.log_file = resolved_log
         self.max_detail_length = max_detail_length
         self._lock = threading.Lock()
         self._callbacks: List[Callable[[ActionEntry], None]] = []
@@ -145,7 +149,9 @@ class ActionLogger:
         self._current_session: Optional[str] = None
 
         # Also maintain a human-readable log
-        self.readable_log = Path(log_file.replace(".jsonl", ".log"))
+        self.readable_log = self.log_file.with_suffix(".log")
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.readable_log.parent.mkdir(parents=True, exist_ok=True)
 
         # Write header on startup
         self._write_header()
@@ -334,7 +340,7 @@ _logger: Optional[ActionLogger] = None
 _logger_lock = threading.Lock()
 
 
-def get_action_logger(log_file: str = "action_log.jsonl") -> ActionLogger:
+def get_action_logger(log_file: Optional[str] = None) -> ActionLogger:
     """Get the global action logger instance."""
     global _logger
     if _logger is None:

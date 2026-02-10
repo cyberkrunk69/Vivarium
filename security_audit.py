@@ -8,8 +8,8 @@ NO EDITS ALLOWED - Pure research and analysis only.
 import os
 from groq_client import execute_with_groq
 
-# Set API key
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get("GROQ_API_KEY"):
+    raise SystemExit("Set GROQ_API_KEY in environment before running security_audit.py")
 
 # Read all security-related files
 security_files = [

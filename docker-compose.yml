@@ -11,7 +11,8 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
     volumes:
       - .:/app
-      - ./grind_logs:/app/grind_logs
+      - ./vivarium/world/mutable:/app/vivarium/world/mutable:rw
+      - ./vivarium/meta:/app/vivarium/meta:rw
     networks:
       - swarm-net
     restart: unless-stopped
@@ -35,11 +36,10 @@ services:
       - ./safety_sanitize.py:/app/safety_sanitize.py:ro
       - ./safety_killswitch.py:/app/safety_killswitch.py:ro
       - ./safety_constitutional.py:/app/safety_constitutional.py:ro
+      - ./vivarium_scope.py:/app/vivarium_scope.py:ro
       # Writable mounts for AI to work in
-      - ./grind_tasks.json:/app/grind_tasks.json:rw
-      - ./grind_logs:/app/grind_logs:rw
-      - ./experiments:/app/experiments:rw
-      - ./data:/app/data:rw
+      - ./vivarium/world/mutable:/app/vivarium/world/mutable:rw
+      - ./vivarium/meta:/app/vivarium/meta:rw
       # Read-only knowledge base
       - ../stripper/knowledge:/app/knowledge:ro
     networks:

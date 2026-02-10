@@ -63,3 +63,17 @@ research_papers/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Vivarium scoped runtime data
+/vivarium/world/mutable/*
+!/vivarium/world/mutable/.gitkeep
+
+/vivarium/meta/audit/*
+!/vivarium/meta/audit/.gitkeep
+
+/vivarium/meta/change_control/*
+!/vivarium/meta/change_control/.gitkeep
+!/vivarium/meta/change_control/checkpoints/
+
+/vivarium/meta/change_control/checkpoints/*
+!/vivarium/meta/change_control/checkpoints/.gitkeep

@@ -22,17 +22,21 @@ from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO, emit
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from vivarium_scope import AUDIT_ROOT, MUTABLE_ROOT, MUTABLE_SWARM_DIR, ensure_scope_layout
+
+ensure_scope_layout()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'swarm_control_panel'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Paths
-WORKSPACE = Path(__file__).parent
-ACTION_LOG = WORKSPACE / "action_log.jsonl"
-KILL_SWITCH = WORKSPACE / ".swarm" / "kill_switch.json"
-FREE_TIME_BALANCES = WORKSPACE / ".swarm" / "free_time_balances.json"
-IDENTITIES_DIR = WORKSPACE / ".swarm" / "identities"
+CODE_ROOT = Path(__file__).parent
+WORKSPACE = MUTABLE_ROOT
+ACTION_LOG = AUDIT_ROOT / "action_log.jsonl"
+KILL_SWITCH = MUTABLE_SWARM_DIR / "kill_switch.json"
+FREE_TIME_BALANCES = MUTABLE_SWARM_DIR / "free_time_balances.json"
+IDENTITIES_DIR = MUTABLE_SWARM_DIR / "identities"
 
 # Track last read position
 last_log_position = 0
@@ -2415,7 +2419,7 @@ def api_start_spawner():
 
     # Start spawner process
     try:
-        spawner_script = WORKSPACE / "grind_spawner_unified.py"
+        spawner_script = CODE_ROOT / "grind_spawner_unified.py"
         if not spawner_script.exists():
             return jsonify({'success': False, 'error': 'grind_spawner_unified.py not found'})
 
@@ -2432,7 +2436,7 @@ def api_start_spawner():
         # Start process (detached on Windows)
         process = subprocess.Popen(
             cmd,
-            cwd=str(WORKSPACE),
+            cwd=str(CODE_ROOT),
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -3399,7 +3403,7 @@ def background_watcher():
         watcher.send_new_entries()
 
     observer = Observer()
-    observer.schedule(watcher, str(WORKSPACE), recursive=False)
+    observer.schedule(watcher, str(ACTION_LOG.parent), recursive=False)
     observer.start()
 
     try:

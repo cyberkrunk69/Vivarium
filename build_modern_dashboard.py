@@ -17,7 +17,8 @@ Requirements:
 import os
 from groq_client import execute_with_groq
 
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get("GROQ_API_KEY"):
+    raise SystemExit("Set GROQ_API_KEY in environment before running build_modern_dashboard.py")
 
 prompt = """You are building a modern dashboard for an autonomous AI swarm orchestration system.
 

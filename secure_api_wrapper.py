@@ -45,8 +45,10 @@ class SecurityContext:
 class AuditLogger:
     """Thread-safe audit logger for all API calls."""
 
-    def __init__(self, log_file: str = "api_audit.log"):
-        self.log_file = Path(log_file)
+    def __init__(self, log_file: Optional[str] = None):
+        resolved_log_file = log_file or os.environ.get("VIVARIUM_API_AUDIT_LOG", "api_audit.log")
+        self.log_file = Path(resolved_log_file)
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
     def log(self, event: Dict[str, Any]):
@@ -303,8 +305,9 @@ def create_lan_context(user_id: str, session_id: str, ip_address: Optional[str] 
 
 
 if __name__ == "__main__":
-    # Set API key for testing
-    os.environ['GROQ_API_KEY'] = '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'
+    if not os.environ.get("GROQ_API_KEY"):
+        print("Set GROQ_API_KEY environment variable to run secure_api_wrapper.py self-tests.")
+        raise SystemExit(1)
 
     # Test the security wrapper
     print("Testing Secure API Wrapper...")

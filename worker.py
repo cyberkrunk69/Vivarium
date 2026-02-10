@@ -39,6 +39,16 @@ from config import (
     validate_config,
 )
 from runtime_contract import normalize_queue, normalize_task, is_known_execution_status
+from vivarium_scope import (
+    AUDIT_ROOT,
+    MUTABLE_LOCKS_DIR,
+    MUTABLE_QUEUE_FILE,
+    MUTABLE_ROOT,
+    MUTABLE_SWARM_DIR,
+    SECURITY_ROOT,
+    ensure_scope_layout,
+    get_mutable_version_control,
+)
 try:
     from resident_onboarding import spawn_resident, ResidentContext
 except ImportError:
@@ -83,11 +93,12 @@ except ImportError:
 # ============================================================================
 # CONSTANTS
 # ============================================================================
-WORKSPACE: Path = Path(__file__).parent
-QUEUE_FILE: Path = WORKSPACE / "queue.json"
-LOCKS_DIR: Path = WORKSPACE / "task_locks"
-EXECUTION_LOG: Path = WORKSPACE / "execution_log.jsonl"
-PHASE5_REWARD_LEDGER: Path = WORKSPACE / ".swarm" / "phase5_reward_ledger.json"
+ensure_scope_layout()
+WORKSPACE: Path = MUTABLE_ROOT
+QUEUE_FILE: Path = MUTABLE_QUEUE_FILE
+LOCKS_DIR: Path = MUTABLE_LOCKS_DIR
+EXECUTION_LOG: Path = AUDIT_ROOT / "execution_log.jsonl"
+PHASE5_REWARD_LEDGER: Path = MUTABLE_SWARM_DIR / "phase5_reward_ledger.json"
 
 API_REQUEST_TIMEOUT: float = API_TIMEOUT_SECONDS
 WORKER_CHECK_INTERVAL: float = 2.0  # Delay between queue checks in seconds
@@ -141,6 +152,7 @@ WORKER_QUALITY_GATES = None
 WORKER_TOOL_ROUTER = None
 WORKER_INTENT_GATEKEEPER = None
 WORKER_ENRICHMENT = None
+WORKER_MUTABLE_VCS = None
 
 
 # ============================================================================
@@ -163,7 +175,14 @@ def _init_worker_safety_gateway():
         _log("ERROR", "safety_gateway module unavailable; worker will fail closed.")
         return None
     try:
-        return SafetyGateway(WORKSPACE)
+        constraints_file = SECURITY_ROOT / "SAFETY_CONSTRAINTS.json"
+        if not constraints_file.exists():
+            constraints_file = Path(__file__).parent / "SAFETY_CONSTRAINTS.json"
+        return SafetyGateway(
+            WORKSPACE,
+            constraints_file=constraints_file,
+            audit_log=AUDIT_ROOT / "safety_audit.log",
+        )
     except Exception as exc:
         _log("ERROR", f"Failed to initialize worker safety gateway: {exc}")
         return None
@@ -227,11 +246,20 @@ def _init_worker_enrichment():
         return None
 
 
+def _init_mutable_version_control():
+    try:
+        return get_mutable_version_control()
+    except Exception as exc:
+        _log("WARN", f"Failed to initialize mutable auto-checkpoint manager: {exc}")
+        return None
+
+
 WORKER_TASK_VERIFIER = _init_worker_task_verifier()
 WORKER_QUALITY_GATES = _init_quality_gate_manager()
 WORKER_TOOL_ROUTER = _init_worker_tool_router()
 WORKER_INTENT_GATEKEEPER = _init_worker_intent_gatekeeper()
 WORKER_ENRICHMENT = _init_worker_enrichment()
+WORKER_MUTABLE_VCS = _init_mutable_version_control()
 
 
 
@@ -1425,6 +1453,18 @@ def execute_task(
             model=model,
             parallelism=subtask_parallelism,
         )
+        checkpoint_sha = None
+        if delegated_result.get("status") == "completed" and WORKER_MUTABLE_VCS is not None:
+            try:
+                checkpoint = WORKER_MUTABLE_VCS.checkpoint(
+                    task_id=task_id,
+                    summary=str(delegated_result.get("result_summary") or "delegated task"),
+                    metadata={"mode": "delegate"},
+                )
+                checkpoint_sha = checkpoint.commit_sha
+            except Exception as exc:
+                _log("WARN", f"Auto-checkpoint failed for delegated task {task_id}: {exc}")
+        delegated_result["mutable_checkpoint"] = checkpoint_sha
         delegated_result["safety_passed"] = safety_passed
         delegated_result["safety_report"] = safety_report
         return delegated_result
@@ -1499,14 +1539,27 @@ def execute_task(
         if response.status_code == 200:
             result = response.json()
             api_safety_report = result.get("safety_report")
+            result_summary = result.get("result", "Task completed")
+            checkpoint_sha = None
+            if WORKER_MUTABLE_VCS is not None:
+                try:
+                    checkpoint = WORKER_MUTABLE_VCS.checkpoint(
+                        task_id=task_id,
+                        summary=str(result_summary),
+                        metadata={"mode": mode or "llm", "model": result.get("model")},
+                    )
+                    checkpoint_sha = checkpoint.commit_sha
+                except Exception as exc:
+                    _log("WARN", f"Auto-checkpoint failed for {task_id}: {exc}")
             return {
                 "status": "completed",
-                "result_summary": result.get("result", "Task completed"),
+                "result_summary": result_summary,
                 "errors": None,
                 "model": result.get("model"),
                 "budget_used": result.get("budget_used"),
                 "safety_passed": bool((api_safety_report or safety_report).get("passed", True)),
                 "safety_report": api_safety_report or safety_report,
+                "mutable_checkpoint": checkpoint_sha,
                 **tool_route_info,
             }
 

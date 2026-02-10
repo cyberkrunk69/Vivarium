@@ -30,12 +30,23 @@ from runtime_contract import normalize_queue, normalize_task
 from safety_gateway import SafetyGateway
 from secure_api_wrapper import SecureAPIWrapper, create_admin_context
 from utils import read_json, write_json
+from vivarium_scope import (
+    AUDIT_ROOT,
+    MUTABLE_QUEUE_FILE,
+    MUTABLE_ROOT,
+    SECURITY_ROOT,
+    ensure_scope_layout,
+    is_allowed_git_remote,
+    resolve_mutable_path,
+)
 
 load_dotenv()
+ensure_scope_layout()
+os.environ.setdefault("VIVARIUM_API_AUDIT_LOG", str(AUDIT_ROOT / "api_audit.log"))
 
 app = FastAPI(title="Vivarium", version="1.0")
-WORKSPACE = Path(__file__).parent
-QUEUE_FILE = WORKSPACE / "queue.json"
+WORKSPACE = MUTABLE_ROOT
+QUEUE_FILE = MUTABLE_QUEUE_FILE
 
 IGNORE_DIRS = {
     ".git",
@@ -49,45 +60,47 @@ IGNORE_DIRS = {
 }
 
 LOCAL_COMMAND_ALLOWLIST = {
-    "python",
-    "python3",
-    "pytest",
-    "pip",
-    "pip3",
-    "uv",
-    "ruff",
-    "mypy",
     "git",
     "ls",
     "pwd",
     "echo",
     "cat",
-    "sed",
-    "awk",
     "rg",
-    "cp",
-    "mv",
-    "mkdir",
-    "touch",
-    "chmod",
-    "node",
-    "npm",
-    "pnpm",
-    "yarn",
-    "make",
-    "go",
-    "cargo",
 }
+
+LOCAL_GIT_SUBCOMMAND_ALLOWLIST = {
+    "add",
+    "branch",
+    "checkout",
+    "commit",
+    "diff",
+    "fetch",
+    "log",
+    "ls-remote",
+    "pull",
+    "push",
+    "remote",
+    "reset",
+    "restore",
+    "rev-parse",
+    "show",
+    "status",
+}
+GIT_NETWORK_SUBCOMMANDS = {"fetch", "pull", "push", "ls-remote"}
 
 LOCAL_COMMAND_DENYLIST = [
     (re.compile(r"\bcurl\b[^|]*\|\s*(bash|sh)\b", re.IGNORECASE), "piping curl output into shell"),
     (re.compile(r"\bwget\b[^|]*\|\s*(bash|sh)\b", re.IGNORECASE), "piping wget output into shell"),
+    (re.compile(r"\b(curl|wget|nc|ncat|socat|telnet|python\s+-m\s+http\.server)\b", re.IGNORECASE), "unauthorized network tool"),
     (re.compile(r"\brm\s+-rf\b", re.IGNORECASE), "destructive recursive delete"),
     (re.compile(r"\bmkfs(\.[a-z0-9]+)?\b", re.IGNORECASE), "disk formatting command"),
     (re.compile(r"\bdd\s+if=", re.IGNORECASE), "raw disk write command"),
     (re.compile(r"\b(shutdown|reboot|poweroff)\b", re.IGNORECASE), "host power control command"),
     (re.compile(r"/etc/(passwd|shadow)", re.IGNORECASE), "system credential file access"),
 ]
+LOCAL_COMMAND_OPERATOR_RE = re.compile(r"(;|&&|\|\||`|\$\(|>|<)")
+URL_TOKEN_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
+GIT_ASSIGNMENT_PREFIX = "GIT_"
 
 ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
@@ -114,7 +127,14 @@ def _safe_int_env(name: str, default: int) -> int:
 
 def _build_safety_gateway() -> Optional[SafetyGateway]:
     try:
-        return SafetyGateway(WORKSPACE)
+        constraints_file = SECURITY_ROOT / "SAFETY_CONSTRAINTS.json"
+        if not constraints_file.exists():
+            constraints_file = Path(__file__).parent / "SAFETY_CONSTRAINTS.json"
+        return SafetyGateway(
+            WORKSPACE,
+            constraints_file=constraints_file,
+            audit_log=AUDIT_ROOT / "safety_audit.log",
+        )
     except Exception:
         return None
 
@@ -209,16 +229,167 @@ def _extract_primary_command(command: str) -> Optional[str]:
     return Path(tokens[0]).name
 
 
+def _tokenize_local_command(command: str) -> Optional[List[str]]:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    while tokens and ENV_ASSIGNMENT_RE.match(tokens[0]):
+        tokens.pop(0)
+    return tokens
+
+
+def _validate_non_git_token_scope(tokens: List[str]) -> Optional[str]:
+    for token in tokens[1:]:
+        if token.startswith("-"):
+            continue
+        if URL_TOKEN_RE.match(token):
+            return "Local command blocked: URLs are only permitted for git remotes"
+        if token.startswith("~") or token.startswith("..") or "/.." in token:
+            return "Local command blocked: path escapes mutable world scope"
+        if token.startswith("/") or "/" in token or token.startswith("."):
+            try:
+                resolve_mutable_path(token, cwd=WORKSPACE)
+            except ValueError:
+                return "Local command blocked: path outside mutable world scope"
+    return None
+
+
+def _validate_git_tokens(tokens: List[str]) -> Optional[str]:
+    if len(tokens) < 2:
+        return "Local command blocked: git subcommand is required"
+    subcommand = tokens[1].lower()
+    if subcommand not in LOCAL_GIT_SUBCOMMAND_ALLOWLIST:
+        return f"Local command blocked: git subcommand '{subcommand}' is not allowed"
+
+    explicit_remote_url_seen = False
+    non_flag_args: List[str] = []
+    for token in tokens[2:]:
+        if token.startswith("-"):
+            continue
+        if token.startswith("~") or token.startswith("..") or "/.." in token:
+            return "Local command blocked: path escapes mutable world scope"
+        if URL_TOKEN_RE.match(token) or ("@" in token and ":" in token and not token.startswith(":")):
+            if not is_allowed_git_remote(token):
+                return "Local command blocked: git remote host is not allowlisted"
+            explicit_remote_url_seen = True
+            continue
+        non_flag_args.append(token)
+        if token.startswith("/") or token.startswith(".") or "/" in token:
+            try:
+                resolve_mutable_path(token, cwd=WORKSPACE)
+            except ValueError:
+                return "Local command blocked: path outside mutable world scope"
+
+    if subcommand in GIT_NETWORK_SUBCOMMANDS and not explicit_remote_url_seen:
+        if non_flag_args:
+            remote_name = non_flag_args[0]
+            if not _git_remote_name_allowlisted(remote_name):
+                return f"Local command blocked: git remote '{remote_name}' is not allowlisted"
+        elif not _all_git_remotes_allowlisted():
+            return "Local command blocked: default git remotes are not allowlisted"
+    return None
+
+
 def _validate_local_command(command: str) -> Optional[str]:
+    if LOCAL_COMMAND_OPERATOR_RE.search(command):
+        return "Local command blocked: shell operators are not permitted"
+
     for pattern, reason in LOCAL_COMMAND_DENYLIST:
         if pattern.search(command):
             return f"Local command blocked: {reason}"
 
-    primary = _extract_primary_command(command)
+    tokens = _tokenize_local_command(command)
+    if tokens is None:
+        return "Local command blocked: unable to parse executable"
+    if not tokens:
+        return "Local command blocked: unable to parse executable"
+
+    primary = Path(tokens[0]).name
     if not primary:
         return "Local command blocked: unable to parse executable"
     if primary not in LOCAL_COMMAND_ALLOWLIST:
         return f"Local command blocked: '{primary}' is not in allowlist"
+
+    if primary == "git":
+        return _validate_git_tokens(tokens)
+    return _validate_non_git_token_scope(tokens)
+
+
+def _all_git_remotes_allowlisted() -> bool:
+    try:
+        proc = subprocess.run(
+            ["git", "remote"],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return False
+
+    if proc.returncode != 0:
+        return False
+
+    remotes = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not remotes:
+        return True
+    return all(_git_remote_name_allowlisted(name) for name in remotes)
+
+
+def _git_remote_name_allowlisted(remote_name: str) -> bool:
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "get-url", "--all", remote_name],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return False
+
+    if proc.returncode != 0:
+        return False
+
+    urls = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not urls:
+        return False
+    return all(is_allowed_git_remote(url) for url in urls)
+
+
+def _build_local_env(tokens: List[str]) -> Dict[str, str]:
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+        "HOME": str(WORKSPACE),
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    while tokens and ENV_ASSIGNMENT_RE.match(tokens[0]):
+        key, value = tokens.pop(0).split("=", 1)
+        if not key.startswith(GIT_ASSIGNMENT_PREFIX):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Local command blocked: env assignment '{key}' is not allowed",
+            )
+        env[key] = value
+    return env
+
+
+def _enforce_local_token_scope(tokens: List[str]) -> None:
+    if not tokens:
+        raise HTTPException(status_code=400, detail="local mode requires an executable command")
+    primary = Path(tokens[0]).name
+    if primary == "git":
+        token_error = _validate_git_tokens(tokens)
+    else:
+        token_error = _validate_non_git_token_scope(tokens)
+    if token_error:
+        raise HTTPException(status_code=403, detail=token_error)
+
     return None
 
 
@@ -327,13 +498,9 @@ def _run_local_task(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Unable to parse local command: {exc}") from exc
 
-    env = os.environ.copy()
-    while tokens and ENV_ASSIGNMENT_RE.match(tokens[0]):
-        key, value = tokens.pop(0).split("=", 1)
-        env[key] = value
+    env = _build_local_env(tokens)
 
-    if not tokens:
-        raise HTTPException(status_code=400, detail="local mode requires an executable command")
+    _enforce_local_token_scope(tokens)
 
     start_time = time.time()
     try:

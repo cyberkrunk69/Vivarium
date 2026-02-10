@@ -5,8 +5,8 @@ Direct kernel analysis - bypass the grind spawner entirely.
 import os
 from groq_client import GroqInferenceEngine
 
-# Set API key
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get("GROQ_API_KEY"):
+    raise SystemExit("Set GROQ_API_KEY in environment before running kernel_direct.py")
 
 # Read io_uring.c
 with open('io_uring.c', 'r') as f:

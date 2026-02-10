@@ -12,7 +12,8 @@ Make it smarter - only load tasks from explicitly specified file, not every file
 import os
 from groq_client import execute_with_groq
 
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get("GROQ_API_KEY"):
+    raise SystemExit("Set GROQ_API_KEY in environment before running fix_spawner_autodiscovery.py")
 
 # Read spawner code
 with open('grind_spawner_unified.py', 'r', encoding='utf-8') as f:

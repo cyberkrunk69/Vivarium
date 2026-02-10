@@ -7,8 +7,8 @@ The swarm will propose ACTUAL CODE FIXES, not just recommendations.
 import os
 from groq_client import execute_with_groq
 
-# Set API key
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get("GROQ_API_KEY"):
+    raise SystemExit("Set GROQ_API_KEY in environment before running generate_security_patches.py")
 
 # Read the audit report
 with open('SECURITY_AUDIT_REPORT.md', 'r', encoding='utf-8') as f:

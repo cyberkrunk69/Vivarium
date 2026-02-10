@@ -30,6 +30,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from groq_code_extractor import GroqArtifactExtractor
 from inference_engine import EngineType, get_engine
+from vivarium_scope import MUTABLE_ROOT, ensure_scope_layout
+
+ensure_scope_layout()
 
 
 HALT_FILENAME = "HALT"
@@ -223,7 +226,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Unified Grind Spawner")
     parser.add_argument("--sessions", type=int, default=3)
     parser.add_argument("--budget", type=float, default=0.10)
-    parser.add_argument("--workspace", type=str, default=str(Path(__file__).parent))
+    parser.add_argument("--workspace", type=str, default=str(MUTABLE_ROOT))
     parser.add_argument("--model", type=str, default="llama-3.3-70b-versatile")
 
     parser.add_argument("--task", type=str, default=None, help="Run a single task then exit")

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Safety Gateway - FIXED VERSION
 Added semantic intent detection to avoid blocking safety design tasks.
 """
@@ -126,7 +126,12 @@ class PromptSanitizer:
 
 
 class SafetyGateway:
-    def __init__(self, workspace: Path, constraints_file: Optional[Path] = None):
+    def __init__(
+        self,
+        workspace: Path,
+        constraints_file: Optional[Path] = None,
+        audit_log: Optional[Path] = None,
+    ):
         self.workspace = workspace
         if constraints_file is None:
             constraints_file = workspace / "SAFETY_CONSTRAINTS.json"
@@ -134,7 +139,8 @@ class SafetyGateway:
         self.workspace_sandbox = WorkspaceSandbox(workspace)
         self.network_guard = NetworkGuard()
         self.prompt_sanitizer = PromptSanitizer()
-        self.audit_log = workspace / "safety_audit.log"
+        self.audit_log = audit_log or (workspace / "safety_audit.log")
+        self.audit_log.parent.mkdir(parents=True, exist_ok=True)
 
     def pre_execute_safety_check(self, task: str) -> Tuple[bool, Dict]:
         report = {
