@@ -3,8 +3,7 @@
 
 This repository previously contained multiple experimental remote execution
 client implementations in this module. Because those variants included unsafe
-patterns (for example, command execution via ``shell=True``), the module is
-now reduced to a hard fail-safe.
+command execution patterns, the module is now reduced to a hard fail-safe.
 
 Any attempt to run or import-and-start this client should fail closed.
 """
