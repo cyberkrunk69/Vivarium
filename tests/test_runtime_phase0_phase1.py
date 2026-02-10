@@ -60,7 +60,7 @@ def test_local_command_policy_allowlist_and_denylist():
 
     allow_error = swarm._validate_local_command("nc 10.0.0.10 4444")
     assert allow_error is not None
-    assert "allowlist" in allow_error.lower()
+    assert "blocked" in allow_error.lower()
 
 
 def test_run_local_task_rejects_denied_command():
