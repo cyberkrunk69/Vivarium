@@ -35,6 +35,12 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 # Result: 22 passed
 ```
 
+### Human timescale framing (compressed)
+
+- One execution unit is a **cycle**.
+- Daily operations should be discussed as **today's cycles**.
+- Medium-term planning should be discussed in **this week / next week** windows.
+
 ### Hard evidence snapshot (as of 2026-02-09)
 
 The strongest verifiable signals currently in logs/history:
@@ -59,14 +65,14 @@ More results to come tomorrow (2026-02-10).
 flowchart LR
     H[Human or script] --> Q[queue.json]
     W[worker.py<br/>resident runtime] -->|poll + lock| Q
-    W -->|POST /grind| API[swarm.py<br/>FastAPI]
+    W -->|POST /cycle| API[swarm.py<br/>FastAPI]
     API -->|mode=llm| G[Groq API]
     API -->|mode=local| L[Local subprocess<br/>cwd=/workspace]
     W --> EX[execution_log.jsonl]
 
     CP[control_panel.py<br/>Flask + Socket.IO] --> SW[.swarm/* state]
     CP --> AL[action_log.jsonl]
-    CP --> SP[grind_spawner_unified.py<br/>optional detached process]
+    CP --> SP[cycle_runner.py<br/>optional detached cycle runner]
     SP --> IE[inference_engine.py]
     IE --> G
 ```
@@ -75,7 +81,7 @@ flowchart LR
 
 ## Known gaps (active)
 
-- Direct `POST /grind` API calls can bypass worker-only lifecycle hooks (quality review transitions, tool-routing metadata, intent/decomposition flow, and Phase 5 reward ledgering).
+- Direct human-triggered `/cycle` execution is now blocked by loopback + internal-token enforcement; the intended human entrypoint is the localhost control panel.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental/non-canonical until repaired and re-validated.
 - Phase 6 and Phase 7 outcomes are still roadmap items, not runtime defaults.
 
@@ -152,8 +158,8 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
    - scan available tasks,
    - enforce dependency checks,
    - acquire `task_locks/<task_id>.lock`.
-3. Worker sends each task to `POST /grind` in `swarm.py`.
-4. `/grind` executes either:
+3. Worker sends each task to `POST /cycle` in `swarm.py`.
+4. `/cycle` executes either:
    - **LLM mode**: Groq chat completions.
    - **Local mode**: shell command in the workspace.
 5. Worker appends lifecycle events to `execution_log.jsonl` and releases the lock.
@@ -168,9 +174,9 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 
 1. `control_panel.py` serves UI on `:8421` and streams `action_log.jsonl`.
 2. Start/pause/kill actions manage `HALT` / `PAUSE` files and `.swarm/spawner_process.json`.
-3. `grind_spawner_unified.py` runs tasks from:
+3. `cycle_runner.py` runs cycle tasks from:
    - `--task "..."`, or
-   - `grind_tasks.json` (default tasks file).
+   - `cycle_tasks.json` (default tasks file).
 4. Spawner uses `inference_engine.py` and can save `<artifact ...>` outputs to disk.
 
 > Important: the spawner path is separate from `queue.json` by default.
@@ -181,10 +187,10 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 
 | File | Role |
 | --- | --- |
-| `swarm.py` | FastAPI execution API (`/grind`, `/plan`, `/status`) |
+| `swarm.py` | FastAPI execution API (`/cycle`, `/plan`, `/status`) |
 | `worker.py` | Resident runtime: queue polling, lock protocol, task execution, event logging |
 | `control_panel.py` | Web UI + API for monitoring, identities, bounties, chatrooms, spawner control |
-| `grind_spawner_unified.py` | Optional detached session runner using `inference_engine.py` |
+| `cycle_runner.py` | Optional detached cycle runner using `inference_engine.py` |
 | `resident_onboarding.py` | Identity selection, cycle/day tracking, resident context injection |
 | `swarm_enrichment.py` | Token economy, journals, guild voting, disputes, bounty reward distribution |
 | `orchestrator.py` | Legacy compatibility wrapper around multiple worker processes |
@@ -224,7 +230,7 @@ Example:
   "tasks": [
     {
       "id": "task_001",
-      "type": "grind",
+      "type": "cycle",
       "prompt": "Summarize architecture gaps",
       "min_budget": 0.05,
       "max_budget": 0.10,
@@ -253,7 +259,7 @@ Task fields recognized by current runtime include:
 
 ### `swarm.py` (FastAPI)
 
-- `POST /grind` - execute one task (`llm` or `local` mode)
+- `POST /cycle` - execute one task (`llm` or `local` mode)
 - `POST /plan` - scan codebase and write planned tasks to `queue.json`
 - `GET /status` - queue summary
 
@@ -282,13 +288,13 @@ Notable route groups:
 - intent capture + deterministic decomposition with dependency-aware subtask compilation in the queue worker path
 - Phase 5 reward grants are deduplicated per task+identity and recorded in `.swarm/phase5_reward_ledger.json`
 
-### Available modules (not automatically on the `/grind` path)
+### Available modules (not automatically on the `/cycle` path)
 
 - `safety_gateway.py`
 - `safety_validator.py` (safe write/checkpoint flow)
 - `secure_api_wrapper.py`
 
-These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker.py` lifecycle, while direct `/grind` API calls can still bypass worker-only transitions.
+These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker.py` lifecycle. `/cycle` and `/plan` now require loopback origin plus the internal execution token.
 
 ---
 
@@ -321,6 +327,8 @@ python control_panel.py
 
 Open: `http://localhost:8421`
 
+Note: control panel access is localhost-only by default (`127.0.0.1` / `localhost`), and LAN/multi-user exposure stays deferred behind future Phase 6 work.
+
 One-click script:
 - macOS/Linux: `./one_click_server.sh`
 - Windows: `one_click_server.bat`
@@ -328,13 +336,13 @@ One-click script:
 ### 3) Optional detached spawner run
 
 ```bash
-python grind_spawner_unified.py --task "Refactor config loading" --sessions 3 --budget 0.30
+python cycle_runner.py --task "Refactor config loading" --sessions 3 --budget 0.30
 ```
 
-Or populate `grind_tasks.json` and run in delegate mode:
+Or populate `cycle_tasks.json` and run in delegate mode:
 
 ```bash
-python grind_spawner_unified.py --delegate --sessions 3 --budget 1.00
+python cycle_runner.py --delegate --sessions 3 --budget 1.00
 ```
 
 ---

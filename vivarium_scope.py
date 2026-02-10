@@ -9,6 +9,8 @@ This module defines a strict world separation:
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,11 +29,14 @@ SECURITY_ROOT = META_ROOT / "security"
 CHANGE_CONTROL_ROOT = META_ROOT / "change_control"
 CHECKPOINT_ROOT = CHANGE_CONTROL_ROOT / "checkpoints"
 CHANGE_JOURNAL_FILE = CHANGE_CONTROL_ROOT / "change_journal.jsonl"
+EXECUTION_TOKEN_FILE = SECURITY_ROOT / "internal_execution_token.txt"
 
 MUTABLE_QUEUE_FILE = MUTABLE_ROOT / "queue.json"
 MUTABLE_DATA_DIR = MUTABLE_ROOT / "data"
 MUTABLE_EXPERIMENTS_DIR = MUTABLE_ROOT / "experiments"
-MUTABLE_GRIND_LOGS_DIR = MUTABLE_ROOT / "grind_logs"
+MUTABLE_CYCLE_LOGS_DIR = MUTABLE_ROOT / "cycle_logs"
+# Legacy alias retained for modules not yet migrated.
+MUTABLE_GRIND_LOGS_DIR = MUTABLE_CYCLE_LOGS_DIR
 MUTABLE_LOCKS_DIR = MUTABLE_ROOT / "task_locks"
 MUTABLE_SWARM_DIR = MUTABLE_ROOT / ".swarm"
 
@@ -71,7 +76,7 @@ def ensure_scope_layout() -> None:
         CHECKPOINT_ROOT,
         MUTABLE_DATA_DIR,
         MUTABLE_EXPERIMENTS_DIR,
-        MUTABLE_GRIND_LOGS_DIR,
+        MUTABLE_CYCLE_LOGS_DIR,
         MUTABLE_LOCKS_DIR,
         MUTABLE_SWARM_DIR,
     ):
@@ -91,6 +96,35 @@ def ensure_scope_layout() -> None:
             )
 
     CHANGE_JOURNAL_FILE.touch(exist_ok=True)
+
+
+def get_execution_token() -> str:
+    """
+    Return the internal execution token used for worker->API authentication.
+
+    Resolution order:
+    1. VIVARIUM_INTERNAL_EXECUTION_TOKEN environment variable
+    2. vivarium/meta/security/internal_execution_token.txt
+    3. generate and persist a new token in the security scope
+    """
+    env_token = (os.environ.get("VIVARIUM_INTERNAL_EXECUTION_TOKEN") or "").strip()
+    if env_token:
+        return env_token
+
+    ensure_scope_layout()
+    if EXECUTION_TOKEN_FILE.exists():
+        existing = EXECUTION_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+
+    token = secrets.token_urlsafe(48)
+    EXECUTION_TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+    try:
+        os.chmod(EXECUTION_TOKEN_FILE, 0o600)
+    except OSError:
+        # Best-effort on platforms/filesystems that may not support chmod semantics.
+        pass
+    return token
 
 
 def resolve_mutable_path(path_token: str, cwd: Optional[Path] = None) -> Path:

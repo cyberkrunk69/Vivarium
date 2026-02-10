@@ -2,7 +2,7 @@
 Vivarium API Server (Groq + Local Execution)
 
 Endpoints:
-  POST /grind  - Execute a task (Groq or local command)
+  POST /cycle  - Execute one cycle task (Groq or local command)
   POST /plan   - Scan codebase and write tasks to queue.json
   GET  /status - Queue summary
 """
@@ -15,10 +15,11 @@ import re
 import shlex
 import subprocess
 import time
+from ipaddress import ip_address
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from config import (
@@ -36,6 +37,7 @@ from vivarium_scope import (
     MUTABLE_ROOT,
     SECURITY_ROOT,
     ensure_scope_layout,
+    get_execution_token,
     is_allowed_git_remote,
     resolve_mutable_path,
 )
@@ -56,7 +58,7 @@ IGNORE_DIRS = {
     "node_modules",
     "knowledge",
     ".checkpoints",
-    ".grind_cache",
+    ".cycle_cache",
 }
 
 LOCAL_COMMAND_ALLOWLIST = {
@@ -149,11 +151,17 @@ def _build_secure_wrapper() -> SecureAPIWrapper:
 
 SWARM_SAFETY_GATEWAY = _build_safety_gateway()
 SECURE_API_WRAPPER = _build_secure_wrapper()
+INTERNAL_EXECUTION_TOKEN = get_execution_token()
+SWARM_ENFORCE_INTERNAL_TOKEN = (
+    os.environ.get("SWARM_ENFORCE_INTERNAL_TOKEN", "1").strip().lower()
+    not in {"0", "false", "no"}
+)
+LOOPBACK_HOST_ALIASES = {"localhost", "testclient"}
 
 
-class GrindRequest(BaseModel):
+class CycleRequest(BaseModel):
     """
-    Request model for the /grind endpoint.
+    Request model for the /cycle endpoint.
 
     Attributes:
         prompt: Task prompt to send to the Groq API.
@@ -180,8 +188,8 @@ class GrindRequest(BaseModel):
     task_id: Optional[str] = None
 
 
-class GrindResponse(BaseModel):
-    """Response model for the /grind endpoint."""
+class CycleResponse(BaseModel):
+    """Response model for the /cycle endpoint."""
 
     status: str
     result: str
@@ -192,6 +200,52 @@ class GrindResponse(BaseModel):
     budget_used: Optional[float] = None
     exit_code: Optional[int] = None
     safety_report: Optional[Dict[str, Any]] = None
+
+
+def _is_loopback_host(host: Optional[str]) -> bool:
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value in LOOPBACK_HOST_ALIASES:
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _request_client_host(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    client = getattr(request, "client", None)
+    if client and getattr(client, "host", None):
+        return str(client.host).strip()
+    return ""
+
+
+def _enforce_internal_api_access(
+    request: Request,
+    provided_token: Optional[str],
+    *,
+    endpoint: str,
+    require_token: bool = True,
+) -> None:
+    client_host = _request_client_host(request)
+    if not _is_loopback_host(client_host):
+        raise HTTPException(
+            status_code=403,
+            detail=f"{endpoint} is localhost-only",
+        )
+
+    if not require_token or not SWARM_ENFORCE_INTERNAL_TOKEN:
+        return
+
+    if not INTERNAL_EXECUTION_TOKEN or provided_token != INTERNAL_EXECUTION_TOKEN:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{endpoint} requires internal execution token",
+        )
 
 
 def _pre_execute_safety_report(task_text: str, task_id: Optional[str]) -> Dict[str, Any]:
@@ -393,12 +447,25 @@ def _enforce_local_token_scope(tokens: List[str]) -> None:
     return None
 
 
-@app.post("/grind", response_model=GrindResponse)
-async def grind(req: GrindRequest) -> GrindResponse:
+@app.post("/cycle", response_model=CycleResponse)
+async def cycle(
+    req: CycleRequest,
+    request: Request,
+    x_vivarium_internal_token: Optional[str] = Header(
+        default=None,
+        alias="X-Vivarium-Internal-Token",
+    ),
+) -> CycleResponse:
     """
     Execute a task by calling Groq's OpenAI-compatible chat completions API,
     or by running a local command when mode is "local".
     """
+    _enforce_internal_api_access(
+        request,
+        x_vivarium_internal_token,
+        endpoint="/cycle",
+    )
+
     if not req.prompt and not req.task:
         raise HTTPException(status_code=400, detail="prompt or task must be provided")
 
@@ -419,9 +486,9 @@ async def grind(req: GrindRequest) -> GrindResponse:
 
 
 async def _run_groq_task(
-    req: GrindRequest,
+    req: CycleRequest,
     safety_report: Optional[Dict[str, Any]] = None,
-) -> GrindResponse:
+) -> CycleResponse:
     if not req.prompt:
         raise HTTPException(status_code=400, detail="llm mode requires prompt")
     validate_config(require_groq_key=True)
@@ -471,7 +538,7 @@ async def _run_groq_task(
     }
     budget_used = result.get("cost")
 
-    return GrindResponse(
+    return CycleResponse(
         status="completed",
         result=result_text,
         model=result.get("model", model),
@@ -483,9 +550,9 @@ async def _run_groq_task(
 
 
 def _run_local_task(
-    req: GrindRequest,
+    req: CycleRequest,
     safety_report: Optional[Dict[str, Any]] = None,
-) -> GrindResponse:
+) -> CycleResponse:
     task = (req.task or "").strip()
     if not task:
         raise HTTPException(status_code=400, detail="local mode requires task")
@@ -530,7 +597,7 @@ def _run_local_task(
     if req.min_budget is not None and req.max_budget is not None:
         budget_used = max(req.min_budget, min(req.max_budget, time_cost))
 
-    return GrindResponse(
+    return CycleResponse(
         status=status,
         result=result,
         output=output,
@@ -542,11 +609,25 @@ def _run_local_task(
     )
 
 
+
+
 @app.post("/plan")
-async def plan() -> Dict[str, Any]:
+async def plan(
+    request: Request,
+    x_vivarium_internal_token: Optional[str] = Header(
+        default=None,
+        alias="X-Vivarium-Internal-Token",
+    ),
+) -> Dict[str, Any]:
     """
     Scan codebase, analyze with Groq, and write tasks to queue.json.
     """
+    _enforce_internal_api_access(
+        request,
+        x_vivarium_internal_token,
+        endpoint="/plan",
+    )
+
     validate_config(require_groq_key=True)
 
     scan_result = scan_codebase()
@@ -687,7 +768,7 @@ Return ONLY valid JSON array, no other text."""
 
         tasks.append({
             "id": task_id,
-            "type": "grind",
+            "type": "cycle",
             "prompt": description,
             "min_budget": min_b,
             "max_budget": max_b,
@@ -711,8 +792,15 @@ def write_tasks_to_queue(tasks: List[Dict[str, Any]]) -> None:
 
 
 @app.get("/status")
-async def status() -> Dict[str, int]:
+async def status(request: Request) -> Dict[str, int]:
     """Get current queue status."""
+    _enforce_internal_api_access(
+        request,
+        provided_token=None,
+        endpoint="/status",
+        require_token=False,
+    )
+
     if QUEUE_FILE.exists():
         queue = normalize_queue(read_json(QUEUE_FILE, default={}))
         if queue:

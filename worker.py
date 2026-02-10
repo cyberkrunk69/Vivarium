@@ -16,11 +16,13 @@ import hashlib
 import random
 import re
 import httpx
+from ipaddress import ip_address
 from typing import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
+from urllib.parse import urlparse
 from utils import (
     read_json,
     write_json,
@@ -47,6 +49,7 @@ from vivarium_scope import (
     MUTABLE_SWARM_DIR,
     SECURITY_ROOT,
     ensure_scope_layout,
+    get_execution_token,
     get_mutable_version_control,
 )
 try:
@@ -104,7 +107,8 @@ API_REQUEST_TIMEOUT: float = API_TIMEOUT_SECONDS
 WORKER_CHECK_INTERVAL: float = 2.0  # Delay between queue checks in seconds
 MAX_IDLE_CYCLES: int = 10  # Exit after N consecutive idle checks
 DEFAULT_INTENSITY: str = "medium"
-DEFAULT_TASK_TYPE: str = "grind"
+DEFAULT_TASK_TYPE: str = "cycle"
+CYCLE_EXECUTION_ENDPOINT: str = "/cycle"
 DEFAULT_MIN_SCORE: float = float(os.environ.get("RESIDENT_MIN_SCORE", "0"))
 FOCUS_HAT_MAP = {
     "strategy": "Strategist",
@@ -153,6 +157,7 @@ WORKER_TOOL_ROUTER = None
 WORKER_INTENT_GATEKEEPER = None
 WORKER_ENRICHMENT = None
 WORKER_MUTABLE_VCS = None
+WORKER_INTERNAL_EXECUTION_TOKEN = get_execution_token()
 
 
 # ============================================================================
@@ -516,6 +521,31 @@ def _resolve_safety_task_text(prompt: Optional[str], command: Optional[str], mod
     return prompt or command or ""
 
 
+def _is_loopback_host(host: Optional[str]) -> bool:
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value in {"localhost", "testclient"}:
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_loopback_api_endpoint(endpoint: str) -> bool:
+    parsed = urlparse((endpoint or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    return _is_loopback_host(parsed.hostname)
+
+
+def _internal_api_headers() -> Dict[str, str]:
+    return {
+        "X-Vivarium-Internal-Token": WORKER_INTERNAL_EXECUTION_TOKEN,
+    }
+
+
 def _resolve_task_prompt(task: Dict[str, Any]) -> Optional[str]:
     prompt = (
         task.get("prompt")
@@ -750,7 +780,7 @@ def _phase4_atomize_task(
         subtask = normalize_task(
             {
                 "id": subtask_id,
-                "type": "grind",
+                "type": DEFAULT_TASK_TYPE,
                 "prompt": subtask_prompt,
                 "min_budget": per_min,
                 "max_budget": per_max,
@@ -1216,6 +1246,13 @@ def _execute_delegated_subtasks(
     model: Optional[str],
     parallelism: Optional[int] = None,
 ) -> Dict[str, Any]:
+    if not _is_loopback_api_endpoint(api_endpoint):
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": f"API endpoint must be loopback-only: {api_endpoint}",
+        }
+
     subtasks: Iterable[Any] = getattr(plan, "subtasks", []) or []
     subtasks_list = list(subtasks)
     if not subtasks_list:
@@ -1284,7 +1321,11 @@ def _execute_delegated_subtasks(
 
         try:
             with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
-                response = client.post(f"{api_endpoint}/grind", json=payload)
+                response = client.post(
+                    f"{api_endpoint}{CYCLE_EXECUTION_ENDPOINT}",
+                    json=payload,
+                    headers=_internal_api_headers(),
+                )
         except httpx.ConnectError as exc:
             error_msg = f"Connection error: {exc}"
             append_execution_event(
@@ -1377,6 +1418,20 @@ def execute_task(
 ) -> Dict[str, Any]:
     """Execute a task by sending it to the Vivarium API."""
     task_id = task.get("id", "unknown")
+    if not _is_loopback_api_endpoint(api_endpoint):
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": f"API endpoint must be loopback-only: {api_endpoint}",
+            "safety_passed": False,
+            "safety_report": {
+                "passed": False,
+                "blocked_reason": "Non-loopback API endpoint is not allowed",
+                "task_id": task_id,
+                "checks": {},
+            },
+        }
+
     min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
     max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)
     intensity = task.get("intensity", DEFAULT_INTENSITY)
@@ -1534,7 +1589,11 @@ def execute_task(
 
     try:
         with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
-            response = client.post(f"{api_endpoint}/grind", json=payload)
+            response = client.post(
+                f"{api_endpoint}{CYCLE_EXECUTION_ENDPOINT}",
+                json=payload,
+                headers=_internal_api_headers(),
+            )
 
         if response.status_code == 200:
             result = response.json()
@@ -1837,7 +1896,7 @@ def add_task(
     task_id: str,
     prompt: str,
     depends_on: Optional[List[str]] = None,
-    task_type: str = "grind",
+    task_type: str = DEFAULT_TASK_TYPE,
     min_budget: float = DEFAULT_MIN_BUDGET,
     max_budget: float = DEFAULT_MAX_BUDGET,
     intensity: str = DEFAULT_INTENSITY,

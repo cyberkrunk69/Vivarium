@@ -32,7 +32,7 @@
 
 ## 3) Available but not hard-wired into all paths
 
-These modules exist and are used in canonical worker flow, but direct API usage can bypass some worker-only lifecycle logic:
+These modules exist and are used in canonical worker flow; execution API routes are now guarded by loopback + internal-token checks:
 
 - `safety_gateway.py`
 - `secure_api_wrapper.py`
@@ -45,7 +45,7 @@ These modules exist and are used in canonical worker flow, but direct API usage 
 
 ## 4) Known limitations and active gaps
 
-- Direct `POST /grind` calls can bypass worker-only lifecycle transitions (quality review, tool-routing metadata, intent/decomposition orchestration, phase 5 reward ledgering).
+- Direct human-triggered `/cycle` calls are blocked; the intended operator flow is localhost control panel -> worker runtime -> internal API.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental/non-canonical.
 - Phase 6 (multi-user/LAN + vision dashboard) and Phase 7 (autonomous improvement checkpoints) are still planned, not runtime defaults.
 - System remains experimental; operational use should stay in isolated environments.
@@ -63,4 +63,4 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 
 ## 6) Short summary
 
-The current Vivarium runtime is a queue-driven, safety-checked, quality-reviewed execution system with implemented Phase 0-5 foundations in the canonical worker path. The next major work is closing worker-vs-direct-API parity and delivering planned Phase 6/7 capabilities.
+The current Vivarium runtime is a queue-driven, safety-checked, quality-reviewed execution system with implemented Phase 0-5 foundations in the canonical worker path. Operational language now frames execution in compressed human timescales (today/this week cycle planning), with Phase 6/7 still deferred roadmap work.

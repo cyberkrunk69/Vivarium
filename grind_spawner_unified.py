@@ -1,5 +1,5 @@
 """
-Unified Grind Spawner (minimal, repo-consistent).
+Unified Cycle Runner (minimal, repo-consistent).
 
 This file exists because the Control Panel UI starts the spawner by launching
 `grind_spawner_unified.py` in a detached subprocess.
@@ -8,7 +8,7 @@ Goals:
 - Provide a stable CLI that matches `control_panel.py` expectations:
   `--sessions`, `--budget`, `--workspace`, `--model`
 - Provide the small API surface used by `test_swarm_fixes.py`:
-  `UnifiedGrindSession`, `EngineType`
+  `UnifiedCycleSession`, `UnifiedGrindSession` (legacy alias), `EngineType`
 
 The spawner can run a single task (`--task`) or delegate over a tasks JSON file
 (`--tasks-file`). In Groq mode, it expects the model to return `<artifact ...>`
@@ -79,9 +79,9 @@ def _is_paused(workspace: Path) -> bool:
 
 
 @dataclass
-class UnifiedGrindSession:
+class UnifiedCycleSession:
     """
-    Represents a single grind session for one task.
+    Represents a single compressed-timescale cycle for one task.
 
     This is intentionally lightweight; it primarily builds a grounded prompt and
     (optionally) executes it via the configured inference engine.
@@ -135,6 +135,7 @@ CRITICAL GROUNDING RULES
 3. NEVER guess data structures or APIs — locate them in the repo first.
 4. If you cannot find required code/files, explicitly say what is missing and stop.
 5. When creating/modifying files, output them using the artifact format below.
+6. Reframe status/progress in compressed human timescale language (today, this week, next week) where possible.
 
 ARTIFACT FORMAT (preferred)
 <artifact type="file" path="relative/path/to/file.ext">
@@ -146,7 +147,7 @@ If you take this task, do the work now. If you make changes, include all necessa
 
     def execute(self) -> Dict[str, Any]:
         """
-        Execute the session task using the configured inference engine.
+        Execute one cycle task using the configured inference engine.
         """
         engine = get_engine(self.force_engine)
         prompt = self.get_prompt()
@@ -204,7 +205,7 @@ def _worker_loop(
             q.task_done()
             continue
 
-        session = UnifiedGrindSession(
+        session = UnifiedCycleSession(
             session_id=(worker_id * 100000) + int(time.time()) % 100000,
             task=task_text,
             budget=per_task_budget,
@@ -223,14 +224,14 @@ def _worker_loop(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Unified Grind Spawner")
+    parser = argparse.ArgumentParser(description="Unified Cycle Runner")
     parser.add_argument("--sessions", type=int, default=3)
     parser.add_argument("--budget", type=float, default=0.10)
     parser.add_argument("--workspace", type=str, default=str(MUTABLE_ROOT))
     parser.add_argument("--model", type=str, default="llama-3.3-70b-versatile")
 
     parser.add_argument("--task", type=str, default=None, help="Run a single task then exit")
-    parser.add_argument("--tasks-file", type=str, default="grind_tasks.json")
+    parser.add_argument("--tasks-file", type=str, default="cycle_tasks.json")
     parser.add_argument("--delegate", action="store_true", help="Run tasks from tasks file")
     parser.add_argument("--once", action="store_true", help="Run one pass then exit")
     parser.add_argument(
@@ -259,6 +260,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Default to delegate mode for the control panel start button.
         tasks_file = (workspace / args.tasks_file).resolve()
         tasks = _load_tasks(tasks_file)
+        if not tasks and args.tasks_file == "cycle_tasks.json":
+            # Compatibility fallback during terminology transition.
+            legacy_tasks_file = (workspace / "grind_tasks.json").resolve()
+            tasks = _load_tasks(legacy_tasks_file)
         if not tasks and not args.delegate:
             # If delegate wasn't requested and no single task was provided, do nothing.
             print(f"[spawner] No tasks found in {tasks_file}; exiting.")
@@ -297,6 +302,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print("[spawner] Done.")
     return 0
+
+
+UnifiedGrindSession = UnifiedCycleSession
 
 
 if __name__ == "__main__":
