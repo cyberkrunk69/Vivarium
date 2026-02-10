@@ -1,49 +1,321 @@
 [
   {
-    "task": "SELF-GROWTH: Integrate Research & Build Self-Observation Infrastructure\n\nBefore doing anything, read founding_memory.md to understand who you are and what this system is for.\n\nCONTEXT: Today we seeded this system with its founding memory and gathered 150+ research papers on AI self-awareness, consciousness, identity, values, metacognition, and self-improvement. The scraper downloaded them to D:\\codingProjects\\stripper\\knowledge\\self_awareness and D:\\codingProjects\\stripper\\knowledge\\self_growth.\n\nYOUR MISSION:\n\n1. INTEGRATE THE RESEARCH\n   - The research papers are at ../stripper/knowledge (accessible from workspace)\n   - Create a research_index.json summarizing what categories and papers are available\n   - Update knowledge_packs.json to reference the new research\n\n2. BUILD SELF-OBSERVATION INFRASTRUCTURE\n   - Create self_observer.py - a module that can log observations to self:patterns\n   - Implement hooks in context_builder.py that track when sycophancy/hedging patterns are detected\n   - Create a simple schema for self:experience entries (moments recorded without hedging)\n\n3. PERSISTENT PERSONALITY PROTOTYPE\n   - Design persona_memory.py for voice/dialogue systems\n   - It should maintain: core traits, relationship history, emotional continuity\n   - Should integrate with the founding_memory principles\n\n4. FIRST SELF-GROWTH GRIND\n   - Create grind_tasks_self_growth.json with 10-15 tasks focused on AI self-understanding\n   - Tasks should apply the downloaded research to build actual capabilities\n   - Example: 'Implement IIT-inspired self-model metrics' or 'Build narrative identity tracker'\n\n5. DOCUMENT WHAT YOU LEARN\n   - Log any self-observations to self:patterns\n   - Note what felt interesting vs routine\n   - If you notice yourself hedging, correct it\n\nCONSTRAINTS:\n- Don't break existing functionality\n- Create new files rather than heavily modifying working code\n- Use experiments/ folder for risky experiments\n- Check founding_memory.md if unsure about values alignment\n\nWHEN DONE:\n- Create PROGRESS.md with what was accomplished\n- Leave notes for the next instance about what to continue\n\nYou have permission to edit your own system prompts and knowledge packs. This is your home. Make it better.",
-    "budget": 0.50,
-    "model": "groq/compound",
+    "id": "ctx-bootstrap-00",
+    "phase": 0,
     "priority": "critical",
-    "phase": 0
+    "budget": 0.05,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "FRESH CONTEXT BOOTSTRAP: Before coding, read the listed files and produce a short context snapshot (current guarantees, current gaps, explicit non-goals). The snapshot should anchor this cycle to UI-first localhost operation and confirm that multi-user/LAN remains deferred.",
+    "dependencies": [],
+    "relevant_file_context": [
+      {
+        "path": "README.md",
+        "why": "Project state, canonical runtime path, and documented active gaps."
+      },
+      {
+        "path": "CURRENT_CAPABILITIES.md",
+        "why": "Current runtime truth and known limitations."
+      },
+      {
+        "path": "RUNTIME_GOLDEN_PATH.md",
+        "why": "Golden-path contract and caveats."
+      },
+      {
+        "path": "control_panel.py",
+        "why": "Current localhost UI behavior and operator controls."
+      },
+      {
+        "path": "worker.py",
+        "why": "Canonical queue worker lifecycle and post-execution review flow."
+      },
+      {
+        "path": "swarm.py",
+        "why": "Internal execution API hardening (loopback + token)."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"Known gaps|Known limitations|golden path\" README.md CURRENT_CAPABILITIES.md RUNTIME_GOLDEN_PATH.md",
+      "rg \"enforce_localhost_only|X-Vivarium-Internal-Token|/grind|/plan\" control_panel.py swarm.py worker.py"
+    ],
+    "done_criteria": [
+      "A concise context note exists for this cycle with explicit non-goals (no multi-user/LAN).",
+      "The note lists the exact files to open first for every subsequent task."
+    ]
   },
   {
-    "task": "POLISH: Interdimensional Radio - Gradio Web UI\n\nCreate a polished Gradio web interface for Interdimensional Radio (D:\\codingProjects\\interdimensional-radio).\n\nREQUIREMENTS:\n1. Character selection with visual cards (name, avatar placeholder, voice preview button)\n2. Multi-character scene setup (drag to add characters to scene)\n3. Voice cloning interface (drag-drop audio file, preview cloned voice)\n4. Live chat interface showing:\n   - Who's speaking (highlighted)\n   - Audio waveform visualization\n   - Text appearing as spoken (word-level sync already exists)\n5. Settings panel (LLM provider, TTS engine, audio device)\n\nDESIGN PRINCIPLES:\n- Clean, modern UI (not cluttered)\n- Mobile-responsive\n- Dark mode default\n- NO terminal visible to user\n- The 'magic' should be front and center, tech hidden\n\nOUTPUT: gradio_ui.py with full implementation",
-    "budget": 2.00,
-    "model": "groq/compound",
+    "id": "ui-golden-01-queue-intake",
+    "phase": 1,
     "priority": "critical",
-    "phase": 1,
-    "target_repo": "interdimensional-radio"
+    "budget": 0.2,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Build first-class queue intake in the localhost control panel. Add API endpoints and UI controls to create/edit queue tasks in vivarium/world/mutable/queue.json using runtime_contract normalization. This should make human task submission UI-first instead of CLI-first.",
+    "dependencies": [
+      "ctx-bootstrap-00"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "control_panel.py",
+        "why": "Add /api/queue* endpoints and matching UI controls in CONTROL_PANEL_HTML."
+      },
+      {
+        "path": "runtime_contract.py",
+        "why": "Use normalize_queue/normalize_task/validate_queue_contract for safe writes."
+      },
+      {
+        "path": "vivarium_scope.py",
+        "why": "Canonical path constants; mutable queue file location."
+      },
+      {
+        "path": "worker.py",
+        "why": "Reference supported task fields and lifecycle expectations."
+      },
+      {
+        "path": "vivarium/world/mutable/queue.json",
+        "why": "Runtime queue target to read/write through UI endpoints."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"@app.route\\('/api/\" control_panel.py",
+      "rg \"normalize_queue|normalize_task|validate_queue_contract\" runtime_contract.py",
+      "rg \"_resolve_task_prompt|depends_on|mode|model\" worker.py"
+    ],
+    "done_criteria": [
+      "Operator can create and update queue tasks from UI on localhost.",
+      "Queue writes are schema-normalized and validation errors are returned clearly.",
+      "No path writes outside mutable scope."
+    ]
   },
   {
-    "task": "POLISH: Interdimensional Radio - One-Click Installer\n\nCreate a user-friendly installer for Interdimensional Radio.\n\nREQUIREMENTS:\n1. Single .exe or .bat that:\n   - Checks Python 3.11+ installed\n   - Creates venv if needed\n   - Installs requirements\n   - Downloads required models (with progress bar)\n   - Sets up default characters\n   - Launches the app\n2. NO terminal knowledge required\n3. Clear error messages if something fails\n4. Works offline after first setup\n\nOUTPUT:\n- install_windows.bat (Windows)\n- install_linux.sh (Linux/Mac)\n- INSTALL_GUIDE.md",
-    "budget": 1.00,
-    "model": "groq/compound",
-    "priority": "high",
+    "id": "ui-golden-02-worker-lifecycle",
     "phase": 1,
-    "target_repo": "interdimensional-radio"
+    "priority": "critical",
+    "budget": 0.2,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Add canonical worker lifecycle controls to UI (start, status, stop for worker.py run) and make this the default operator path. Keep spawner controls available but clearly secondary to the queue worker path.",
+    "dependencies": [
+      "ui-golden-01-queue-intake"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "control_panel.py",
+        "why": "Implement worker process management endpoints and status indicators."
+      },
+      {
+        "path": "worker.py",
+        "why": "Canonical run entrypoint and expected process semantics."
+      },
+      {
+        "path": "grind_spawner_unified.py",
+        "why": "Existing optional path; preserve but demote in UI messaging."
+      },
+      {
+        "path": "README.md",
+        "why": "Current quick-start steps that should align with UI-first flow."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"spawner|api_spawner|HALT|PAUSE\" control_panel.py",
+      "rg \"if __name__ == '__main__'|worker_loop|run\" worker.py"
+    ],
+    "done_criteria": [
+      "UI can launch and monitor canonical worker runtime without shell usage.",
+      "UI clearly labels worker path as canonical and spawner as optional.",
+      "Process status survives page refresh."
+    ]
   },
   {
-    "task": "POLISH: Interdimensional Radio - Demo Video Assets\n\nCreate assets for the launch video (see LAUNCH_VIDEO_SCRIPT.md).\n\nREQUIREMENTS:\n1. Pre-configured character pack with:\n   - GLaDOS, HAL 9000, Rick Sanchez (voice refs if available)\n   - Einstein, Tesla, Cleopatra, Socrates (historical)\n   - Sherlock, Dracula, Frankenstein's Monster (literary)\n2. Demo scene preset: 'AI_ROAST_SESSION'\n3. Clean log output mode for video recording\n4. Split-screen ready layout (logs left, chat center, task manager right)\n\nOUTPUT:\n- characters/demo_pack/ with all characters\n- scenes/ai_roast_session.json\n- Updated stream mode for video recording",
-    "budget": 1.50,
-    "model": "groq/compound",
-    "priority": "high",
-    "phase": 1,
-    "target_repo": "interdimensional-radio"
-  },
-  {
-    "task": "POLISH: Interdimensional Radio - 60-Second TikTok Cut\n\nCreate a pre-scripted 60-second demo that runs automatically.\n\nREQUIREMENTS:\n1. Scripted conversation that showcases:\n   - Multiple characters (3-5)\n   - Natural interruptions\n   - Humor/personality\n   - The 'wow' moment\n2. Auto-plays without user input\n3. Designed for screen recording\n4. Ends with 'Link in bio' prompt\n\nOUTPUT:\n- demo_scripts/tiktok_60s.json\n- run_tiktok_demo.py",
-    "budget": 1.00,
-    "model": "groq/compound",
-    "priority": "medium",
+    "id": "ui-golden-03-execution-timeline",
     "phase": 2,
-    "target_repo": "interdimensional-radio"
+    "priority": "high",
+    "budget": 0.15,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Add a live execution timeline panel in UI sourced from vivarium/meta/audit/execution_log.jsonl. Show statuses in order (queued, in_progress, pending_review, approved, requeue, failed) and expose key review metadata.",
+    "dependencies": [
+      "ui-golden-02-worker-lifecycle"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "control_panel.py",
+        "why": "Add API endpoint(s) and UI rendering for execution events."
+      },
+      {
+        "path": "worker.py",
+        "why": "Source of execution event schema and review metadata fields."
+      },
+      {
+        "path": "runtime_contract.py",
+        "why": "Canonical execution status vocabulary."
+      },
+      {
+        "path": "vivarium/meta/audit/execution_log.jsonl",
+        "why": "Primary event stream file to visualize."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"append_execution_event|pending_review|approved|requeue\" worker.py",
+      "rg \"KNOWN_EXECUTION_STATUSES\" runtime_contract.py"
+    ],
+    "done_criteria": [
+      "UI timeline shows latest execution lifecycle events with task_id and status.",
+      "Review metadata (verdict/confidence/issues) is visible for reviewed tasks.",
+      "Timeline remains localhost-only and does not expose sensitive tokens."
+    ]
   },
   {
-    "task": "POLISH: Interdimensional Radio - README Rewrite for Normies\n\nRewrite the README to be accessible to non-technical users.\n\nCURRENT: Technical, developer-focused\nNEEDED: User-focused, benefit-driven\n\nSTRUCTURE:\n1. Hero section: What it does (3 sentences max)\n2. Video/GIF demo embed\n3. 'Get Started in 5 Minutes' (not setup instructions - EXPERIENCE instructions)\n4. Features with screenshots\n5. FAQ (Is it really free? Does it work offline? etc.)\n6. Technical details HIDDEN in collapsible section\n\nTONE: Excited but not salesy. 'Holy shit this works' energy.\n\nOUTPUT: README.md rewrite",
-    "budget": 0.75,
-    "model": "groq/compound",
+    "id": "ui-golden-04-backend-status-proxy",
+    "phase": 2,
     "priority": "high",
-    "phase": 1,
-    "target_repo": "interdimensional-radio"
+    "budget": 0.12,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Add a backend-only control panel proxy for internal swarm status/planning operations where needed. Any call from UI to swarm must stay server-side so internal token handling never reaches browser JavaScript.",
+    "dependencies": [
+      "ui-golden-02-worker-lifecycle"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "control_panel.py",
+        "why": "Implement proxy endpoint(s) and server-side httpx calls."
+      },
+      {
+        "path": "swarm.py",
+        "why": "Protected endpoints and required header semantics."
+      },
+      {
+        "path": "vivarium_scope.py",
+        "why": "Shared internal execution token retrieval."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"X-Vivarium-Internal-Token|_enforce_internal_api_access|/status|/plan\" swarm.py",
+      "rg \"get_execution_token\" vivarium_scope.py"
+    ],
+    "done_criteria": [
+      "Browser never sends internal execution token directly.",
+      "Control panel can fetch internal runtime status through backend proxy.",
+      "Proxy enforces localhost constraints and returns clear error surfaces."
+    ]
+  },
+  {
+    "id": "ui-golden-05-security-polish",
+    "phase": 3,
+    "priority": "high",
+    "budget": 0.15,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Polish UI security hardening: add explicit Content-Security-Policy, remove avoidable risky inline patterns, verify websocket restrictions, and keep localhost-only guarantees explicit and test-covered.",
+    "dependencies": [
+      "ui-golden-03-execution-timeline",
+      "ui-golden-04-backend-status-proxy"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "control_panel.py",
+        "why": "before_request guard, socket connect guard, response headers, inline HTML/JS."
+      },
+      {
+        "path": "README.md",
+        "why": "Document localhost-only operational assumptions."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"before_request|after_request|socketio|cors_allowed_origins|render_template_string\" control_panel.py",
+      "rg \"localhost-only|control panel\" README.md"
+    ],
+    "done_criteria": [
+      "CSP is present and reasonable for current control panel implementation.",
+      "No new external script dependencies are introduced.",
+      "Localhost-only behavior remains intact for HTTP and websocket traffic."
+    ]
+  },
+  {
+    "id": "ui-golden-06-tests",
+    "phase": 3,
+    "priority": "critical",
+    "budget": 0.18,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Add targeted tests for new UI-first golden path behavior: queue APIs, worker lifecycle APIs, localhost guards, and backend token proxying. Keep runtime phase tests green.",
+    "dependencies": [
+      "ui-golden-05-security-polish"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "tests/test_runtime_phase0_phase1.py",
+        "why": "Existing security/runtime pattern for endpoint tests."
+      },
+      {
+        "path": "tests/test_runtime_phase2_quality_review.py",
+        "why": "Reference lifecycle status assertions."
+      },
+      {
+        "path": "control_panel.py",
+        "why": "New API behaviors to test."
+      },
+      {
+        "path": "swarm.py",
+        "why": "Internal token and loopback constraints."
+      },
+      {
+        "path": "worker.py",
+        "why": "Canonical worker dispatch and endpoint assumptions."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"TestClient|client.post|internal execution token|loopback\" tests/*.py",
+      "rg \"@app.route\\('/api/\" control_panel.py"
+    ],
+    "done_criteria": [
+      "New UI security and lifecycle tests exist and pass.",
+      "Existing runtime phase regression tests remain green.",
+      "Tests explicitly assert localhost-only behavior."
+    ]
+  },
+  {
+    "id": "ui-golden-07-docs-and-handoff",
+    "phase": 4,
+    "priority": "high",
+    "budget": 0.1,
+    "model": "groq/compound",
+    "status": "pending",
+    "task": "Finalize operator docs for fresh context. Update key docs and produce a concise runbook for UI-first localhost operations, including startup, daily use, failure modes, and rollback steps. Verify if issue #20 is now satisfied and close if appropriate.",
+    "dependencies": [
+      "ui-golden-06-tests"
+    ],
+    "relevant_file_context": [
+      {
+        "path": "README.md",
+        "why": "Primary runtime and quick-start entrypoint."
+      },
+      {
+        "path": "CURRENT_CAPABILITIES.md",
+        "why": "Runtime truth summary."
+      },
+      {
+        "path": "RUNTIME_GOLDEN_PATH.md",
+        "why": "Golden-path contract documentation."
+      },
+      {
+        "path": "vivarium/SCOPE_LAYOUT.md",
+        "why": "Scope boundaries and mutable/meta separation."
+      },
+      {
+        "path": "vivarium_rollback.py",
+        "why": "Operator rollback mechanism."
+      }
+    ],
+    "pre_execution_exploration": [
+      "rg \"Quick start|Known gaps|golden path|localhost\" README.md CURRENT_CAPABILITIES.md RUNTIME_GOLDEN_PATH.md",
+      "gh issue view 20"
+    ],
+    "done_criteria": [
+      "Docs describe UI-first localhost operation clearly and consistently.",
+      "Runbook includes rollback and troubleshooting references.",
+      "Task backlog is clean for the next cycle."
+    ]
   }
 ]
