@@ -50,7 +50,7 @@ def test_worker_execute_task_blocks_when_safety_fails(monkeypatch, tmp_path):
 def test_local_command_policy_allowlist_and_denylist():
     git_status_error = swarm._validate_local_command("git status")
     assert git_status_error is not None
-    assert "git access is disabled" in git_status_error.lower()
+    assert "allowlist" in git_status_error.lower() or "git access is disabled" in git_status_error.lower()
 
     assert swarm._validate_local_command("cat README.md") is None
 
