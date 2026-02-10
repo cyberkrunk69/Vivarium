@@ -1,9 +1,0 @@
-[
-  {
-    "task": "KERNEL ANALYSIS: Analyze io_uring.c for race conditions\n\nREAD THE FILE: io_uring.c in the current directory (3,881 lines, 105KB)\n\nThis is from Linux kernel v6.12.10 - the core asynchronous I/O engine.\n\nAnalyze:\n1. Request cancellation logic (io_poll_cancel)\n2. Async completion of linked requests\n3. Potential race conditions where io_kiocb could be freed while accessed\n4. Use-after-free (UAF) vulnerabilities in concurrent code paths\n\nTrace specific line numbers. Do NOT hallucinate.\n\nIf already hardened, explain the protection mechanisms.\n\nCREATE kernel_analysis.md with findings.",
-    "budget": 0.30,
-    "model": "groq/compound",
-    "priority": "critical",
-    "phase": 0
-  }
-]

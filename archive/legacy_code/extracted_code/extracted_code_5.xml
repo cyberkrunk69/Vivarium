@@ -1,5 +1,0 @@
-<patch path="smart_executor.py" action="insert_after" line="??">
-# Store the dynamically chosen model on the execution node (if such an attribute exists)
-if hasattr(node, "model"):
-    node.model = select_model_for_prompt(node.prompt)
->>>>>>> REPLACE

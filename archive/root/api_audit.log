@@ -1,7 +1,0 @@
-{"timestamp": "2026-02-03T22:41:31.839648", "event": "API_CALL_FAILURE", "user": "admin", "role": "admin", "error": "GROQ_API_KEY not found. Set it via environment variable or pass to constructor.\nGet your key at: https://console.groq.com/keys"}
-{"timestamp": "2026-02-03T22:42:06.798374", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.1-8b-instant", "cost": 4.160000000000001e-06, "input_tokens": 56, "output_tokens": 17}
-{"timestamp": "2026-02-03T22:42:06.798752", "event": "CONSTITUTIONAL_VIOLATION", "user": "test_user", "role": "lan", "reason": "LAN users cannot execute requests matching: \\brm\\s+-rf\\s+/", "prompt_hash": "cf2a070fa8c07caa"}
-{"timestamp": "2026-02-03T22:42:10.526871", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.3-70b-versatile", "cost": 0.017758929999999996, "input_tokens": 30049, "output_tokens": 38}
-{"timestamp": "2026-02-03T22:42:12.872934", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.3-70b-versatile", "cost": 0.017775519999999996, "input_tokens": 30049, "output_tokens": 59}
-{"timestamp": "2026-02-03T22:42:15.023214", "event": "API_CALL_SUCCESS", "user": "admin", "role": "admin", "model": "llama-3.3-70b-versatile", "cost": 0.017778679999999998, "input_tokens": 30049, "output_tokens": 63}
-{"timestamp": "2026-02-03T22:42:15.023457", "event": "BUDGET_EXCEEDED", "user": "admin", "role": "admin", "remaining": 0.019124550000000004, "requested": 0.026945}

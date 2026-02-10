@@ -1,5 +1,0 @@
-        # Inject DSPy demonstrations for improved performance
-        demonstrations = collect_demonstrations(LOGS_DIR)
-        if demonstrations:
-            relevant_demos = get_relevant_demonstrations(self.task, demonstrations, top_k=2)
-            base_prompt = optimize_prompt(base_prompt, relevant_demos)
