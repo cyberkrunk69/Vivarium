@@ -48,10 +48,15 @@ def test_worker_execute_task_blocks_when_safety_fails(monkeypatch, tmp_path):
 
 
 def test_local_command_policy_allowlist_and_denylist():
-    assert swarm._validate_local_command("git status") is None
-    git_write_error = swarm._validate_local_command("git commit -m test")
-    assert git_write_error is not None
-    assert "subcommand" in git_write_error.lower()
+    git_status_error = swarm._validate_local_command("git status")
+    assert git_status_error is not None
+    assert "git access is disabled" in git_status_error.lower()
+
+    assert swarm._validate_local_command("cat README.md") is None
+
+    physics_read_error = swarm._validate_local_command("cat vivarium/physics/world_physics.py")
+    assert physics_read_error is not None
+    assert "physics directory" in physics_read_error.lower()
 
     python_error = swarm._validate_local_command("python3 -V")
     assert python_error is not None

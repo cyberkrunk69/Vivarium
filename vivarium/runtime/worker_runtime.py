@@ -1753,6 +1753,7 @@ def execute_task(
             prompt = (
                 "MVP MODE: You are currently limited to documentation artifacts.\n"
                 "- Do NOT perform direct code changes.\n"
+                "- You MAY read non-physics repository files for context.\n"
                 "- Produce markdown proposals, plans, or review notes.\n"
                 "- Prefer concrete change suggestions and acceptance criteria.\n\n"
                 f"{prompt}"
