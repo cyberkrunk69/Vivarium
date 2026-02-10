@@ -633,12 +633,12 @@ CONTROL_PANEL_HTML = '''
         </div>
         <div class="spawner-status">
             <div class="dot" id="spawnerDot"></div>
-            <span id="spawnerStatus">STOPPED</span>
+            <span id="spawnerStatus">GOLDEN PATH</span>
         </div>
         <div class="control-buttons">
-            <button class="control-btn start" id="startBtn" onclick="startSpawner()">START</button>
-            <button class="control-btn pause" id="pauseBtn" onclick="togglePause()">PAUSE DAY</button>
-            <button class="control-btn stop" id="stopBtn" onclick="emergencyStop()">STOP</button>
+            <button class="control-btn start" id="startBtn" onclick="startSpawner()" disabled>QUEUE MODE</button>
+            <button class="control-btn pause" id="pauseBtn" onclick="togglePause()" disabled>DISABLED</button>
+            <button class="control-btn stop" id="stopBtn" onclick="emergencyStop()" disabled>DISABLED</button>
         </div>
     </div>
 
@@ -1258,37 +1258,31 @@ CONTROL_PANEL_HTML = '''
 
         // Spawner state
         let spawnerState = { running: false, paused: false, pid: null };
+        const GOLDEN_PATH_NOTICE = 'Golden path enforced: run tasks via queue + worker.py only.';
+
+        function showGoldenPathOnlyNotice() {
+            alert(GOLDEN_PATH_NOTICE);
+        }
 
         function updateSpawnerUI() {
             const dot = document.getElementById('spawnerDot');
             const status = document.getElementById('spawnerStatus');
             const startBtn = document.getElementById('startBtn');
             const pauseBtn = document.getElementById('pauseBtn');
+            const stopBtn = document.getElementById('stopBtn');
 
             dot.className = 'dot';
-            startBtn.disabled = false;
-
-            if (spawnerState.running && !spawnerState.paused) {
-                dot.classList.add('running');
-                status.textContent = 'RUNNING';
-                startBtn.disabled = true;
-                pauseBtn.textContent = 'PAUSE DAY';
-                pauseBtn.classList.remove('paused');
-            } else if (spawnerState.running && spawnerState.paused) {
-                dot.classList.add('paused');
-                status.textContent = 'PAUSED';
-                startBtn.disabled = true;
-                pauseBtn.textContent = 'RESUME';
-                pauseBtn.classList.add('paused');
-            } else {
-                dot.classList.add('stopped');
-                status.textContent = 'STOPPED';
-                pauseBtn.textContent = 'PAUSE DAY';
-                pauseBtn.classList.remove('paused');
-            }
+            dot.classList.add('running');
+            status.textContent = 'GOLDEN PATH';
+            startBtn.disabled = true;
+            pauseBtn.disabled = true;
+            stopBtn.disabled = true;
+            pauseBtn.classList.remove('paused');
         }
 
         function startSpawner() {
+            showGoldenPathOnlyNotice();
+            return;
             const config = {
                 sessions: parseInt(document.getElementById('sessionSlider').value),
                 auto_scale: document.getElementById('autoScaleToggle').checked,
@@ -1311,6 +1305,8 @@ CONTROL_PANEL_HTML = '''
         }
 
         function togglePause() {
+            showGoldenPathOnlyNotice();
+            return;
             const endpoint = spawnerState.paused ? '/api/spawner/resume' : '/api/spawner/pause';
             fetch(endpoint, { method: 'POST' })
                 .then(r => r.json())
@@ -1323,6 +1319,8 @@ CONTROL_PANEL_HTML = '''
         }
 
         function emergencyStop() {
+            showGoldenPathOnlyNotice();
+            return;
             if (!confirm('EMERGENCY STOP: This will kill the spawner process immediately. Continue?')) return;
             fetch('/api/spawner/kill', { method: 'POST' })
                 .then(r => r.json())
@@ -1395,6 +1393,8 @@ CONTROL_PANEL_HTML = '''
         }
 
         function saveSpawnerConfig() {
+            showGoldenPathOnlyNotice();
+            return;
             const override = document.getElementById('overrideModelToggle').checked;
             const config = {
                 sessions: parseInt(document.getElementById('sessionSlider').value),
@@ -2468,172 +2468,65 @@ def _sanitize_spawner_start_payload(data: dict):
 
 @app.route('/api/spawner/status')
 def api_spawner_status():
-    """Get spawner status."""
-    return jsonify(get_spawner_status())
+    """Spawner controls are disabled under golden-path enforcement."""
+    return jsonify({
+        'running': False,
+        'paused': False,
+        'pid': None,
+        'config': None,
+        'golden_path_only': True,
+        'message': 'Golden path enforced: run queue tasks through worker.py.'
+    })
 
 
 @app.route('/api/spawner/start', methods=['POST'])
 def api_start_spawner():
-    """Start the spawner process."""
-    import subprocess
-    import sys
-
-    status = get_spawner_status()
-    if status['running']:
-        return jsonify({'success': False, 'error': 'Spawner already running', 'pid': status['pid']})
-
-    data = request.json or {}
-    try:
-        sanitized = _sanitize_spawner_start_payload(data)
-    except ValueError as exc:
-        return jsonify({'success': False, 'error': str(exc)}), 400
-
-    sessions = sanitized["sessions"]
-    auto_scale = sanitized["auto_scale"]
-    budget_limit = sanitized["budget_limit"]
-    model = sanitized["model"]
-
-    # Save config
-    config = {
-        'sessions': sessions,
-        'auto_scale': auto_scale,
-        'budget_limit': budget_limit,
-        'model': model
-    }
-    save_spawner_config(config)
-
-    # Check if it's Sunday - rest day!
-    if datetime.now().weekday() == 6:  # Sunday
-        return jsonify({
-            'success': False,
-            'error': 'Sunday is rest day! The swarm gets the day off. Try again Monday.',
-            'rest_day': True
-        })
-
-    # Clear any halt/pause files
-    halt_file = WORKSPACE / "HALT"
-    pause_file = WORKSPACE / "PAUSE"
-    if halt_file.exists():
-        halt_file.unlink()
-    if pause_file.exists():
-        pause_file.unlink()
-
-    # Start spawner process
-    try:
-        spawner_script = CODE_ROOT / "cycle_runner.py"
-        if not spawner_script.exists():
-            return jsonify({'success': False, 'error': 'Cycle runner script not found'})
-
-        # Build command
-        cmd = [
-            sys.executable,
-            str(spawner_script),
-            '--sessions', str(sessions),
-            '--budget', str(budget_limit / sessions),  # Per-session budget
-            '--workspace', str(WORKSPACE),
-            '--model', model
-        ]
-
-        # Start process (detached on Windows)
-        process = subprocess.Popen(
-            cmd,
-            cwd=str(CODE_ROOT),
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-
-        save_spawner_process(process.pid, True, config)
-        socketio.emit('spawner_started', {'pid': process.pid})
-
-        return jsonify({'success': True, 'pid': process.pid})
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    """Spawner controls are disabled under golden-path enforcement."""
+    return jsonify({
+        'success': False,
+        'golden_path_only': True,
+        'error': 'Detached spawner path is disabled. Use queue.json + worker.py run.'
+    }), 410
 
 
 @app.route('/api/spawner/pause', methods=['POST'])
 def api_pause_spawner():
-    """Pause the spawner (creates PAUSE file)."""
-    try:
-        from safety_killswitch import KillSwitch
-        ks = KillSwitch(str(WORKSPACE))
-        ks.pause_all("Paused from control panel")
-        socketio.emit('spawner_paused')
-        return jsonify({'success': True})
-    except Exception as e:
-        # Fallback: create pause file directly
-        pause_file = WORKSPACE / "PAUSE"
-        pause_file.write_text(json.dumps({
-            'paused': True,
-            'timestamp': datetime.now().isoformat(),
-            'reason': 'Paused from control panel'
-        }, indent=2))
-        return jsonify({'success': True})
+    """Spawner controls are disabled under golden-path enforcement."""
+    return jsonify({
+        'success': False,
+        'golden_path_only': True,
+        'error': 'Detached spawner path is disabled. Use runtime safety controls only.'
+    }), 410
 
 
 @app.route('/api/spawner/resume', methods=['POST'])
 def api_resume_spawner():
-    """Resume the spawner (removes PAUSE file)."""
-    try:
-        from safety_killswitch import KillSwitch
-        ks = KillSwitch(str(WORKSPACE))
-        ks.resume()
-        socketio.emit('spawner_resumed')
-        return jsonify({'success': True})
-    except Exception as e:
-        # Fallback: remove pause file directly
-        pause_file = WORKSPACE / "PAUSE"
-        if pause_file.exists():
-            pause_file.unlink()
-        return jsonify({'success': True})
+    """Spawner controls are disabled under golden-path enforcement."""
+    return jsonify({
+        'success': False,
+        'golden_path_only': True,
+        'error': 'Detached spawner path is disabled. Use runtime safety controls only.'
+    }), 410
 
 
 @app.route('/api/spawner/kill', methods=['POST'])
 def api_kill_spawner():
-    """Kill the spawner process."""
-    import subprocess
-
-    status = get_spawner_status()
-    pid = status.get('pid')
-
-    # Create HALT file as backup
-    halt_file = WORKSPACE / "HALT"
-    halt_file.write_text(json.dumps({
-        'halted': True,
-        'timestamp': datetime.now().isoformat(),
-        'reason': 'Emergency stop from control panel'
-    }, indent=2))
-
-    if pid:
-        try:
-            # Windows: taskkill
-            if os.name == 'nt':
-                subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True)
-            else:
-                # Unix: kill
-                subprocess.run(['kill', '-9', str(pid)], capture_output=True)
-        except Exception as e:
-            print(f"Error killing process {pid}: {e}")
-
-    # Update process file
-    save_spawner_process(pid, False)
-    socketio.emit('spawner_killed')
-
-    return jsonify({'success': True, 'killed_pid': pid})
+    """Spawner controls are disabled under golden-path enforcement."""
+    return jsonify({
+        'success': False,
+        'golden_path_only': True,
+        'error': 'Detached spawner path is disabled. Use runtime safety controls only.'
+    }), 410
 
 
 @app.route('/api/spawner/config', methods=['POST'])
 def api_update_spawner_config():
-    """Update spawner configuration."""
-    data = request.json or {}
-    try:
-        config = _sanitize_spawner_start_payload(data)
-    except ValueError as exc:
-        return jsonify({'success': False, 'error': str(exc)}), 400
-    save_spawner_config(config)
-    socketio.emit('config_updated', config)
-    return jsonify({'success': True, 'config': config})
+    """Spawner controls are disabled under golden-path enforcement."""
+    return jsonify({
+        'success': False,
+        'golden_path_only': True,
+        'error': 'Detached spawner path is disabled. Configuration updates are ignored.'
+    }), 410
 
 
 # Human request storage

@@ -11,6 +11,12 @@ from .math_utils import (
     softmax,
     weighted_average,
 )
+from .world_physics import (
+    DEFAULT_WORLD_CONTROLS,
+    SWARM_WORLD_PHYSICS,
+    SwarmWorldControls,
+    SwarmWorldPhysics,
+)
 
 __all__ = [
     "cosine_similarity_vectors",
@@ -22,5 +28,9 @@ __all__ = [
     "exponential_decay",
     "sigmoid",
     "softmax",
+    "SwarmWorldPhysics",
+    "SwarmWorldControls",
+    "SWARM_WORLD_PHYSICS",
+    "DEFAULT_WORLD_CONTROLS",
 ]
 

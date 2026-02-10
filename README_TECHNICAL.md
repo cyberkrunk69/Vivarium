@@ -15,10 +15,9 @@ Vivarium is a multi-agent AI orchestration system with persistent identity, toke
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    VOLUNTEER POOL                               │
-│         (grind_spawner_unified.py is optional)                  │
-│   Residents can also join directly via resident runtime         │
-│   (worker.py run)                                              │
+│                    RESIDENT RUNTIME                              │
+│        Canonical execution path: worker.py + swarm.py           │
+│        Control plane remains in control_panel.py                │
 └─────────────────────────────────────────────────────────────────┘
                                │
            ┌───────────────────┼───────────────────┐
@@ -139,24 +138,23 @@ for personal gain breaks system reality and is not allowed.
 - Attempt cost and refund curve (`JOURNAL_ATTEMPT_COST`, `JOURNAL_MIN_REFUND_RATE`,
   `JOURNAL_MAX_REFUND_RATE`, `JOURNAL_MAX_BONUS_RATE`, `JOURNAL_BONUS_CURVE`)
 
-### 3. Grind Spawner (`grind_spawner_unified.py`)
+### 3. World Physics (`physics/world_physics.py`)
 
-Session orchestration with automatic model selection.
+Defines swarm-simulation world invariants and control knobs.
 
-**Auto-Model Selection:**
-```python
-def auto_select_model(complexity_score: float, complexity_level: str) -> str:
-    if complexity_score < 0.3 or complexity_level == "simple":
-        return "llama-3.1-8b-instant"      # Fast, cheap
-    if complexity_score > 0.7 or complexity_level == "complex":
-        return "deepseek-r1-distill-llama-70b"  # Reasoning
-    return "llama-3.3-70b-versatile"        # Standard
-```
+**Immutable invariants include:**
+- State layout and required directories
+- Queue/manifest/event-log filenames
+- Queue contract version and execution status vocabulary
 
-**Task Decomposition:**
-- Analyzes task complexity (0.0-1.0 score)
-- Determines hat chain (STRATEGIST hat → CODER hat → REVIEWER hat)
-- Injects identity context, morning messages, Sunday status
+**Control surface includes:**
+- Max queue length
+- Max instruction size
+- Max metadata size/key count
+- Max result payload size
+
+These values are consumed by `swarm_environment/fresh_environment.py` and
+materialized into fresh environment manifests.
 
 ### 4. Control Panel (`control_panel.py`)
 
@@ -173,9 +171,6 @@ GET  /api/chatrooms             # List discussion rooms
 GET  /api/chatrooms/<room>      # Get room messages
 GET  /api/bounties              # Active bounties
 POST /api/bounties              # Create bounty
-POST /api/spawner/start         # Start spawner process
-POST /api/spawner/pause         # Pause (day break)
-POST /api/spawner/kill          # Emergency stop
 POST /api/human_request         # Set collaboration request
 GET  /api/artifact/view         # View file contents
 ```
@@ -183,7 +178,6 @@ GET  /api/artifact/view         # View file contents
 **WebSocket Events:**
 - `log_entry`: Real-time action log streaming
 - `identities`: Periodic identity updates
-- `spawner_*`: Spawner state changes
 
 ### 5. Safety Systems
 
@@ -248,10 +242,11 @@ Vivarium/
 │   ├── free_time_balances.json # Token balances
 │   ├── human_request.json      # Current collaboration request
 │   ├── messages_to_human.jsonl # Resident → human messages
-│   ├── spawner_config.json     # Spawner configuration
-│   └── spawner_process.json    # Running process info
+│   └── phase5_reward_ledger.json # Reward idempotency ledger
 ├── control_panel.py            # Web UI server
-├── grind_spawner_unified.py    # Volunteer pool launcher (optional)
+├── worker.py                   # Canonical resident runtime
+├── swarm.py                    # Canonical execution API
+├── runtime_contract.py         # Canonical queue/status contract
 ├── swarm_identity.py           # Identity management
 ├── swarm_enrichment.py         # Token economy
 ├── swarm_discussion.py         # Chat system
@@ -261,17 +256,6 @@ Vivarium/
 ```
 
 ## Configuration
-
-**Spawner Config (`.swarm/spawner_config.json`):**
-```json
-{
-    "sessions": 3,
-    "auto_scale": false,
-    "budget_limit": 1.00,
-    "model": "llama-3.3-70b-versatile",
-    "auto_model": true
-}
-```
 
 **Environment:**
 - Groq API for LLM inference
@@ -287,8 +271,6 @@ python control_panel.py
 
 # Start resident runtimes (via control panel or CLI)
 python worker.py run
-# Optional: start spawner (convenience launcher)
-python grind_spawner_unified.py --task "Your task" --budget 0.10 --sessions 3
 ```
 
 ## Design Principles

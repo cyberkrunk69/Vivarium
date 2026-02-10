@@ -1,28 +1,27 @@
 # Repository Structure
 
-This repository has been reorganized to isolate legacy code and keep a clean
-surface for new swarm/runtime work.
+This repository is organized around a strict golden runtime path.
 
 ## Top-level domains
 
 - `physics/`
-  - Shared mathematical primitives (`math_utils.py`).
-- `legacy_code/`
-  - Archived generated artifacts and non-canonical leftovers.
-- `legacy_swarm_gen/`
-  - Legacy swarm generation/spawner/orchestrator scripts.
+  - Swarm-world invariants and control surface (`world_physics.py`) plus
+    shared math primitives.
 - `swarm_environment/`
   - Fresh, isolated environment API for new swarm interaction.
+- `vivarium/world/`
+  - Persistent world state roots for runtime-controlled mutable/fresh spaces.
 
-## Compatibility policy
+## Golden path policy
 
-Root-level compatibility shims are preserved for major historical module names
-(`grind_spawner.py`, `grind_spawner_unified.py`, `spawn_opus.py`, etc.) so
-existing tooling can keep running during transition.
+Canonical runtime execution is:
+`worker.py` + `swarm.py` + `control_panel.py`
+
+No optional detached runner path is considered canonical for production flow.
 
 ## New work policy
 
 - New runtime features should target `swarm_environment/` and canonical runtime
   entrypoints (`worker.py`, `swarm.py`).
-- Legacy fixes only should go under `legacy_swarm_gen/` or `legacy_code/`.
+- New constraints and controls should be expressed in `physics/world_physics.py`.
 

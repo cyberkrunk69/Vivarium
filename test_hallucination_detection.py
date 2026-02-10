@@ -14,7 +14,7 @@ import hashlib
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from grind_spawner import verify_grind_completion
+from legacy_swarm_gen.grind_spawner import verify_grind_completion
 from tool_operation_logger import log_hallucination_detection
 
 def test_session_2_hallucination():

@@ -12,7 +12,7 @@ import os
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from grind_spawner import verify_grind_completion
+from legacy_swarm_gen.grind_spawner import verify_grind_completion
 from critic import CriticAgent
 from logger import json_log
 

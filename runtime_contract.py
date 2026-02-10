@@ -10,26 +10,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-QUEUE_CONTRACT_VERSION = "1.1"
+from physics import SWARM_WORLD_PHYSICS
+
+QUEUE_CONTRACT_VERSION = SWARM_WORLD_PHYSICS.queue_contract_version
 DEFAULT_API_ENDPOINT = "http://127.0.0.1:8420"
 
-KNOWN_EXECUTION_STATUSES = {
-    "queued",
-    "in_progress",
-    "completed",
-    "failed",
-    "pending_review",
-    "approved",
-    "requeue",
-    "needs_qa",
-    "needs_integration",
-    "needs_e2e",
-    "ready_for_merge",
-    "subtask_started",
-    "subtask_completed",
-    "subtask_failed",
-    "safety_blocked",
-}
+KNOWN_EXECUTION_STATUSES = set(SWARM_WORLD_PHYSICS.known_execution_statuses)
 
 
 def normalize_task(task: Dict[str, Any]) -> Dict[str, Any]:

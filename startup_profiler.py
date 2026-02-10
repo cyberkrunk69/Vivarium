@@ -170,7 +170,7 @@ def profile_startup():
 
         with timer("Demonstration collection (cached)"):
             try:
-                from grind_spawner import StartupCache
+                from legacy_swarm_gen.grind_spawner import StartupCache
                 cache = StartupCache(cache_dir)
                 cached_demos = cache.get_cached("demonstrations", workspace)
                 if cached_demos:

@@ -31,13 +31,11 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 2. `swarm.py` - `/cycle` execution API (`llm` + `local`), `/plan`, `/status`
 3. `control_panel.py` - human control and observability surface
 
-## Explicitly non-canonical (experimental)
+## Enforcement
 
-- `swarm_orchestrator_v2.py`
-- `worker_pool.py`
-
-These files are not part of the production import path and should be treated as
-experimental until repaired and re-validated.
+- Detached/alternate runners are not part of the supported production flow.
+- Control-panel spawner lifecycle endpoints are disabled in golden-path mode.
+- Queue execution must enter through `worker.py` against `queue.json`.
 
 ## Task/event contract
 
@@ -66,7 +64,7 @@ experimental until repaired and re-validated.
 ## Known caveats in this path
 
 - `/cycle` and `/plan` are now loopback-only and require the internal execution token; intended human operation is via localhost control panel.
-- `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental and are not in the canonical import path.
+- `worker_pool.py` remains experimental and is not in the canonical import path.
 
 ## Safety and budget guarantees in this path
 

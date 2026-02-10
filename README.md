@@ -17,15 +17,13 @@ Today, the repo is in an "implemented core + partially wired vision" state. This
 
 ## Repository structure (cleanup pass)
 
-To reduce root-level sprawl and separate old paths from new ones:
+This repo now follows a strict golden-path policy:
+- **only canonical runtime execution is supported**
+- **no optional detached runner paths**
+- **no compatibility entrypoint surface at root**
 
-- `physics/` - shared math/physics primitives (`math_utils.py` migrated here)
-- `legacy_code/` - archived/generated legacy artifacts (`extracted_code/*`)
-- `legacy_swarm_gen/` - old swarm-generation and spawner/orchestrator scripts
+- `physics/` - swarm-world invariants + control surface (`world_physics.py`) and shared math utils
 - `swarm_environment/` - fresh environment API for new swarm interaction loops
-
-Compatibility shims remain at the old root paths for key legacy entrypoints so
-existing scripts do not immediately break while migration continues.
 
 ---
 
@@ -86,9 +84,6 @@ flowchart LR
 
     CP[control_panel.py<br/>Flask + Socket.IO] --> SW[.swarm/* state]
     CP --> AL[action_log.jsonl]
-    CP --> SP[cycle_runner.py<br/>optional detached cycle runner]
-    SP --> IE[inference_engine.py]
-    IE --> G
 ```
 
 ---
@@ -96,7 +91,7 @@ flowchart LR
 ## Known gaps (active)
 
 - Direct human-triggered `/cycle` execution is now blocked by loopback + internal-token enforcement; the intended human entrypoint is the localhost control panel.
-- `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental/non-canonical until repaired and re-validated.
+- `worker_pool.py` remains experimental/non-canonical until repaired and re-validated.
 - Phase 6 and Phase 7 outcomes are still roadmap items, not runtime defaults.
 
 ---
@@ -113,7 +108,7 @@ Short version of build order:
 
 1. **Canonicalize the runtime path**
    - Make `worker.py + swarm.py + control_panel.py` the explicit source of truth.
-   - Quarantine or repair legacy/broken orchestration remnants.
+   - Quarantine or repair non-canonical orchestration remnants.
 2. **Wire hard safety gates into execution**
    - Enforce `safety_gateway` + `secure_api_wrapper` on actual task execution paths, not only tests/startup scripts.
 3. **Wire quality gates post-execution**
@@ -124,8 +119,8 @@ Short version of build order:
    - Integrate intent gatekeeping and deterministic decomposition into the canonical queue flow.
 6. **Deepen identity + governance loops**
    - Keep social/economic systems first-class but auditable, with explicit APIs and invariants.
-7. **Reintroduce optional networked collaboration**
-   - Bring back LAN/multi-user/vision dashboard capabilities behind safety boundaries.
+7. **Harden guarded collaboration surfaces**
+   - Reintroduce LAN/multi-user/vision capabilities only behind explicit safety boundaries.
 8. **Autonomy with explicit human checkpoints**
    - Enable continuous self-improvement loops with review gates and rollback controls.
 
@@ -157,7 +152,7 @@ Historical code-quality signal worth acting on:
 - Canonical `worker.py` now runs tool-first routing before LLM dispatch and logs routing metadata (`tool_route`, `tool_name`, `tool_confidence`).
 - Canonical `worker.py` now performs deterministic Phase 4 intent/decomposition planning for complex prompts, compiling dependency-aware subtasks into `queue.json` before parent execution.
 - Canonical `worker.py` now includes an initial Phase 5 hook: approved under-budget tasks can grant auditable identity rewards via `swarm_enrichment`, with idempotent task+identity reward grants recorded in `.swarm/phase5_reward_ledger.json`.
-- `swarm_orchestrator_v2.py` and `worker_pool.py` currently contain legacy/generated fragments and are not safe as production orchestration entrypoints.
+- `worker_pool.py` currently contains generated fragments and is not safe as a production orchestration entrypoint.
 
 The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 
@@ -184,16 +179,11 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 2. It asks Groq for 3-5 suggested improvements.
 3. It writes a new `queue.json`.
 
-### C) Control panel + spawner flow (optional)
+### C) Control panel flow
 
 1. `control_panel.py` serves UI on `:8421` and streams `action_log.jsonl`.
-2. Start/pause/kill actions manage `HALT` / `PAUSE` files and `.swarm/spawner_process.json`.
-3. `cycle_runner.py` runs cycle tasks from:
-   - `--task "..."`, or
-   - `cycle_tasks.json` (default tasks file).
-4. Spawner uses `inference_engine.py` and can save `<artifact ...>` outputs to disk.
-
-> Important: the spawner path is separate from `queue.json` by default.
+2. Human request and identity collaboration APIs write/read `.swarm/*` state.
+3. Runtime execution remains queue-driven through `worker.py` + `swarm.py`.
 
 ---
 
@@ -203,11 +193,10 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 | --- | --- |
 | `swarm.py` | FastAPI execution API (`/cycle`, `/plan`, `/status`) |
 | `worker.py` | Resident runtime: queue polling, lock protocol, task execution, event logging |
-| `control_panel.py` | Web UI + API for monitoring, identities, bounties, chatrooms, spawner control |
-| `cycle_runner.py` | Optional detached cycle runner using `inference_engine.py` |
+| `control_panel.py` | Web UI + API for monitoring, identities, bounties, and chatrooms |
 | `resident_onboarding.py` | Identity selection, cycle/day tracking, resident context injection |
 | `swarm_enrichment.py` | Token economy, journals, guild voting, disputes, bounty reward distribution |
-| `orchestrator.py` | Legacy compatibility wrapper around multiple worker processes |
+| `runtime_contract.py` | Canonical queue/task normalization and execution status vocabulary |
 
 ---
 
@@ -215,7 +204,7 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 
 | Path | Writer(s) | Purpose |
 | --- | --- | --- |
-| `queue.json` | `worker.py add`, `swarm.py /plan`, legacy orchestrator | Shared task queue |
+| `queue.json` | `worker.py add`, `swarm.py /plan` | Shared task queue |
 | `task_locks/*.lock` | `worker.py` | Atomic lock files to prevent duplicate task pickup |
 | `execution_log.jsonl` | `worker.py` | Task lifecycle events (`in_progress`, `completed`, `failed`, subtasks) |
 | `action_log.jsonl` + `action_log.log` | `action_logger.py` consumers | Human-readable and structured activity stream |
@@ -226,7 +215,7 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 | `.swarm/discussions/*.jsonl` | social/dispute systems | Chatroom history |
 | `.swarm/messages_to_human.jsonl` | resident social systems | Resident-to-human message queue |
 | `.swarm/messages_from_human.json` | control panel | Human responses |
-| `HALT`, `PAUSE` | control panel, kill switch, spawner | Emergency stop / pause controls |
+| `HALT`, `PAUSE` | kill switch / runtime safety | Emergency stop / pause controls |
 | `library/creative_works/*` | `swarm_enrichment.py` | Resident-generated creative artifacts |
 
 Most `.swarm/*` content is runtime-generated.
@@ -265,7 +254,7 @@ Task fields recognized by current runtime include:
 - `mode` (`llm` or `local`)
 - `depends_on`
 - `model` (validated against `config.py` whitelist)
-- optional decomposition/delegation hints (`decompose`, `delegate`, `max_subtasks`, `subtask_parallelism`)
+- decomposition hints (`decompose`, `max_subtasks`, `subtask_parallelism`)
 
 ---
 
@@ -281,7 +270,6 @@ Task fields recognized by current runtime include:
 
 Notable route groups:
 - identities and profile views
-- spawner lifecycle (`/api/spawner/*`)
 - human message request/response APIs
 - bounty CRUD, submissions, and completion
 - artifact viewer/listing
@@ -346,20 +334,6 @@ Note: control panel access is localhost-only by default (`127.0.0.1` / `localhos
 One-click script:
 - macOS/Linux: `./one_click_server.sh`
 - Windows: `one_click_server.bat`
-
-### 3) Optional detached spawner run
-
-```bash
-python cycle_runner.py --task "Refactor config loading" --sessions 3 --budget 0.30
-```
-
-Or populate `cycle_tasks.json` and run in delegate mode:
-
-```bash
-python cycle_runner.py --delegate --sessions 3 --budget 1.00
-```
-
----
 
 ## Notes
 
