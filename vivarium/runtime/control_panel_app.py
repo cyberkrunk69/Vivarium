@@ -8,7 +8,7 @@ A clean UI for:
 - Identity status overview
 - Budget/cost monitoring
 
-Run: python control_panel.py
+Run: python -m vivarium.runtime.control_panel_app
 Open: http://localhost:8421
 """
 
@@ -1258,7 +1258,7 @@ CONTROL_PANEL_HTML = '''
 
         // Spawner state
         let spawnerState = { running: false, paused: false, pid: null };
-        const GOLDEN_PATH_NOTICE = 'Golden path enforced: run tasks via queue + worker.py only.';
+        const GOLDEN_PATH_NOTICE = 'Golden path enforced: run tasks via queue + vivarium.runtime.worker_runtime only.';
 
         function showGoldenPathOnlyNotice() {
             alert(GOLDEN_PATH_NOTICE);
@@ -2475,7 +2475,7 @@ def api_spawner_status():
         'pid': None,
         'config': None,
         'golden_path_only': True,
-        'message': 'Golden path enforced: run queue tasks through worker.py.'
+        'message': 'Golden path enforced: run queue tasks through vivarium.runtime.worker_runtime.'
     })
 
 
@@ -2485,7 +2485,7 @@ def api_start_spawner():
     return jsonify({
         'success': False,
         'golden_path_only': True,
-        'error': 'Detached spawner path is disabled. Use queue.json + worker.py run.'
+        'error': 'Detached spawner path is disabled. Use queue.json + python -m vivarium.runtime.worker_runtime run.'
     }), 410
 
 

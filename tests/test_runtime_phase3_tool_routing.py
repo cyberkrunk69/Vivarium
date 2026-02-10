@@ -6,7 +6,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from vivarium.runtime import tool_router
-import worker
+from vivarium.runtime import worker_runtime as worker
 from vivarium.skills.skill_registry import compose_skills, register_skill
 
 

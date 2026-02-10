@@ -21,11 +21,11 @@ vivarium/
 
 ## Enforcement points
 
-- `swarm.py` local command execution:
+- `vivarium/runtime/swarm_api.py` local command execution:
   - uses `vivarium/world/mutable` as working directory
   - validates command/path tokens to prevent scope escape
   - allows Git network remotes only for approved hosts
-- `worker.py`:
+- `vivarium/runtime/worker_runtime.py`:
   - reads queue/locks from mutable scope
   - writes execution logs in `vivarium/meta/audit`
   - auto-checkpoints mutable changes into a dedicated mutable-scope Git repo

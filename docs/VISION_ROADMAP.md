@@ -29,8 +29,8 @@ Cross-repo archaeology and anomaly evidence are tracked in `./CROSS_REPO_TIMELIN
 
 ## Current hard truths (from code + history)
 
-- Canonical runtime exists (`worker.py` + `swarm.py` + `control_panel.py`), but several advanced modules are not wired into that path.
-- `tool_router.py` now imports cleanly against `vivarium/skills/skill_registry.py`, and `worker.py` now adds first-pass Phase 4 intent capture + deterministic decomposition for complex prompts.
+- Canonical runtime exists (`vivarium/runtime/worker_runtime.py` + `vivarium/runtime/swarm_api.py` + `vivarium/runtime/control_panel_app.py`), but several advanced modules are not wired into that path.
+- `tool_router.py` now imports cleanly against `vivarium/skills/skill_registry.py`, and `worker_runtime.py` now adds first-pass Phase 4 intent capture + deterministic decomposition for complex prompts.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` are present but currently not reliable production orchestration code.
 - `quality_gates.py`, `safety_gateway.py`, and `secure_api_wrapper.py` exist and are tested, but not hard-wired into default task execution.
 - Major docs/features were removed in purge commit `4428452`, with a backup snapshot in `5b6a0b6`.
@@ -46,7 +46,7 @@ Cross-repo archaeology and anomaly evidence are tracked in `./CROSS_REPO_TIMELIN
 **Goal:** remove ambiguity in what production path means.
 
 ### Build / wire
-- Officially declare `worker.py + swarm.py + control_panel.py` as canonical runtime.
+- Officially declare `vivarium/runtime/{worker_runtime.py, swarm_api.py, control_panel_app.py}` as canonical runtime.
 - Mark `swarm_orchestrator_v2.py` and `worker_pool.py` as experimental/dead until repaired.
 - Define one task/event contract (`queue.json` schema + `execution_log.jsonl` events).
 

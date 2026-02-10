@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import worker
+from vivarium.runtime import worker_runtime as worker
 from vivarium.runtime.quality_gates import QualityGateManager
 from vivarium.runtime.runtime_contract import KNOWN_EXECUTION_STATUSES
 from vivarium.runtime.task_verifier import VerificationResult, Verdict

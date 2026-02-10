@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import swarm
-import worker
+from vivarium.runtime import swarm_api as swarm
+from vivarium.runtime import worker_runtime as worker
 from vivarium.runtime.runtime_contract import normalize_queue, validate_queue_contract
 from vivarium.runtime.safety_gateway import SafetyGateway
 

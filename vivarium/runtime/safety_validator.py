@@ -368,10 +368,11 @@ def validate_critical_files() -> List[ValidationResult]:
         List of validation results for files with errors
     """
     critical_files = [
-        "grind_spawner_unified.py",
-        "inference_engine.py",
-        "groq_client.py",
-        "safety_validator.py",
+        "vivarium/runtime/worker_runtime.py",
+        "vivarium/runtime/swarm_api.py",
+        "vivarium/runtime/inference_engine.py",
+        "vivarium/runtime/groq_client.py",
+        "vivarium/runtime/safety_validator.py",
     ]
 
     validator = SyntaxValidator()

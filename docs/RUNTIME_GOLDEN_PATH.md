@@ -11,7 +11,7 @@ Operational framing uses compressed human timescales:
 
 | Runtime layer | Status | Notes |
 | --- | --- | --- |
-| Phase 0 - canonical runtime path | Implemented | Root entrypoints (`worker.py + swarm.py + control_panel.py`) delegate to canonical runtime modules under `vivarium/runtime/`. |
+| Phase 0 - canonical runtime path | Implemented | Canonical runtime entrypoints live under `vivarium/runtime/` (`worker_runtime.py`, `swarm_api.py`, `control_panel_app.py`). |
 | Phase 1 - safety preflight | Implemented | Worker dispatch calls `SafetyGateway.pre_execute_safety_check(...)` before execution. |
 | Phase 2 - post-execution quality review | Implemented | Critic/quality lifecycle emits `pending_review`, then `approved` or `requeue`/`failed`. |
 | Phase 3 - tool-first routing | Implemented | Prompt tasks route through `tool_router` before standard `/cycle` LLM dispatch. |
@@ -27,22 +27,22 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 
 ## Canonical runtime entrypoints
 
-1. `worker.py` (shim) -> `vivarium/runtime/worker_runtime.py` (queue polling, dependency checks, lock acquisition, execution event logging)
-2. `swarm.py` (shim) -> `vivarium/runtime/swarm_api.py` (`/cycle` execution API, `/plan`, `/status`)
-3. `control_panel.py` (shim) -> `vivarium/runtime/control_panel_app.py` (human control and observability surface)
+1. `vivarium/runtime/worker_runtime.py` - queue polling, dependency checks, lock acquisition, execution event logging
+2. `vivarium/runtime/swarm_api.py` - `/cycle` execution API (`llm` + `local`), `/plan`, `/status`
+3. `vivarium/runtime/control_panel_app.py` - human control and observability surface
 
 ## Enforcement
 
 - Detached/alternate runners are not part of the supported production flow.
 - Control-panel spawner lifecycle endpoints are disabled in golden-path mode.
-- Queue execution must enter through `worker.py` against `queue.json`.
+- Queue execution must enter through `python -m vivarium.runtime.worker_runtime` against `queue.json`.
 
 ## Task/event contract
 
 - Queue contract is normalized via `vivarium/runtime/runtime_contract.py`:
   - required top-level keys: `version`, `api_endpoint`, `tasks`, `completed`, `failed`
   - task defaults: `type=cycle`, `depends_on=[]`, `parallel_safe=true`, `status=pending`
-- Execution events are appended to `execution_log.jsonl` from `worker.py` and use
+- Execution events are appended to `execution_log.jsonl` from `worker_runtime.py` and use
   the canonical status vocabulary in
   `vivarium/runtime/runtime_contract.KNOWN_EXECUTION_STATUSES`.
 - Post-execution review lifecycle is now explicit in the worker path:
@@ -71,8 +71,8 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 ## Safety and budget guarantees in this path
 
 - Worker preflight safety: `SafetyGateway.pre_execute_safety_check(...)` is called
-  before task dispatch in `worker.py`.
-- API safety defense-in-depth: `/cycle` runs safety checks again in `swarm.py`.
+  before task dispatch in `worker_runtime.py`.
+- API safety defense-in-depth: `/cycle` runs safety checks again in `swarm_api.py`.
 - LLM calls route through `SecureAPIWrapper` for:
   - rate limiting
   - budget enforcement
@@ -82,6 +82,6 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 ## Smoke checks
 
 ```bash
-python3 -m py_compile worker.py swarm.py control_panel.py vivarium/runtime/runtime_contract.py
+python3 -m py_compile vivarium/runtime/worker_runtime.py vivarium/runtime/swarm_api.py vivarium/runtime/control_panel_app.py vivarium/runtime/runtime_contract.py
 python3 -m pytest -q tests/test_runtime_phase0_phase1.py tests/test_runtime_phase2_quality_review.py tests/test_runtime_phase3_tool_routing.py tests/test_runtime_phase4_intent_decomposition.py
 ```

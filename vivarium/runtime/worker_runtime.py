@@ -1946,8 +1946,8 @@ if __name__ == "__main__":
                     sys.exit(1)
             else:
                 print("Usage:")
-                print("  python worker.py run [max_iterations]  - Start resident runtime")
-                print("  python worker.py add <id> <instruction> [deps]  - Add task")
+                print("  python -m vivarium.runtime.worker_runtime run [max_iterations]  - Start resident runtime")
+                print("  python -m vivarium.runtime.worker_runtime add <id> <instruction> [deps]  - Add task")
                 sys.exit(1)
         else:
             worker_loop()

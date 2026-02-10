@@ -20,11 +20,11 @@ Today, the repo is in an "implemented core + partially wired vision" state. This
 This repo now follows a strict golden-path policy:
 - **only canonical runtime execution is supported**
 - **no optional detached runner paths**
-- **thin root entrypoint shims map to runtime package modules**
+- **runtime entrypoints live under `vivarium/runtime/`**
 
 - `vivarium/physics/` - swarm-world invariants + control surface (`world_physics.py`) and shared math utils
 - `vivarium/swarm_environment/` - fresh environment API for new swarm interaction loops
-- `vivarium/runtime/` - canonical runtime implementations (root entrypoints delegate to these modules)
+- `vivarium/runtime/` - canonical runtime implementations and entrypoints
 - `docs/` - roadmap, architecture notes, and operational playbooks
 
 ---
@@ -33,7 +33,7 @@ This repo now follows a strict golden-path policy:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Phase 0 - Canonical runtime | Implemented | Root entrypoints (`worker.py + swarm.py + control_panel.py`) delegate to canonical runtime modules under `vivarium/runtime/`. |
+| Phase 0 - Canonical runtime | Implemented | Canonical runtime entrypoints live under `vivarium/runtime/` (`worker_runtime.py`, `swarm_api.py`, `control_panel_app.py`). |
 | Phase 1 - Safety gating | Implemented in worker path | Worker preflight safety checks run before task dispatch. |
 | Phase 2 - Quality/critic lifecycle | Implemented | Post-execution review transitions include `pending_review`, `approved`, `requeue`, and `failed`. |
 | Phase 3 - Tool-first compounding | Implemented | Tool routing runs before LLM dispatch and logs route metadata. |
@@ -78,13 +78,13 @@ More results to come tomorrow (2026-02-10).
 ```mermaid
 flowchart LR
     H[Human or script] --> Q[queue.json]
-    W[worker.py<br/>resident runtime] -->|poll + lock| Q
-    W -->|POST /cycle| API[swarm.py<br/>FastAPI]
+    W[vivarium.runtime.worker_runtime<br/>resident runtime] -->|poll + lock| Q
+    W -->|POST /cycle| API[vivarium.runtime.swarm_api<br/>FastAPI]
     API -->|mode=llm| G[Groq API]
     API -->|mode=local| L[Local subprocess<br/>cwd=/workspace]
     W --> EX[execution_log.jsonl]
 
-    CP[control_panel.py<br/>Flask + Socket.IO] --> SW[.swarm/* state]
+    CP[vivarium.runtime.control_panel_app<br/>Flask + Socket.IO] --> SW[.swarm/* state]
     CP --> AL[action_log.jsonl]
 ```
 
@@ -151,9 +151,9 @@ Important artifacts that existed in history but are absent now:
 Historical code-quality signal worth acting on:
 
 - `tool_router.py` expects `SkillRegistry`, `retrieve_skill`, `compose_skills` (now restored in `vivarium/skills/skill_registry.py`).
-- Canonical `worker.py` now runs tool-first routing before LLM dispatch and logs routing metadata (`tool_route`, `tool_name`, `tool_confidence`).
-- Canonical `worker.py` now performs deterministic Phase 4 intent/decomposition planning for complex prompts, compiling dependency-aware subtasks into `queue.json` before parent execution.
-- Canonical `worker.py` now includes an initial Phase 5 hook: approved under-budget tasks can grant auditable identity rewards via `swarm_enrichment`, with idempotent task+identity reward grants recorded in `.swarm/phase5_reward_ledger.json`.
+- Canonical `worker_runtime.py` now runs tool-first routing before LLM dispatch and logs routing metadata (`tool_route`, `tool_name`, `tool_confidence`).
+- Canonical `worker_runtime.py` now performs deterministic Phase 4 intent/decomposition planning for complex prompts, compiling dependency-aware subtasks into `queue.json` before parent execution.
+- Canonical `worker_runtime.py` now includes an initial Phase 5 hook: approved under-budget tasks can grant auditable identity rewards via `swarm_enrichment`, with idempotent task+identity reward grants recorded in `.swarm/phase5_reward_ledger.json`.
 - `worker_pool.py` currently contains generated fragments and is not safe as a production orchestration entrypoint.
 
 The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
@@ -165,11 +165,11 @@ The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
 ### A) Queue-driven execution flow (default)
 
 1. Tasks are added to `queue.json` (CLI or manual edit).
-2. One or more `worker.py run` processes:
+2. One or more `python -m vivarium.runtime.worker_runtime run` processes:
    - scan available tasks,
    - enforce dependency checks,
    - acquire `task_locks/<task_id>.lock`.
-3. Worker sends each task to `POST /cycle` in `swarm.py`.
+3. Worker sends each task to `POST /cycle` in `vivarium/runtime/swarm_api.py`.
 4. `/cycle` executes either:
    - **LLM mode**: Groq chat completions.
    - **Local mode**: shell command in the workspace.
@@ -183,9 +183,9 @@ The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
 
 ### C) Control panel flow
 
-1. `control_panel.py` serves UI on `:8421` and streams `action_log.jsonl`.
+1. `vivarium/runtime/control_panel_app.py` serves UI on `:8421` and streams `action_log.jsonl`.
 2. Human request and identity collaboration APIs write/read `.swarm/*` state.
-3. Runtime execution remains queue-driven through `worker.py` + `swarm.py`.
+3. Runtime execution remains queue-driven through `worker_runtime.py` + `swarm_api.py`.
 
 ---
 
@@ -193,9 +193,6 @@ The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
 
 | File | Role |
 | --- | --- |
-| `swarm.py` | Root shim for canonical FastAPI API module (`vivarium/runtime/swarm_api.py`) |
-| `worker.py` | Root shim for canonical worker runtime (`vivarium/runtime/worker_runtime.py`) |
-| `control_panel.py` | Root shim for control panel module (`vivarium/runtime/control_panel_app.py`) |
 | `vivarium/runtime/swarm_api.py` | FastAPI execution API (`/cycle`, `/plan`, `/status`) |
 | `vivarium/runtime/worker_runtime.py` | Resident runtime: queue polling, lock protocol, task execution, event logging |
 | `vivarium/runtime/control_panel_app.py` | Web UI + API for monitoring, identities, bounties, and chatrooms |
@@ -209,13 +206,13 @@ The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
 
 | Path | Writer(s) | Purpose |
 | --- | --- | --- |
-| `queue.json` | `worker.py add`, `swarm.py /plan` | Shared task queue |
-| `task_locks/*.lock` | `worker.py` | Atomic lock files to prevent duplicate task pickup |
-| `execution_log.jsonl` | `worker.py` | Task lifecycle events (`in_progress`, `completed`, `failed`, subtasks) |
+| `queue.json` | `worker_runtime.py add`, `swarm_api.py /plan` | Shared task queue |
+| `task_locks/*.lock` | `worker_runtime.py` | Atomic lock files to prevent duplicate task pickup |
+| `execution_log.jsonl` | `worker_runtime.py` | Task lifecycle events (`in_progress`, `completed`, `failed`, subtasks) |
 | `action_log.jsonl` + `action_log.log` | `vivarium/runtime/action_logger.py` consumers | Human-readable and structured activity stream |
 | `.swarm/identities/*.json` | onboarding/enrichment flows | Persistent identity records |
 | `.swarm/free_time_balances.json` | `vivarium/runtime/swarm_enrichment.py` | Token wallets (free-time + journal pools) |
-| `.swarm/phase5_reward_ledger.json` | `worker.py` | Auditable, idempotent ledger for worker-driven under-budget reward grants |
+| `.swarm/phase5_reward_ledger.json` | `worker_runtime.py` | Auditable, idempotent ledger for worker-driven under-budget reward grants |
 | `.swarm/bounties.json` | control panel + enrichment | Bounty definitions, submissions, payout state |
 | `.swarm/discussions/*.jsonl` | social/dispute systems | Chatroom history |
 | `.swarm/messages_to_human.jsonl` | resident social systems | Resident-to-human message queue |
@@ -265,13 +262,13 @@ Task fields recognized by current runtime include:
 
 ## API surface
 
-### `swarm.py` (FastAPI)
+### `vivarium/runtime/swarm_api.py` (FastAPI)
 
 - `POST /cycle` - execute one task (`llm` or `local` mode)
 - `POST /plan` - scan codebase and write planned tasks to `queue.json`
 - `GET /status` - queue summary
 
-### `control_panel.py` (Flask)
+### `vivarium/runtime/control_panel_app.py` (Flask)
 
 Notable route groups:
 - identities and profile views
@@ -301,7 +298,7 @@ Notable route groups:
 - `safety_validator.py` (safe write/checkpoint flow)
 - `secure_api_wrapper.py`
 
-These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker.py` lifecycle. `/cycle` and `/plan` now require loopback origin plus the internal execution token.
+These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker_runtime.py` lifecycle. `/cycle` and `/plan` now require loopback origin plus the internal execution token.
 
 ---
 
@@ -315,21 +312,21 @@ source .venv/bin/activate
 pip install -r requirements.txt -r requirements-groq.txt
 
 export GROQ_API_KEY=...
-uvicorn swarm:app --host 127.0.0.1 --port 8420
+uvicorn vivarium.runtime.swarm_api:app --host 127.0.0.1 --port 8420
 ```
 
 In another terminal:
 
 ```bash
-python worker.py add task-001 "Summarize current architecture and data flow"
-python worker.py run
+python -m vivarium.runtime.worker_runtime add task-001 "Summarize current architecture and data flow"
+python -m vivarium.runtime.worker_runtime run
 ```
 
 ### 2) Control panel UI
 
 ```bash
 pip install watchdog
-python control_panel.py
+python -m vivarium.runtime.control_panel_app
 ```
 
 Open: `http://localhost:8421`

@@ -17,7 +17,7 @@ Vivarium is a multi-agent AI orchestration system with persistent identity, toke
 ┌─────────────────────────────────────────────────────────────────┐
 │                    RESIDENT RUNTIME                              │
 │   Canonical modules: vivarium/runtime/{worker_runtime,swarm_api} │
-│   Root shims: worker.py + swarm.py + control_panel.py            │
+│   Control plane: vivarium/runtime/control_panel_app.py            │
 └─────────────────────────────────────────────────────────────────┘
                                │
            ┌───────────────────┼───────────────────┐
@@ -156,7 +156,7 @@ Defines swarm-simulation world invariants and control knobs.
 These values are consumed by `vivarium/swarm_environment/fresh_environment.py` and
 materialized into fresh environment manifests.
 
-### 4. Control Panel (`control_panel.py`)
+### 4. Control Panel (`vivarium/runtime/control_panel_app.py`)
 
 Real-time web UI for human oversight and collaboration.
 
@@ -243,9 +243,6 @@ Vivarium/
 │   ├── human_request.json      # Current collaboration request
 │   ├── messages_to_human.jsonl # Resident → human messages
 │   └── phase5_reward_ledger.json # Reward idempotency ledger
-├── control_panel.py            # Root shim -> vivarium/runtime/control_panel_app.py
-├── worker.py                   # Root shim -> vivarium/runtime/worker_runtime.py
-├── swarm.py                    # Root shim -> vivarium/runtime/swarm_api.py
 ├── vivarium/runtime/           # Canonical runtime package
 │   ├── control_panel_app.py    # Control panel implementation
 │   ├── worker_runtime.py       # Resident runtime implementation
@@ -269,11 +266,11 @@ Vivarium/
 
 ```bash
 # Start control panel
-python control_panel.py
+python -m vivarium.runtime.control_panel_app
 # → http://localhost:8421
 
 # Start resident runtimes (via control panel or CLI)
-python worker.py run
+python -m vivarium.runtime.worker_runtime run
 ```
 
 ## Design Principles

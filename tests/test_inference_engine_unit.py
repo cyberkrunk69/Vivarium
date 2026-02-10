@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from inference_engine import estimate_complexity, get_engine_type_from_env, EngineType
+from vivarium.runtime.inference_engine import estimate_complexity, get_engine_type_from_env, EngineType
 
 
 def test_estimate_complexity_base_score():

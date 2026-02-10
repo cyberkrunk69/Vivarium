@@ -19,10 +19,7 @@ This repository is organized around a strict golden runtime path.
 
 ## Golden path policy
 
-Canonical runtime execution enters through root entrypoints:
-`worker.py` + `swarm.py` + `control_panel.py`
-
-These root files are thin shims delegating to canonical runtime implementations:
+Canonical runtime execution enters through package entrypoints:
 - `vivarium/runtime/worker_runtime.py`
 - `vivarium/runtime/swarm_api.py`
 - `vivarium/runtime/control_panel_app.py`
@@ -32,7 +29,6 @@ No optional detached runner path is considered canonical for production flow.
 ## New work policy
 
 - New runtime features should target `vivarium/swarm_environment/` and runtime modules
-  under `vivarium/runtime/`, surfaced via canonical root entrypoints (`worker.py`,
-  `swarm.py`, `control_panel.py`).
+  under `vivarium/runtime/`.
 - New constraints and controls should be expressed in `vivarium/physics/world_physics.py`.
 
