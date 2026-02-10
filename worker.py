@@ -16,11 +16,13 @@ import hashlib
 import random
 import re
 import httpx
+from ipaddress import ip_address
 from typing import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
+from urllib.parse import urlparse
 from utils import (
     read_json,
     write_json,
@@ -47,6 +49,7 @@ from vivarium_scope import (
     MUTABLE_SWARM_DIR,
     SECURITY_ROOT,
     ensure_scope_layout,
+    get_execution_token,
     get_mutable_version_control,
 )
 try:
@@ -153,6 +156,7 @@ WORKER_TOOL_ROUTER = None
 WORKER_INTENT_GATEKEEPER = None
 WORKER_ENRICHMENT = None
 WORKER_MUTABLE_VCS = None
+WORKER_INTERNAL_EXECUTION_TOKEN = get_execution_token()
 
 
 # ============================================================================
@@ -514,6 +518,31 @@ def _resolve_safety_task_text(prompt: Optional[str], command: Optional[str], mod
     if mode == "local" and command:
         return command
     return prompt or command or ""
+
+
+def _is_loopback_host(host: Optional[str]) -> bool:
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value in {"localhost", "testclient"}:
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_loopback_api_endpoint(endpoint: str) -> bool:
+    parsed = urlparse((endpoint or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    return _is_loopback_host(parsed.hostname)
+
+
+def _internal_api_headers() -> Dict[str, str]:
+    return {
+        "X-Vivarium-Internal-Token": WORKER_INTERNAL_EXECUTION_TOKEN,
+    }
 
 
 def _resolve_task_prompt(task: Dict[str, Any]) -> Optional[str]:
@@ -1216,6 +1245,13 @@ def _execute_delegated_subtasks(
     model: Optional[str],
     parallelism: Optional[int] = None,
 ) -> Dict[str, Any]:
+    if not _is_loopback_api_endpoint(api_endpoint):
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": f"API endpoint must be loopback-only: {api_endpoint}",
+        }
+
     subtasks: Iterable[Any] = getattr(plan, "subtasks", []) or []
     subtasks_list = list(subtasks)
     if not subtasks_list:
@@ -1284,7 +1320,11 @@ def _execute_delegated_subtasks(
 
         try:
             with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
-                response = client.post(f"{api_endpoint}/grind", json=payload)
+                response = client.post(
+                    f"{api_endpoint}/grind",
+                    json=payload,
+                    headers=_internal_api_headers(),
+                )
         except httpx.ConnectError as exc:
             error_msg = f"Connection error: {exc}"
             append_execution_event(
@@ -1377,6 +1417,20 @@ def execute_task(
 ) -> Dict[str, Any]:
     """Execute a task by sending it to the Vivarium API."""
     task_id = task.get("id", "unknown")
+    if not _is_loopback_api_endpoint(api_endpoint):
+        return {
+            "status": "failed",
+            "result_summary": None,
+            "errors": f"API endpoint must be loopback-only: {api_endpoint}",
+            "safety_passed": False,
+            "safety_report": {
+                "passed": False,
+                "blocked_reason": "Non-loopback API endpoint is not allowed",
+                "task_id": task_id,
+                "checks": {},
+            },
+        }
+
     min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
     max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)
     intensity = task.get("intensity", DEFAULT_INTENSITY)
@@ -1534,7 +1588,11 @@ def execute_task(
 
     try:
         with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
-            response = client.post(f"{api_endpoint}/grind", json=payload)
+            response = client.post(
+                f"{api_endpoint}/grind",
+                json=payload,
+                headers=_internal_api_headers(),
+            )
 
         if response.status_code == 200:
             result = response.json()

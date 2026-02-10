@@ -170,9 +170,10 @@ def test_worker_execute_task_injects_intent_context(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def post(self, url, json):
+        def post(self, url, json, headers=None):
             captured["url"] = url
             captured["payload"] = json
+            captured["headers"] = headers
             return _FakeResponse()
 
     monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", _StubGatekeeper())
@@ -200,4 +201,5 @@ def test_worker_execute_task_injects_intent_context(monkeypatch):
 
     assert result["status"] == "completed"
     assert captured["url"].endswith("/grind")
+    assert captured["headers"]["X-Vivarium-Internal-Token"]
     assert captured["payload"]["prompt"].startswith("##INTENT goal=Ship feature set")

@@ -97,9 +97,10 @@ def test_worker_execute_task_injects_tool_context(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def post(self, url, json):
+        def post(self, url, json, headers=None):
             captured["url"] = url
             captured["payload"] = json
+            captured["headers"] = headers
             return _FakeResponse()
 
     monkeypatch.setattr(worker, "WORKER_TOOL_ROUTER", _StubRouter())
@@ -129,6 +130,7 @@ def test_worker_execute_task_injects_tool_context(monkeypatch):
     assert result["tool_name"] == "phase3_injected_tool"
     assert result["tool_confidence"] == pytest.approx(0.91)
     assert captured["url"].endswith("/grind")
+    assert captured["headers"]["X-Vivarium-Internal-Token"]
     assert "RELEVANT TOOL CONTEXT" in captured["payload"]["prompt"]
     assert "phase3_injected_tool" in captured["payload"]["prompt"]
     assert "TASK:\nImprove authentication tests" in captured["payload"]["prompt"]

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -67,6 +68,61 @@ def test_run_local_task_rejects_denied_command():
     with pytest.raises(HTTPException) as exc:
         swarm._run_local_task(req, safety_report={"passed": True})
     assert exc.value.status_code == 403
+
+
+def test_grind_endpoint_requires_internal_execution_token(monkeypatch):
+    client = TestClient(swarm.app)
+
+    monkeypatch.setattr(
+        swarm,
+        "_pre_execute_safety_report",
+        lambda task_text, task_id: {"passed": True, "checks": {}, "task_id": task_id},
+    )
+    monkeypatch.setattr(
+        swarm,
+        "_run_local_task",
+        lambda req, safety_report=None: swarm.GrindResponse(
+            status="completed",
+            result="ok",
+            model="local",
+            task_id=req.task_id,
+            safety_report=safety_report,
+        ),
+    )
+
+    denied = client.post("/grind", json={"mode": "local", "task": "git status"})
+    assert denied.status_code == 403
+    assert "internal execution token" in denied.json()["detail"]
+
+    allowed = client.post(
+        "/grind",
+        json={"mode": "local", "task": "git status"},
+        headers={"X-Vivarium-Internal-Token": swarm.INTERNAL_EXECUTION_TOKEN},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["status"] == "completed"
+
+
+def test_plan_endpoint_requires_internal_execution_token():
+    client = TestClient(swarm.app)
+    denied = client.post("/plan")
+    assert denied.status_code == 403
+    assert "internal execution token" in denied.json()["detail"]
+
+
+def test_worker_execute_task_rejects_non_loopback_api_endpoint():
+    result = worker.execute_task(
+        {
+            "id": "task_non_loopback",
+            "prompt": "Summarize runtime status",
+            "mode": "llm",
+        },
+        api_endpoint="http://192.168.1.22:8420",
+    )
+
+    assert result["status"] == "failed"
+    assert "loopback-only" in result["errors"]
+    assert result["safety_passed"] is False
 
 
 def test_run_groq_task_uses_secure_wrapper(monkeypatch):

@@ -75,7 +75,7 @@ flowchart LR
 
 ## Known gaps (active)
 
-- Direct `POST /grind` API calls can bypass worker-only lifecycle hooks (quality review transitions, tool-routing metadata, intent/decomposition flow, and Phase 5 reward ledgering).
+- Direct human-triggered `/grind` execution is now blocked by loopback + internal-token enforcement; the intended human entrypoint is the localhost control panel.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental/non-canonical until repaired and re-validated.
 - Phase 6 and Phase 7 outcomes are still roadmap items, not runtime defaults.
 
@@ -288,7 +288,7 @@ Notable route groups:
 - `safety_validator.py` (safe write/checkpoint flow)
 - `secure_api_wrapper.py`
 
-These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker.py` lifecycle, while direct `/grind` API calls can still bypass worker-only transitions.
+These exist and are test-covered in `tests/`; safety, quality, and tool-routing modules are now wired into the canonical `worker.py` lifecycle. `/grind` and `/plan` now require loopback origin plus the internal execution token.
 
 ---
 
@@ -320,6 +320,8 @@ python control_panel.py
 ```
 
 Open: `http://localhost:8421`
+
+Note: control panel access is localhost-only by default (`127.0.0.1` / `localhost`), and LAN/multi-user exposure stays deferred behind future Phase 6 work.
 
 One-click script:
 - macOS/Linux: `./one_click_server.sh`

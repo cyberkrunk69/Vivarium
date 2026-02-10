@@ -14,8 +14,10 @@ Open: http://localhost:8421
 
 import json
 import os
+import secrets
 import time
 import threading
+from ipaddress import ip_address
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, render_template_string, jsonify, request
@@ -27,8 +29,12 @@ from vivarium_scope import AUDIT_ROOT, MUTABLE_ROOT, MUTABLE_SWARM_DIR, ensure_s
 ensure_scope_layout()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'swarm_control_panel'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+app.config['SECRET_KEY'] = os.environ.get('VIVARIUM_CONTROL_PANEL_SECRET') or secrets.token_urlsafe(32)
+LOCAL_UI_ORIGINS = [
+    "http://127.0.0.1:8421",
+    "http://localhost:8421",
+]
+socketio = SocketIO(app, cors_allowed_origins=LOCAL_UI_ORIGINS, async_mode='threading')
 
 # Paths
 CODE_ROOT = Path(__file__).parent
@@ -42,6 +48,55 @@ IDENTITIES_DIR = MUTABLE_SWARM_DIR / "identities"
 last_log_position = 0
 
 
+def _safe_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+CONTROL_PANEL_HOST = os.environ.get("VIVARIUM_CONTROL_PANEL_HOST", "127.0.0.1").strip() or "127.0.0.1"
+CONTROL_PANEL_PORT = _safe_int_env("VIVARIUM_CONTROL_PANEL_PORT", 8421)
+
+
+def _is_loopback_host(host: str) -> bool:
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value in {"localhost", "testclient"}:
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _request_source_host() -> str:
+    forwarded = (request.headers.get("X-Forwarded-For") or "").strip()
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return (request.remote_addr or "").strip()
+
+
+@app.before_request
+def enforce_localhost_only():
+    if _is_loopback_host(_request_source_host()):
+        return None
+    return jsonify({"success": False, "error": "Control panel is localhost-only"}), 403
+
+
+@app.after_request
+def apply_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 CONTROL_PANEL_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -49,7 +104,7 @@ CONTROL_PANEL_HTML = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Swarm Control Panel</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         :root {
             --bg-dark: #0a0a0f;
@@ -2148,6 +2203,14 @@ def index():
     return render_template_string(CONTROL_PANEL_HTML)
 
 
+@socketio.on('connect')
+def on_socket_connect():
+    """Reject websocket connections from non-loopback clients."""
+    if not _is_loopback_host(_request_source_host()):
+        return False
+    return None
+
+
 @app.route('/api/identities')
 def api_identities():
     return jsonify(get_identities())
@@ -2370,6 +2433,39 @@ def save_spawner_config(config: dict):
         json.dump(config, f, indent=2)
 
 
+def _sanitize_spawner_start_payload(data: dict):
+    sessions = data.get('sessions', 3)
+    budget_limit = data.get('budget_limit', 1.0)
+    auto_scale = bool(data.get('auto_scale', False))
+    model = str(data.get('model', 'llama-3.3-70b-versatile')).strip()
+
+    try:
+        sessions = int(sessions)
+    except (TypeError, ValueError):
+        raise ValueError("sessions must be an integer")
+    if sessions < 1 or sessions > 32:
+        raise ValueError("sessions must be between 1 and 32")
+
+    try:
+        budget_limit = float(budget_limit)
+    except (TypeError, ValueError):
+        raise ValueError("budget_limit must be a number")
+    if budget_limit <= 0:
+        raise ValueError("budget_limit must be > 0")
+
+    if not model:
+        raise ValueError("model must be non-empty")
+    if len(model) > 120:
+        raise ValueError("model is too long")
+
+    return {
+        "sessions": sessions,
+        "budget_limit": budget_limit,
+        "auto_scale": auto_scale,
+        "model": model,
+    }
+
+
 @app.route('/api/spawner/status')
 def api_spawner_status():
     """Get spawner status."""
@@ -2387,10 +2483,15 @@ def api_start_spawner():
         return jsonify({'success': False, 'error': 'Spawner already running', 'pid': status['pid']})
 
     data = request.json or {}
-    sessions = data.get('sessions', 3)
-    auto_scale = data.get('auto_scale', False)
-    budget_limit = data.get('budget_limit', 1.0)
-    model = data.get('model', 'llama-3.3-70b-versatile')
+    try:
+        sanitized = _sanitize_spawner_start_payload(data)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+
+    sessions = sanitized["sessions"]
+    auto_scale = sanitized["auto_scale"]
+    budget_limit = sanitized["budget_limit"]
+    model = sanitized["model"]
 
     # Save config
     config = {
@@ -2526,12 +2627,10 @@ def api_kill_spawner():
 def api_update_spawner_config():
     """Update spawner configuration."""
     data = request.json or {}
-    config = {
-        'sessions': data.get('sessions', 3),
-        'auto_scale': data.get('auto_scale', False),
-        'budget_limit': data.get('budget_limit', 1.0),
-        'model': data.get('model', 'llama-3.3-70b-versatile')
-    }
+    try:
+        config = _sanitize_spawner_start_payload(data)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
     save_spawner_config(config)
     socketio.emit('config_updated', config)
     return jsonify({'success': True, 'config': config})
@@ -3425,7 +3524,7 @@ if __name__ == '__main__':
     print("=" * 60)
     print("SWARM CONTROL PANEL")
     print("=" * 60)
-    print(f"Open: http://localhost:8421")
+    print(f"Open: http://{CONTROL_PANEL_HOST}:{CONTROL_PANEL_PORT}")
     print(f"Watching: {ACTION_LOG}")
     print("=" * 60)
 
@@ -3433,5 +3532,10 @@ if __name__ == '__main__':
     threading.Thread(target=background_watcher, daemon=True).start()
     threading.Thread(target=push_identities_periodically, daemon=True).start()
 
-    # debug=True enables auto-reload when files change
-    socketio.run(app, host='0.0.0.0', port=8421, debug=True, use_reloader=True)
+    socketio.run(
+        app,
+        host=CONTROL_PANEL_HOST,
+        port=CONTROL_PANEL_PORT,
+        debug=False,
+        use_reloader=False,
+    )

@@ -60,7 +60,7 @@ experimental until repaired and re-validated.
 
 ## Known caveats in this path
 
-- Direct `/grind` API calls can bypass worker-only lifecycle transitions (quality review, tool routing metadata, intent/decomposition flow, and Phase 5 reward ledgering).
+- `/grind` and `/plan` are now loopback-only and require the internal execution token; intended human operation is via localhost control panel.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental and are not in the canonical import path.
 
 ## Safety and budget guarantees in this path

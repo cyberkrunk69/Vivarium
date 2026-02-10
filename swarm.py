@@ -15,10 +15,11 @@ import re
 import shlex
 import subprocess
 import time
+from ipaddress import ip_address
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from config import (
@@ -36,6 +37,7 @@ from vivarium_scope import (
     MUTABLE_ROOT,
     SECURITY_ROOT,
     ensure_scope_layout,
+    get_execution_token,
     is_allowed_git_remote,
     resolve_mutable_path,
 )
@@ -149,6 +151,12 @@ def _build_secure_wrapper() -> SecureAPIWrapper:
 
 SWARM_SAFETY_GATEWAY = _build_safety_gateway()
 SECURE_API_WRAPPER = _build_secure_wrapper()
+INTERNAL_EXECUTION_TOKEN = get_execution_token()
+SWARM_ENFORCE_INTERNAL_TOKEN = (
+    os.environ.get("SWARM_ENFORCE_INTERNAL_TOKEN", "1").strip().lower()
+    not in {"0", "false", "no"}
+)
+LOOPBACK_HOST_ALIASES = {"localhost", "testclient"}
 
 
 class GrindRequest(BaseModel):
@@ -192,6 +200,52 @@ class GrindResponse(BaseModel):
     budget_used: Optional[float] = None
     exit_code: Optional[int] = None
     safety_report: Optional[Dict[str, Any]] = None
+
+
+def _is_loopback_host(host: Optional[str]) -> bool:
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value in LOOPBACK_HOST_ALIASES:
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _request_client_host(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    client = getattr(request, "client", None)
+    if client and getattr(client, "host", None):
+        return str(client.host).strip()
+    return ""
+
+
+def _enforce_internal_api_access(
+    request: Request,
+    provided_token: Optional[str],
+    *,
+    endpoint: str,
+    require_token: bool = True,
+) -> None:
+    client_host = _request_client_host(request)
+    if not _is_loopback_host(client_host):
+        raise HTTPException(
+            status_code=403,
+            detail=f"{endpoint} is localhost-only",
+        )
+
+    if not require_token or not SWARM_ENFORCE_INTERNAL_TOKEN:
+        return
+
+    if not INTERNAL_EXECUTION_TOKEN or provided_token != INTERNAL_EXECUTION_TOKEN:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{endpoint} requires internal execution token",
+        )
 
 
 def _pre_execute_safety_report(task_text: str, task_id: Optional[str]) -> Dict[str, Any]:
@@ -394,11 +448,24 @@ def _enforce_local_token_scope(tokens: List[str]) -> None:
 
 
 @app.post("/grind", response_model=GrindResponse)
-async def grind(req: GrindRequest) -> GrindResponse:
+async def grind(
+    req: GrindRequest,
+    request: Request,
+    x_vivarium_internal_token: Optional[str] = Header(
+        default=None,
+        alias="X-Vivarium-Internal-Token",
+    ),
+) -> GrindResponse:
     """
     Execute a task by calling Groq's OpenAI-compatible chat completions API,
     or by running a local command when mode is "local".
     """
+    _enforce_internal_api_access(
+        request,
+        x_vivarium_internal_token,
+        endpoint="/grind",
+    )
+
     if not req.prompt and not req.task:
         raise HTTPException(status_code=400, detail="prompt or task must be provided")
 
@@ -543,10 +610,22 @@ def _run_local_task(
 
 
 @app.post("/plan")
-async def plan() -> Dict[str, Any]:
+async def plan(
+    request: Request,
+    x_vivarium_internal_token: Optional[str] = Header(
+        default=None,
+        alias="X-Vivarium-Internal-Token",
+    ),
+) -> Dict[str, Any]:
     """
     Scan codebase, analyze with Groq, and write tasks to queue.json.
     """
+    _enforce_internal_api_access(
+        request,
+        x_vivarium_internal_token,
+        endpoint="/plan",
+    )
+
     validate_config(require_groq_key=True)
 
     scan_result = scan_codebase()
@@ -711,8 +790,15 @@ def write_tasks_to_queue(tasks: List[Dict[str, Any]]) -> None:
 
 
 @app.get("/status")
-async def status() -> Dict[str, int]:
+async def status(request: Request) -> Dict[str, int]:
     """Get current queue status."""
+    _enforce_internal_api_access(
+        request,
+        provided_token=None,
+        endpoint="/status",
+        require_token=False,
+    )
+
     if QUEUE_FILE.exists():
         queue = normalize_queue(read_json(QUEUE_FILE, default={}))
         if queue:

@@ -77,3 +77,6 @@ htmlcov/
 
 /vivarium/meta/change_control/checkpoints/*
 !/vivarium/meta/change_control/checkpoints/.gitkeep
+
+/vivarium/meta/security/*
+!/vivarium/meta/security/.gitkeep
