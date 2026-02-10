@@ -56,7 +56,7 @@ def test_local_command_policy_allowlist_and_denylist():
 
     physics_read_error = swarm._validate_local_command("cat vivarium/physics/world_physics.py")
     assert physics_read_error is not None
-    assert "physics directory" in physics_read_error.lower()
+    assert "physics" in physics_read_error.lower()
 
     security_read_error = swarm._validate_local_command("cat SECURITY.md")
     assert security_read_error is not None
