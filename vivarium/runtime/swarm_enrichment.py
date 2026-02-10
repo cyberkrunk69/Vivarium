@@ -10,7 +10,7 @@ When workers complete tasks under budget, they earn free time to:
 Creative works are stored in the library for all to enjoy.
 
 Usage:
-    from swarm_enrichment import EnrichmentSystem, get_enrichment
+    from vivarium.runtime.swarm_enrichment import EnrichmentSystem, get_enrichment
 
     enrichment = get_enrichment()
 
@@ -45,7 +45,7 @@ from statistics import mean, stdev
 
 # Import action logger for audit trail
 try:
-    from action_logger import get_action_logger, ActionType
+    from vivarium.runtime.action_logger import get_action_logger, ActionType
     _action_logger = get_action_logger()
 except ImportError:
     _action_logger = None
@@ -6126,7 +6126,7 @@ def get_enrichment(workspace: Path = None) -> EnrichmentSystem:
     global _enrichment
     if _enrichment is None:
         if workspace is None:
-            workspace = Path(__file__).parent
+            workspace = Path(__file__).resolve().parents[2]
         _enrichment = EnrichmentSystem(workspace)
     return _enrichment
 
@@ -6135,7 +6135,7 @@ if __name__ == "__main__":
     print("Testing Enrichment System...")
     print("=" * 60)
 
-    workspace = Path(__file__).parent
+    workspace = Path(__file__).resolve().parents[2]
     enrichment = EnrichmentSystem(workspace)
 
     # Grant some free time (now splits 70/30)

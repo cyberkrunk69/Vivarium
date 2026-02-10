@@ -24,7 +24,7 @@ from skills.skill_registry import SkillRegistry, retrieve_skill, compose_skills,
 
 # Import Groq for fast routing decisions
 try:
-    from groq_client import get_groq_engine
+    from vivarium.runtime.groq_client import get_groq_engine
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
@@ -98,8 +98,9 @@ class ToolRouter:
         r"try.*except|error.*handl|safe.*call": "safe_try_except",
     }
 
-    def __init__(self, tool_store_path: str = "tool_store.json"):
-        self.tool_store_path = Path(tool_store_path)
+    def __init__(self, tool_store_path: Optional[Path | str] = None):
+        default_store = Path(__file__).resolve().parents[2] / "config" / "tool_store.json"
+        self.tool_store_path = Path(tool_store_path) if tool_store_path else default_store
         self.tool_store = self._load_store()
         self.skill_registry = SkillRegistry()
         self._groq_engine = None

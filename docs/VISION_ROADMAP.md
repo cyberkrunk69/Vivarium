@@ -4,7 +4,7 @@ This is the implementation path from current state to full-scope vision.
 
 It is intentionally ordered to maximize safety and compounding, while minimizing "big rewrite" risk.
 
-Cross-repo archaeology and anomaly evidence are tracked in `CROSS_REPO_TIMELINE.md`.
+Cross-repo archaeology and anomaly evidence are tracked in `./CROSS_REPO_TIMELINE.md`.
 
 ---
 

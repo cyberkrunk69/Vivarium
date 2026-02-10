@@ -29,7 +29,7 @@ class QualityGateError(ValueError):
 
 class QualityGateManager:
     def __init__(self, workspace: Optional[Path] = None):
-        self.workspace = Path(workspace) if workspace else Path(__file__).parent
+        self.workspace = Path(workspace) if workspace else Path(__file__).resolve().parents[2]
         self.queue_file = self.workspace / "quality_gate_queue.json"
 
     def load_state(self) -> Dict[str, Any]:

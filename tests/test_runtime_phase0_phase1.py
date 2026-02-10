@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import swarm
 import worker
-from runtime_contract import normalize_queue, validate_queue_contract
-from safety_gateway import SafetyGateway
+from vivarium.runtime.runtime_contract import normalize_queue, validate_queue_contract
+from vivarium.runtime.safety_gateway import SafetyGateway
 
 
 def test_runtime_contract_normalizes_queue_defaults():

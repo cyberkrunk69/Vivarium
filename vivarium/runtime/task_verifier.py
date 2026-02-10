@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from safety_validator import SyntaxValidator
+from vivarium.runtime.safety_validator import SyntaxValidator
 
 
 class Verdict(Enum):

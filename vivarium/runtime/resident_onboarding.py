@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from utils import read_json, write_json
 
 try:
-    from swarm_enrichment import EnrichmentSystem
+    from vivarium.runtime.swarm_enrichment import EnrichmentSystem
 except ImportError:
     EnrichmentSystem = None
 

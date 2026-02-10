@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import worker
-from runtime_contract import normalize_queue
+from vivarium.runtime.runtime_contract import normalize_queue
 
 
 class _StubIntent:

@@ -6,7 +6,7 @@ Provides a centralized, structured log of every action taken by any actor
 in the system. Designed for human monitoring and auditability.
 
 Usage:
-    from action_logger import get_action_logger, ActionType
+    from vivarium.runtime.action_logger import get_action_logger, ActionType
 
     logger = get_action_logger()
     logger.log(
@@ -28,7 +28,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Callable, List
 from dataclasses import dataclass, asdict
-from vivarium_scope import AUDIT_ROOT, ensure_scope_layout
+from vivarium.runtime.vivarium_scope import AUDIT_ROOT, ensure_scope_layout
 
 ensure_scope_layout()
 

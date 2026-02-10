@@ -24,7 +24,7 @@ from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO, emit
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from vivarium_scope import AUDIT_ROOT, MUTABLE_ROOT, MUTABLE_SWARM_DIR, ensure_scope_layout
+from vivarium.runtime.vivarium_scope import AUDIT_ROOT, MUTABLE_ROOT, MUTABLE_SWARM_DIR, ensure_scope_layout
 
 ensure_scope_layout()
 
@@ -3111,7 +3111,7 @@ def api_complete_bounty(bounty_id):
     try:
         import sys
         sys.path.insert(0, str(WORKSPACE))
-        from swarm_enrichment import get_enrichment
+        from vivarium.runtime.swarm_enrichment import get_enrichment
 
         enrichment = get_enrichment(WORKSPACE)
 

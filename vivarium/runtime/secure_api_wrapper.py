@@ -231,7 +231,7 @@ class SecureAPIWrapper:
         # 5. Make the actual API call
         try:
             # Import here to avoid circular dependency
-            from groq_client import execute_with_groq
+            from vivarium.runtime.groq_client import execute_with_groq
 
             result = execute_with_groq(prompt=prompt, model=model, **kwargs)
 

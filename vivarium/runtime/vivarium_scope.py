@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 VIVARIUM_ROOT = REPO_ROOT / "vivarium"
 WORLD_ROOT = VIVARIUM_ROOT / "world"
 MUTABLE_ROOT = WORLD_ROOT / "mutable"

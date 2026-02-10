@@ -32,7 +32,7 @@ from utils import (
     ensure_dir,
     format_error,
 )
-from config import (
+from vivarium.runtime.config import (
     LOCK_TIMEOUT_SECONDS,
     API_TIMEOUT_SECONDS,
     DEFAULT_MIN_BUDGET,
@@ -40,8 +40,8 @@ from config import (
     validate_model_id,
     validate_config,
 )
-from runtime_contract import normalize_queue, normalize_task, is_known_execution_status
-from vivarium_scope import (
+from vivarium.runtime.runtime_contract import normalize_queue, normalize_task, is_known_execution_status
+from vivarium.runtime.vivarium_scope import (
     AUDIT_ROOT,
     MUTABLE_LOCKS_DIR,
     MUTABLE_QUEUE_FILE,
@@ -53,43 +53,43 @@ from vivarium_scope import (
     get_mutable_version_control,
 )
 try:
-    from resident_onboarding import spawn_resident, ResidentContext
+    from vivarium.runtime.resident_onboarding import spawn_resident, ResidentContext
 except ImportError:
     spawn_resident = None
     ResidentContext = None
 try:
-    from resident_facets import decompose_task as resident_decompose_task
+    from vivarium.runtime.resident_facets import decompose_task as resident_decompose_task
 except ImportError:
     resident_decompose_task = None
 try:
-    from hats import HAT_LIBRARY, apply_hat
+    from vivarium.runtime.hats import HAT_LIBRARY, apply_hat
 except ImportError:
     HAT_LIBRARY = None
     apply_hat = None
 try:
-    from safety_gateway import SafetyGateway
+    from vivarium.runtime.safety_gateway import SafetyGateway
 except ImportError:
     SafetyGateway = None
 try:
-    from task_verifier import TaskVerifier
+    from vivarium.runtime.task_verifier import TaskVerifier
 except ImportError:
     TaskVerifier = None
 try:
-    from quality_gates import QualityGateManager, QualityGateError
+    from vivarium.runtime.quality_gates import QualityGateManager, QualityGateError
 except ImportError:
     QualityGateManager = None
     QualityGateError = Exception
 try:
-    from tool_router import get_router as get_tool_router
+    from vivarium.runtime.tool_router import get_router as get_tool_router
 except ImportError:
     get_tool_router = None
 try:
-    from intent_gatekeeper import UserIntent, get_gatekeeper as get_intent_gatekeeper
+    from vivarium.runtime.intent_gatekeeper import UserIntent, get_gatekeeper as get_intent_gatekeeper
 except ImportError:
     UserIntent = None
     get_intent_gatekeeper = None
 try:
-    from swarm_enrichment import get_enrichment
+    from vivarium.runtime.swarm_enrichment import get_enrichment
 except ImportError:
     get_enrichment = None
 
@@ -182,7 +182,7 @@ def _init_worker_safety_gateway():
     try:
         constraints_file = SECURITY_ROOT / "SAFETY_CONSTRAINTS.json"
         if not constraints_file.exists():
-            constraints_file = Path(__file__).parent / "SAFETY_CONSTRAINTS.json"
+            constraints_file = Path(__file__).parent / "config" / "SAFETY_CONSTRAINTS.json"
         return SafetyGateway(
             WORKSPACE,
             constraints_file=constraints_file,

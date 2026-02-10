@@ -88,7 +88,7 @@ def validate_config(require_groq_key: bool = False) -> None:
         errors.append(str(e))
 
     # Validate workspace is accessible
-    workspace = Path(__file__).parent
+    workspace = Path(__file__).resolve().parents[2]
     if not workspace.exists():
         errors.append(f"Workspace directory does not exist: {workspace}")
     if not workspace.is_dir():

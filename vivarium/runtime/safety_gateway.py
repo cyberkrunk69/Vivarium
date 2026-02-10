@@ -134,7 +134,9 @@ class SafetyGateway:
     ):
         self.workspace = workspace
         if constraints_file is None:
-            constraints_file = workspace / "SAFETY_CONSTRAINTS.json"
+            constraints_file = workspace / "config" / "SAFETY_CONSTRAINTS.json"
+            if not constraints_file.exists():
+                constraints_file = workspace / "SAFETY_CONSTRAINTS.json"
         self.constitutional_checker = ConstitutionalChecker(constraints_file)
         self.workspace_sandbox = WorkspaceSandbox(workspace)
         self.network_guard = NetworkGuard()

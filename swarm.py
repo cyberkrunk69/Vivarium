@@ -22,16 +22,16 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from config import (
+from vivarium.runtime.config import (
     DEFAULT_GROQ_MODEL,
     validate_model_id,
     validate_config,
 )
-from runtime_contract import normalize_queue, normalize_task
-from safety_gateway import SafetyGateway
-from secure_api_wrapper import SecureAPIWrapper, create_admin_context
+from vivarium.runtime.runtime_contract import normalize_queue, normalize_task
+from vivarium.runtime.safety_gateway import SafetyGateway
+from vivarium.runtime.secure_api_wrapper import SecureAPIWrapper, create_admin_context
 from utils import read_json, write_json
-from vivarium_scope import (
+from vivarium.runtime.vivarium_scope import (
     AUDIT_ROOT,
     MUTABLE_QUEUE_FILE,
     MUTABLE_ROOT,
@@ -131,7 +131,7 @@ def _build_safety_gateway() -> Optional[SafetyGateway]:
     try:
         constraints_file = SECURITY_ROOT / "SAFETY_CONSTRAINTS.json"
         if not constraints_file.exists():
-            constraints_file = Path(__file__).parent / "SAFETY_CONSTRAINTS.json"
+            constraints_file = Path(__file__).parent / "config" / "SAFETY_CONSTRAINTS.json"
         return SafetyGateway(
             WORKSPACE,
             constraints_file=constraints_file,

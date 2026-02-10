@@ -246,12 +246,12 @@ Vivarium/
 ├── control_panel.py            # Web UI server
 ├── worker.py                   # Canonical resident runtime
 ├── swarm.py                    # Canonical execution API
-├── runtime_contract.py         # Canonical queue/status contract
-├── swarm_identity.py           # Identity management
-├── swarm_enrichment.py         # Token economy
-├── swarm_discussion.py         # Chat system
-├── action_logger.py            # Centralized logging
-├── safety_*.py                 # Safety subsystems
+├── vivarium/runtime/           # Canonical runtime package
+│   ├── runtime_contract.py     # Canonical queue/status contract
+│   ├── resident_onboarding.py  # Identity lifecycle
+│   ├── swarm_enrichment.py     # Token economy
+│   ├── action_logger.py        # Centralized logging
+│   └── safety_*.py             # Safety subsystems
 └── SWARM_HAT_HIERARCHY.md      # Resident onboarding doc
 ```
 

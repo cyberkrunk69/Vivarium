@@ -5,8 +5,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from safety_gateway import SafetyGateway
-from safety_validator import SafeFileWriter
+from vivarium.runtime.safety_gateway import SafetyGateway
+from vivarium.runtime.safety_validator import SafeFileWriter
 
 
 @pytest.mark.e2e

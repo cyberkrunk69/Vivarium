@@ -24,6 +24,8 @@ This repo now follows a strict golden-path policy:
 
 - `physics/` - swarm-world invariants + control surface (`world_physics.py`) and shared math utils
 - `swarm_environment/` - fresh environment API for new swarm interaction loops
+- `vivarium/runtime/` - canonical runtime modules used by root entrypoints (`worker.py`, `swarm.py`, `control_panel.py`)
+- `docs/` - roadmap, architecture notes, and operational playbooks
 
 ---
 
@@ -100,9 +102,9 @@ flowchart LR
 
 For the full, phased execution plan plus acceptance criteria, see:
 
-- **[`VISION_ROADMAP.md`](./VISION_ROADMAP.md)**
-- **[`CROSS_REPO_TIMELINE.md`](./CROSS_REPO_TIMELINE.md)** (Vivarium + AutoHive timeline, "gold" extraction, anomaly map)
-- **[`RUNTIME_GOLDEN_PATH.md`](./RUNTIME_GOLDEN_PATH.md)** (Phase 0 canonical runtime + safety contract)
+- **[`VISION_ROADMAP.md`](./docs/VISION_ROADMAP.md)**
+- **[`CROSS_REPO_TIMELINE.md`](./docs/CROSS_REPO_TIMELINE.md)** (Vivarium + AutoHive timeline, "gold" extraction, anomaly map)
+- **[`RUNTIME_GOLDEN_PATH.md`](./docs/RUNTIME_GOLDEN_PATH.md)** (Phase 0 canonical runtime + safety contract)
 
 Short version of build order:
 
@@ -133,7 +135,7 @@ Recent history shows a major cleanup and rollback cycle. Key findings:
 - **`4428452`** - "Purge Claude/Anthropic artifacts and docs" removed many architecture/vision documents and experimental modules.
 - **`5b6a0b6`** - backup commit ("before clean rollback") preserved many deleted assets.
 - **`75b046c`** - introduced a `/vision` dashboard route in historical `progress_server.py` (file now absent).
-- **AutoHive (public)** - contains useful orchestration/economics patterns plus wiring mismatches; details in `CROSS_REPO_TIMELINE.md`.
+- **AutoHive (public)** - contains useful orchestration/economics patterns plus wiring mismatches; details in `docs/CROSS_REPO_TIMELINE.md`.
 - **Developer provenance note** - this work is reported as almost entirely vibe-coded (roughly 10-20 manually typed lines total), with full Claude Code JSONL telemetry backups (including thinking blocks and tool calls) available for future intent-drift forensics.
 
 Important artifacts that existed in history but are absent now:
@@ -144,7 +146,7 @@ Important artifacts that existed in history but are absent now:
 | `MULTI_USER_LAN_DESIGN.md` | `4428452^:MULTI_USER_LAN_DESIGN.md` | Multi-user LAN collaboration design and security model. |
 | `ADAPTIVE_ENGINE_SPEC.md` | `4428452^:ADAPTIVE_ENGINE_SPEC.md` | Prior routing logic for complexity/budget-aware model selection. |
 | `progress_server.py` with `/vision` route | `75b046c:progress_server.py` | Historical "living vision dashboard" path. |
-| `tool_store.json` + related prototypes | `5b6a0b6` root | Previous tool-first accumulation direction. |
+| `config/tool_store.json` + related prototypes | `5b6a0b6` root | Previous tool-first accumulation direction. |
 
 Historical code-quality signal worth acting on:
 
@@ -154,7 +156,7 @@ Historical code-quality signal worth acting on:
 - Canonical `worker.py` now includes an initial Phase 5 hook: approved under-budget tasks can grant auditable identity rewards via `swarm_enrichment`, with idempotent task+identity reward grants recorded in `.swarm/phase5_reward_ledger.json`.
 - `worker_pool.py` currently contains generated fragments and is not safe as a production orchestration entrypoint.
 
-The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
+The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
 
 ---
 
@@ -194,9 +196,9 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 | `swarm.py` | FastAPI execution API (`/cycle`, `/plan`, `/status`) |
 | `worker.py` | Resident runtime: queue polling, lock protocol, task execution, event logging |
 | `control_panel.py` | Web UI + API for monitoring, identities, bounties, and chatrooms |
-| `resident_onboarding.py` | Identity selection, cycle/day tracking, resident context injection |
-| `swarm_enrichment.py` | Token economy, journals, guild voting, disputes, bounty reward distribution |
-| `runtime_contract.py` | Canonical queue/task normalization and execution status vocabulary |
+| `vivarium/runtime/resident_onboarding.py` | Identity selection, cycle/day tracking, resident context injection |
+| `vivarium/runtime/swarm_enrichment.py` | Token economy, journals, guild voting, disputes, bounty reward distribution |
+| `vivarium/runtime/runtime_contract.py` | Canonical queue/task normalization and execution status vocabulary |
 
 ---
 
@@ -207,16 +209,16 @@ The recovery sequence for these findings is defined in `VISION_ROADMAP.md`.
 | `queue.json` | `worker.py add`, `swarm.py /plan` | Shared task queue |
 | `task_locks/*.lock` | `worker.py` | Atomic lock files to prevent duplicate task pickup |
 | `execution_log.jsonl` | `worker.py` | Task lifecycle events (`in_progress`, `completed`, `failed`, subtasks) |
-| `action_log.jsonl` + `action_log.log` | `action_logger.py` consumers | Human-readable and structured activity stream |
+| `action_log.jsonl` + `action_log.log` | `vivarium/runtime/action_logger.py` consumers | Human-readable and structured activity stream |
 | `.swarm/identities/*.json` | onboarding/enrichment flows | Persistent identity records |
-| `.swarm/free_time_balances.json` | `swarm_enrichment.py` | Token wallets (free-time + journal pools) |
+| `.swarm/free_time_balances.json` | `vivarium/runtime/swarm_enrichment.py` | Token wallets (free-time + journal pools) |
 | `.swarm/phase5_reward_ledger.json` | `worker.py` | Auditable, idempotent ledger for worker-driven under-budget reward grants |
 | `.swarm/bounties.json` | control panel + enrichment | Bounty definitions, submissions, payout state |
 | `.swarm/discussions/*.jsonl` | social/dispute systems | Chatroom history |
 | `.swarm/messages_to_human.jsonl` | resident social systems | Resident-to-human message queue |
 | `.swarm/messages_from_human.json` | control panel | Human responses |
 | `HALT`, `PAUSE` | kill switch / runtime safety | Emergency stop / pause controls |
-| `library/creative_works/*` | `swarm_enrichment.py` | Resident-generated creative artifacts |
+| `library/creative_works/*` | `vivarium/runtime/swarm_enrichment.py` | Resident-generated creative artifacts |
 
 Most `.swarm/*` content is runtime-generated.
 
@@ -253,7 +255,7 @@ Task fields recognized by current runtime include:
 - `command` or `shell` (local command mode)
 - `mode` (`llm` or `local`)
 - `depends_on`
-- `model` (validated against `config.py` whitelist)
+- `model` (validated against `vivarium/runtime/config.py` whitelist)
 - decomposition hints (`decompose`, `max_subtasks`, `subtask_parallelism`)
 
 ---
