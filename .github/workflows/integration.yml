@@ -1,82 +1,28 @@
-name: Auto‑Integrate Experiments
+name: Integration Tests
 
 on:
   push:
-    branches:
-      - '**'   # any branch
-    paths:
-      - 'experiments/**'
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
 
 jobs:
-  validate-and-pr:
+  integration:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: "3.11"
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Lint code
-        run: npm run lint --if-present
-
-      - name: Run tests
-        run: npm test --if-present
-
-      - name: Create PR for experimental changes
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: auto‑integrate experimental updates"
-          branch: "auto/integrate-${{ github.run_id }}"
-          title: "Auto‑Integrate Experimental Changes"
-          body: |
-            This PR was generated automatically by the **Auto‑Integrate Experiments** workflow.
-            It includes changes detected in the `experiments/` directory and has passed linting and tests.
-          labels: auto‑integrate
-          draft: false
-name: Experiment Integration CI
-
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-jobs:
-  validate-integration:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Verify no stray experiment files in src/
         run: |
-          if git diff --name-only HEAD | grep '^experiments/'; then
-            echo "⚠️ Experiments files should not be directly committed to main."
-            exit 1
-          fi
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-groq.txt
+          pip install pytest
+
+      - name: Run integration and e2e tests
+        run: pytest -q -m "integration or e2e"
