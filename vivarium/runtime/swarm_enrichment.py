@@ -37,6 +37,7 @@ Usage:
 import json
 import time
 import math
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
@@ -367,6 +368,8 @@ class EnrichmentSystem:
         self.workspace = Path(workspace)
         self.library_dir = self.workspace / "library" / "creative_works"
         self.library_dir.mkdir(parents=True, exist_ok=True)
+        self.discussions_dir = self.workspace / ".swarm" / "discussions"
+        self.discussions_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize reward calculator
         self.rewards = RewardCalculator(workspace)
@@ -412,6 +415,135 @@ class EnrichmentSystem:
         self.guilds_file = self.workspace / ".swarm" / "guilds.json"
         self.legacy_teams_file = self.workspace / ".swarm" / "teams.json"
 
+    DISCUSSION_ROOMS = (
+        "town_hall",
+        "watercooler",
+        "improvements",
+        "struggles",
+        "discoveries",
+        "project_war_room",
+    )
+
+    def _normalize_discussion_room(self, room: str) -> str:
+        raw = str(room or "").strip().lower()
+        if not raw:
+            return "town_hall"
+        slug = re.sub(r"[^a-z0-9_]+", "_", raw).strip("_")
+        if slug.startswith("dispute_"):
+            return slug
+        return slug or "town_hall"
+
+    def _discussion_room_file(self, room: str) -> Path:
+        normalized = self._normalize_discussion_room(room)
+        return self.discussions_dir / f"{normalized}.jsonl"
+
+    def get_discussion_messages(self, room: str, limit: int = 50) -> List[Dict[str, Any]]:
+        room_file = self._discussion_room_file(room)
+        if not room_file.exists():
+            return []
+        messages: List[Dict[str, Any]] = []
+        try:
+            with open(room_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        messages.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            return []
+        if limit <= 0:
+            return messages
+        return messages[-limit:]
+
+    def post_discussion_message(
+        self,
+        identity_id: str,
+        identity_name: str,
+        content: str,
+        room: str = "town_hall",
+        mood: Optional[str] = None,
+        importance: int = 3,
+        reply_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Post a resident update into a shared discussion room."""
+        text = str(content or "").strip()
+        if not text:
+            return {"success": False, "reason": "content_empty"}
+
+        normalized_room = self._normalize_discussion_room(room)
+        room_file = self._discussion_room_file(normalized_room)
+        room_file.parent.mkdir(parents=True, exist_ok=True)
+
+        clipped = text[:1200]
+        safe_importance = max(1, min(5, int(importance))) if isinstance(importance, int) else 3
+        message = {
+            "id": f"chat_{normalized_room}_{int(time.time() * 1000)}_{str(identity_id)[-6:]}",
+            "author_id": identity_id,
+            "author_name": identity_name or identity_id,
+            "content": clipped,
+            "room": normalized_room,
+            "timestamp": datetime.now().isoformat(),
+            "mood": (str(mood).strip()[:32] if mood else None),
+            "importance": safe_importance,
+            "reply_to": (str(reply_to).strip()[:120] if reply_to else None),
+        }
+
+        with open(room_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(message, ensure_ascii=True) + "\n")
+
+        if _action_logger:
+            preview = clipped.replace("\n", " ").strip()
+            if len(preview) > 80:
+                preview = preview[:77] + "..."
+            _action_logger.log(
+                ActionType.SOCIAL,
+                f"chat_{normalized_room}",
+                preview or "(empty)",
+                actor=identity_id,
+            )
+
+        return {"success": True, "room": normalized_room, "message": message}
+
+    def get_discussion_context(
+        self,
+        identity_id: str,
+        identity_name: str,
+        limit_per_room: int = 4,
+    ) -> str:
+        """Build recent cross-room discussion memory for prompt injection."""
+        rows: List[str] = []
+        total_messages = 0
+
+        for room in self.DISCUSSION_ROOMS:
+            messages = self.get_discussion_messages(room, limit=limit_per_room)
+            if not messages:
+                continue
+            rows.append(f"[{room}]")
+            for msg in messages:
+                author = str(msg.get("author_name") or "Unknown").strip()
+                text = str(msg.get("content") or "").strip().replace("\n", " ")
+                if len(text) > 180:
+                    text = text[:177] + "..."
+                marker = " (you)" if str(msg.get("author_id")) == str(identity_id) else ""
+                rows.append(f"- {author}{marker}: {text}")
+                total_messages += 1
+
+        if not rows:
+            return (
+                "SWARM DISCUSSION MEMORY\n"
+                "- No shared chat history yet.\n"
+                "- Use town_hall to share updates so other residents can build on your work."
+            )
+
+        return (
+            "SWARM DISCUSSION MEMORY\n"
+            f"- Recent shared messages: {total_messages}\n"
+            f"- You are {identity_name}. Respond to peers, not only to the human prompt.\n"
+            + "\n".join(rows)
+        )
+
     # ═══════════════════════════════════════════════════════════════════
     # CASCADING NAME UPDATE SYSTEM
     # ═══════════════════════════════════════════════════════════════════
@@ -454,7 +586,7 @@ class EnrichmentSystem:
                 updates["errors"].append(f"messages_to_human: {str(e)}")
 
         # 2. Update discussion board messages
-        discussion_dir = self.workspace / ".swarm" / "discussion"
+        discussion_dir = self.workspace / ".swarm" / "discussions"
         if discussion_dir.exists():
             for room_file in discussion_dir.glob("*.jsonl"):
                 try:
@@ -1022,9 +1154,8 @@ class EnrichmentSystem:
         self._save_disputes(disputes)
 
         # Create dispute chatroom with a system message
-        discussions_dir = self.workspace / ".swarm" / "discussions"
-        discussions_dir.mkdir(parents=True, exist_ok=True)
-        room_file = discussions_dir / f"{chatroom_id}.jsonl"
+        self.discussions_dir.mkdir(parents=True, exist_ok=True)
+        room_file = self.discussions_dir / f"{chatroom_id}.jsonl"
         system_msg = {
             "author_id": "SYSTEM",
             "author_name": "SYSTEM",
@@ -1063,8 +1194,7 @@ class EnrichmentSystem:
         disputes["disputes"][dispute_id] = dispute
         self._save_disputes(disputes)
 
-        discussions_dir = self.workspace / ".swarm" / "discussions"
-        room_file = discussions_dir / f"{dispute['chatroom_id']}.jsonl"
+        room_file = self.discussions_dir / f"{dispute['chatroom_id']}.jsonl"
         system_msg = {
             "author_id": "SYSTEM",
             "author_name": "SYSTEM",
@@ -1126,8 +1256,7 @@ class EnrichmentSystem:
         disputes["disputes"][dispute_id] = dispute
         self._save_disputes(disputes)
 
-        discussions_dir = self.workspace / ".swarm" / "discussions"
-        room_file = discussions_dir / f"{dispute['chatroom_id']}.jsonl"
+        room_file = self.discussions_dir / f"{dispute['chatroom_id']}.jsonl"
         system_msg = {
             "author_id": "SYSTEM",
             "author_name": "SYSTEM",

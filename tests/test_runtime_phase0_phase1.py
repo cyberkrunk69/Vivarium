@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from vivarium.runtime import swarm_api as swarm
 from vivarium.runtime import worker_runtime as worker
 from vivarium.runtime import config as runtime_config
+from vivarium.runtime import swarm_enrichment
 from vivarium.runtime.runtime_contract import normalize_queue, validate_queue_contract
 from vivarium.runtime.safety_gateway import SafetyGateway
 
@@ -108,6 +109,35 @@ def test_runtime_config_loads_groq_key_from_security_file(monkeypatch, tmp_path)
     assert loaded == "gsk_unit_test_123456789"
     runtime_config.validate_config(require_groq_key=True)
     runtime_config.set_groq_api_key(None)
+
+
+def test_swarm_enrichment_discussion_post_and_context(tmp_path):
+    enrichment = swarm_enrichment.EnrichmentSystem(workspace=tmp_path)
+    first = enrichment.post_discussion_message(
+        identity_id="identity_alpha",
+        identity_name="Alpha",
+        content="I propose we split the work into docs and validation.",
+        room="town_hall",
+    )
+    second = enrichment.post_discussion_message(
+        identity_id="identity_beta",
+        identity_name="Beta",
+        content="Replying with a test plan and acceptance criteria.",
+        room="town_hall",
+        reply_to=first["message"]["id"],
+    )
+
+    assert first["success"] is True
+    assert second["success"] is True
+
+    messages = enrichment.get_discussion_messages("town_hall", limit=10)
+    assert len(messages) == 2
+    assert messages[1]["reply_to"] == first["message"]["id"]
+
+    context = enrichment.get_discussion_context("identity_beta", "Beta", limit_per_room=4)
+    assert "SWARM DISCUSSION MEMORY" in context
+    assert "Alpha" in context
+    assert "Replying with a test plan" in context
 
 
 def test_cycle_endpoint_requires_internal_execution_token(monkeypatch):

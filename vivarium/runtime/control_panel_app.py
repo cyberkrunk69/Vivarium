@@ -2480,6 +2480,12 @@ CONTROL_PANEL_HTML = '''
                             </div>
                         </details>
                     `).join('');
+
+                    if (currentOpenRoom && data.rooms.some(room => room.id === currentOpenRoom)) {
+                        loadRoomMessages(currentOpenRoom);
+                    } else if (currentOpenRoom) {
+                        currentOpenRoom = null;
+                    }
                 });
         }
 
@@ -2499,6 +2505,7 @@ CONTROL_PANEL_HTML = '''
                     container.innerHTML = data.messages.map(msg => {
                         const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                         const mood = msg.mood ? ` <span style="opacity: 0.6;">(${msg.mood})</span>` : '';
+                        const replyTo = msg.reply_to ? `<div style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.2rem;">↳ replying to ${String(msg.reply_to).slice(0, 14)}</div>` : '';
                         const linkedContent = linkifyFilePaths(msg.content || '');
 
                         return `
@@ -2507,6 +2514,7 @@ CONTROL_PANEL_HTML = '''
                                     <span style="font-weight: 600; color: var(--teal); font-size: 0.8rem;">${msg.author_name || 'Unknown'}${mood}</span>
                                     <span style="font-size: 0.65rem; color: var(--text-dim);">${time}</span>
                                 </div>
+                                ${replyTo}
                                 <div style="font-size: 0.85rem; color: var(--text); line-height: 1.4;">${linkedContent}</div>
                             </div>
                         `;

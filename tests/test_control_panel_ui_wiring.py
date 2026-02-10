@@ -353,3 +353,51 @@ def test_identity_create_api_creates_resident_authored_identity(monkeypatch, tmp
     assert data["origin"] == "resident_authored"
     assert data["meta"]["creative_self_authored"] is True
     assert "curious" in data["attributes"]["core"]["personality_traits"]
+
+
+def test_chatrooms_api_lists_and_reads_town_hall_messages(monkeypatch, tmp_path):
+    client = _configure_control_panel_paths(monkeypatch, tmp_path)
+    cp.DISCUSSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+
+    (cp.DISCUSSIONS_DIR / "town_hall.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "m1",
+                        "author_id": "identity_alpha",
+                        "author_name": "Alpha",
+                        "content": "I reviewed the docs pass and propose two changes.",
+                        "timestamp": now,
+                        "room": "town_hall",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "m2",
+                        "author_id": "identity_beta",
+                        "author_name": "Beta",
+                        "content": "Replying with implementation notes.",
+                        "timestamp": now,
+                        "room": "town_hall",
+                        "reply_to": "m1",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rooms = client.get("/api/chatrooms", **_localhost_request_kwargs()).get_json()
+    assert rooms["success"] is True
+    town_hall = next((room for room in rooms["rooms"] if room["id"] == "town_hall"), None)
+    assert town_hall is not None
+    assert town_hall["message_count"] == 2
+
+    payload = client.get("/api/chatrooms/town_hall", **_localhost_request_kwargs()).get_json()
+    assert payload["success"] is True
+    assert payload["room"] == "town_hall"
+    assert len(payload["messages"]) == 2
+    assert payload["messages"][1]["reply_to"] == "m1"

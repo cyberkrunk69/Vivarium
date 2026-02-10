@@ -255,6 +255,12 @@ def test_worker_execute_task_injects_enrichment_context(monkeypatch):
             return "MORNING_MESSAGES"
 
         @staticmethod
+        def get_discussion_context(identity_id: str, identity_name: str):
+            assert identity_id == "identity_context"
+            assert identity_name == "Nova"
+            return "DISCUSSION_CONTEXT"
+
+        @staticmethod
         def get_enrichment_context(identity_id: str, identity_name: str):
             assert identity_id == "identity_context"
             assert identity_name == "Nova"
@@ -289,7 +295,110 @@ def test_worker_execute_task_injects_enrichment_context(monkeypatch):
     rendered_prompt = captured["payload"]["prompt"]
     assert "WAKEUP" in rendered_prompt
     assert "MORNING_MESSAGES" in rendered_prompt
+    assert "DISCUSSION_CONTEXT" in rendered_prompt
     assert "ENRICHMENT_CONTEXT" in rendered_prompt
+
+
+def test_worker_execute_task_posts_discussion_update(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "result": "Implemented doc update and aligned API wording.",
+                "model": "llama-3.1-8b-instant",
+                "safety_report": {"passed": True},
+            }
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json, headers=None):
+            captured["url"] = url
+            captured["payload"] = json
+            captured["headers"] = headers
+            return _FakeResponse()
+
+    class _StubResidentContext:
+        resident_id = "resident_context"
+
+        class _Identity:
+            identity_id = "identity_context"
+            name = "Nova"
+
+        identity = _Identity()
+
+        @staticmethod
+        def apply_to_prompt(prompt: str) -> str:
+            return prompt
+
+    class _StubEnrichment:
+        def __init__(self):
+            self.posts = []
+
+        @staticmethod
+        def get_morning_messages(identity_id: str):
+            return ""
+
+        @staticmethod
+        def get_discussion_context(identity_id: str, identity_name: str):
+            return ""
+
+        @staticmethod
+        def get_enrichment_context(identity_id: str, identity_name: str):
+            return ""
+
+        @staticmethod
+        def get_discussion_messages(room: str, limit: int = 8):
+            return [{"id": "chat_prev_1", "author_id": "identity_other"}]
+
+        def post_discussion_message(self, **kwargs):
+            self.posts.append(kwargs)
+            return {"success": True}
+
+    enrichment = _StubEnrichment()
+    monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", None)
+    monkeypatch.setattr(worker, "WORKER_TOOL_ROUTER", None)
+    monkeypatch.setattr(worker, "WORKER_ENRICHMENT", enrichment)
+    monkeypatch.setattr(worker, "AUTO_DISCUSSION_UPDATES", True)
+    monkeypatch.setattr(worker, "validate_model_id", lambda _model: None)
+    monkeypatch.setattr(
+        worker,
+        "_run_worker_safety_check",
+        lambda task_id, prompt, command, mode: (
+            True,
+            {"passed": True, "task_id": task_id, "checks": {}},
+        ),
+    )
+    monkeypatch.setattr(worker.httpx, "Client", _FakeClient)
+
+    result = worker.execute_task(
+        {
+            "id": "task_discussion_update",
+            "prompt": "Publish runtime docs update.",
+            "mode": "llm",
+            "model": "llama-3.1-8b-instant",
+        },
+        api_endpoint="http://127.0.0.1:8420",
+        resident_ctx=_StubResidentContext(),
+    )
+
+    assert result["status"] == "completed"
+    assert enrichment.posts
+    post = enrichment.posts[0]
+    assert post["room"] == "town_hall"
+    assert post["reply_to"] == "chat_prev_1"
+    assert "Task task_discussion_update update" in post["content"]
 
 
 def test_worker_execute_task_persists_mvp_markdown_artifacts(monkeypatch, tmp_path):

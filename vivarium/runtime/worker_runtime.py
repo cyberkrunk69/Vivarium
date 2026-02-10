@@ -127,6 +127,10 @@ RESIDENT_JITTER_MAX: float = float(os.environ.get("RESIDENT_JITTER_MAX", "0.5"))
 MAX_REQUEUE_ATTEMPTS: int = int(os.environ.get("RESIDENT_MAX_REQUEUE_ATTEMPTS", "3"))
 RUNTIME_SPEED_FILE: Path = MUTABLE_SWARM_DIR / "runtime_speed.json"
 DEFAULT_RUNTIME_WAIT_SECONDS: float = float(os.environ.get("VIVARIUM_RUNTIME_WAIT_SECONDS", str(WORKER_CHECK_INTERVAL)))
+AUTO_DISCUSSION_UPDATES: bool = (
+    os.environ.get("VIVARIUM_AUTO_DISCUSSION_UPDATES", "1").strip().lower()
+    not in {"0", "false", "no"}
+)
 PHASE4_SEQUENCE_SPLIT_RE = re.compile(
     r"\b(?:and then|then|also|plus|after that|next|finally)\b",
     flags=re.IGNORECASE,
@@ -310,6 +314,14 @@ def _build_enrichment_prompt_context(resident_ctx: Optional["ResidentContext"]) 
         _log("WARN", f"Failed to load morning messages for {identity_id}: {exc}")
 
     try:
+        if hasattr(WORKER_ENRICHMENT, "get_discussion_context"):
+            discussion_context = WORKER_ENRICHMENT.get_discussion_context(identity_id, identity_name)
+            if isinstance(discussion_context, str) and discussion_context.strip():
+                sections.append(discussion_context.strip())
+    except Exception as exc:
+        _log("WARN", f"Failed to load discussion context for {identity_id}: {exc}")
+
+    try:
         if hasattr(WORKER_ENRICHMENT, "get_enrichment_context"):
             enrichment_context = WORKER_ENRICHMENT.get_enrichment_context(identity_id, identity_name)
             if isinstance(enrichment_context, str) and enrichment_context.strip():
@@ -320,6 +332,66 @@ def _build_enrichment_prompt_context(resident_ctx: Optional["ResidentContext"]) 
     if not sections:
         return None
     return "\n\n".join(sections)
+
+
+def _truncate_single_line(value: Any, max_chars: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)] + "..."
+
+
+def _publish_task_update_to_discussion(
+    task: Dict[str, Any],
+    resident_ctx: Optional["ResidentContext"],
+    task_id: str,
+    result_summary: Any,
+) -> None:
+    if not AUTO_DISCUSSION_UPDATES or resident_ctx is None or WORKER_ENRICHMENT is None:
+        return
+    if not hasattr(WORKER_ENRICHMENT, "post_discussion_message"):
+        return
+
+    identity = getattr(resident_ctx, "identity", None)
+    identity_id = str(getattr(identity, "identity_id", "")).strip()
+    identity_name = str(getattr(identity, "name", "")).strip() or identity_id or "resident"
+    if not identity_id:
+        return
+
+    room = str(task.get("discussion_room") or "town_hall").strip() or "town_hall"
+    summary_line = _truncate_single_line(result_summary or "Task completed.", 240)
+    focus_line = _truncate_single_line(
+        _resolve_task_prompt(task) or task.get("task") or task.get("command") or "",
+        160,
+    )
+    content = f"Task {task_id} update: {summary_line}"
+    if focus_line:
+        content += f"\nFocus: {focus_line}"
+
+    reply_to = None
+    try:
+        if hasattr(WORKER_ENRICHMENT, "get_discussion_messages"):
+            recent = WORKER_ENRICHMENT.get_discussion_messages(room, limit=8)
+            for message in reversed(recent):
+                author_id = str(message.get("author_id") or "").strip()
+                if author_id and author_id != identity_id:
+                    reply_to = message.get("id")
+                    break
+    except Exception:
+        reply_to = None
+
+    try:
+        WORKER_ENRICHMENT.post_discussion_message(
+            identity_id=identity_id,
+            identity_name=identity_name,
+            content=content,
+            room=room,
+            mood="focused",
+            importance=3,
+            reply_to=reply_to,
+        )
+    except Exception as exc:
+        _log("WARN", f"Failed to publish discussion update for {task_id}: {exc}")
 
 
 def _slugify_token(value: str, fallback: str = "artifact") -> str:
@@ -1860,6 +1932,7 @@ def execute_task(
             result = response.json()
             api_safety_report = result.get("safety_report")
             result_summary = result.get("result", "Task completed")
+            _publish_task_update_to_discussion(task, resident_ctx, task_id, result_summary)
             markdown_artifacts = _persist_mvp_markdown_artifacts(task, result_summary, resident_ctx)
             checkpoint_sha = None
             if WORKER_MUTABLE_VCS is not None:
