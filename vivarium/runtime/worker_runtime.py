@@ -125,6 +125,8 @@ RESIDENT_SCAN_LIMIT: int = int(os.environ.get("RESIDENT_SCAN_LIMIT", "0"))
 RESIDENT_BACKOFF_MAX: int = int(os.environ.get("RESIDENT_BACKOFF_MAX", "5"))
 RESIDENT_JITTER_MAX: float = float(os.environ.get("RESIDENT_JITTER_MAX", "0.5"))
 MAX_REQUEUE_ATTEMPTS: int = int(os.environ.get("RESIDENT_MAX_REQUEUE_ATTEMPTS", "3"))
+RUNTIME_SPEED_FILE: Path = MUTABLE_SWARM_DIR / "runtime_speed.json"
+DEFAULT_RUNTIME_WAIT_SECONDS: float = float(os.environ.get("VIVARIUM_RUNTIME_WAIT_SECONDS", str(WORKER_CHECK_INTERVAL)))
 PHASE4_SEQUENCE_SPLIT_RE = re.compile(
     r"\b(?:and then|then|also|plus|after that|next|finally)\b",
     flags=re.IGNORECASE,
@@ -690,6 +692,27 @@ def _compute_idle_sleep(idle_count: int) -> float:
     backoff = min(idle_count, max(1, RESIDENT_BACKOFF_MAX))
     jitter = random.random() * max(0.0, RESIDENT_JITTER_MAX)
     return WORKER_CHECK_INTERVAL * (1 + backoff) + jitter
+
+
+def _load_runtime_wait_seconds() -> Optional[float]:
+    data = read_json(RUNTIME_SPEED_FILE, default={})
+    if not isinstance(data, dict):
+        return None
+    raw = data.get("wait_seconds")
+    try:
+        wait_seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if wait_seconds < 0:
+        return None
+    return min(wait_seconds, 300.0)
+
+
+def _resolve_idle_wait_seconds(idle_count: int) -> float:
+    runtime_wait = _load_runtime_wait_seconds()
+    if runtime_wait is not None:
+        return runtime_wait
+    return max(0.0, DEFAULT_RUNTIME_WAIT_SECONDS if DEFAULT_RUNTIME_WAIT_SECONDS >= 0 else _compute_idle_sleep(idle_count))
 
 
 def _build_facet_plan_text(plan: Any) -> str:
@@ -2077,12 +2100,12 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
             try:
                 resident_ctx = spawn_resident(WORKSPACE)
                 if not resident_ctx:
-                    _log("WARN", "No identity available this cycle; exiting.")
+                    _log("WARN", "No identity available this day; exiting.")
                     return
                 _log(
                     "INFO",
                     f"Resident {resident_ctx.identity.name} ({resident_ctx.identity.identity_id}) "
-                    f"day {resident_ctx.day_count}, cycle {resident_ctx.cycle_id}",
+                    f"day {resident_ctx.day_count}, week {((resident_ctx.day_count - 1) // 7) + 1}",
                 )
             except Exception as exc:
                 _log("WARN", f"Resident onboarding failed: {exc}")
@@ -2117,8 +2140,13 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
                     if idle_count >= MAX_IDLE_CYCLES:
                         _log("INFO", f"No tasks available after {MAX_IDLE_CYCLES} checks. Exiting.")
                         break
-                    _log("INFO", f"No tasks available, waiting... ({idle_count}/{MAX_IDLE_CYCLES})")
-                    time.sleep(_compute_idle_sleep(idle_count))
+                    wait_seconds = _resolve_idle_wait_seconds(idle_count)
+                    _log(
+                        "INFO",
+                        f"No tasks available, waiting {wait_seconds:.2f}s... "
+                        f"({idle_count}/{MAX_IDLE_CYCLES})",
+                    )
+                    time.sleep(wait_seconds)
             except KeyboardInterrupt:
                 _log("INFO", "Interrupted by user")
                 break

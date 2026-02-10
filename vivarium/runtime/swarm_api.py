@@ -71,6 +71,26 @@ REPO_READ_ROOT = REPO_ROOT.resolve()
 PHYSICS_READ_BLOCKLIST = (
     (REPO_ROOT / "vivarium" / "physics").resolve(),
 )
+SECURITY_READ_BLOCKLIST = (
+    (REPO_ROOT / "vivarium" / "meta" / "security").resolve(),
+    (REPO_ROOT / "config" / "SAFETY_CONSTRAINTS.json").resolve(),
+    (REPO_ROOT / "SECURITY.md").resolve(),
+    (REPO_ROOT / "vivarium" / "runtime" / "safety_gateway.py").resolve(),
+    (REPO_ROOT / "vivarium" / "runtime" / "safety_validator.py").resolve(),
+    (REPO_ROOT / "vivarium" / "runtime" / "secure_api_wrapper.py").resolve(),
+    (REPO_ROOT / "vivarium" / "runtime" / "vivarium_scope.py").resolve(),
+)
+READ_BLOCKLIST = PHYSICS_READ_BLOCKLIST + SECURITY_READ_BLOCKLIST
+RG_BLOCKED_GLOBS = (
+    "vivarium/physics/**",
+    "vivarium/meta/security/**",
+    "config/SAFETY_CONSTRAINTS.json",
+    "SECURITY.md",
+    "vivarium/runtime/safety_gateway.py",
+    "vivarium/runtime/safety_validator.py",
+    "vivarium/runtime/secure_api_wrapper.py",
+    "vivarium/runtime/vivarium_scope.py",
+)
 
 LOCAL_COMMAND_DENYLIST = [
     (re.compile(r"\bcurl\b[^|]*\|\s*(bash|sh)\b", re.IGNORECASE), "piping curl output into shell"),
@@ -285,6 +305,16 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
+def _blocked_read_reason(path: Path) -> Optional[str]:
+    for blocked_root in PHYSICS_READ_BLOCKLIST:
+        if _is_within(path, blocked_root):
+            return "Local command blocked: physics files are restricted in MVP mode"
+    for blocked_root in SECURITY_READ_BLOCKLIST:
+        if _is_within(path, blocked_root):
+            return "Local command blocked: security files are restricted in MVP mode"
+    return None
+
+
 def _is_path_token(token: str) -> bool:
     if token in {".", ".."}:
         return True
@@ -323,6 +353,12 @@ def _validate_read_only_token_scope(tokens: List[str]) -> Optional[str]:
     if primary == "git":
         return "Local command blocked: git access is disabled in MVP mode"
 
+    if primary == "rg":
+        disallowed_rg_flags = {"-g", "--glob", "--iglob", "--no-ignore", "--hidden"}
+        for token in tokens[1:]:
+            if token in disallowed_rg_flags or token.startswith("--glob=") or token.startswith("--iglob="):
+                return "Local command blocked: custom rg glob/ignore flags are disabled in MVP mode"
+
     non_flags = [token for token in tokens[1:] if not token.startswith("-")]
     candidate_tokens: List[str] = []
     if primary in {"ls", "cat"}:
@@ -338,10 +374,20 @@ def _validate_read_only_token_scope(tokens: List[str]) -> Optional[str]:
             continue
         if not _is_within(resolved, REPO_READ_ROOT):
             return "Local command blocked: path outside repository root"
-        for blocked_root in PHYSICS_READ_BLOCKLIST:
-            if _is_within(resolved, blocked_root):
-                return "Local command blocked: physics directory is restricted in MVP mode"
+        blocked_reason = _blocked_read_reason(resolved)
+        if blocked_reason:
+            return blocked_reason
     return None
+
+
+def _apply_rg_blocklist_globs(tokens: List[str]) -> List[str]:
+    primary = Path(tokens[0]).name if tokens else ""
+    if primary != "rg":
+        return tokens
+    patched = list(tokens)
+    for pattern in RG_BLOCKED_GLOBS:
+        patched.extend(["--glob", f"!{pattern}"])
+    return patched
 
 
 def _validate_local_command(command: str) -> Optional[str]:
@@ -514,6 +560,7 @@ def _run_local_task(
     env = _build_local_env(tokens)
 
     _enforce_local_token_scope(tokens)
+    tokens = _apply_rg_blocklist_globs(tokens)
 
     start_time = time.time()
     try:
@@ -602,7 +649,7 @@ def scan_codebase() -> Dict[str, Any]:
 
     for root, dirs, files in os.walk(REPO_ROOT):
         root_path = Path(root).resolve()
-        if any(_is_within(root_path, blocked_root) for blocked_root in PHYSICS_READ_BLOCKLIST):
+        if _blocked_read_reason(root_path):
             dirs[:] = []
             continue
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".")]
@@ -610,6 +657,8 @@ def scan_codebase() -> Dict[str, Any]:
             if not filename.endswith(".py"):
                 continue
             path = Path(root) / filename
+            if _blocked_read_reason(path.resolve()):
+                continue
             try:
                 content = path.read_text(encoding="utf-8", errors="ignore")
             except Exception:

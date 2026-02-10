@@ -29,6 +29,7 @@ def _configure_control_panel_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(cp, "COMPLETED_REQUESTS_FILE", swarm_dir / "completed_requests.json")
     monkeypatch.setattr(cp, "BOUNTIES_FILE", swarm_dir / "bounties.json")
     monkeypatch.setattr(cp, "DISCUSSIONS_DIR", swarm_dir / "discussions")
+    monkeypatch.setattr(cp, "RUNTIME_SPEED_FILE", swarm_dir / "runtime_speed.json")
 
     cp.app.config["TESTING"] = True
     return cp.app.test_client()
@@ -280,3 +281,21 @@ def test_insights_api_aggregates_runtime_signals(monkeypatch, tmp_path):
     assert payload["identities"]["active_24h"] == 2
     assert payload["identities"]["top_actor"]["id"] == "identity_alpha"
     assert payload["health"]["state"] == "watch"
+
+
+def test_runtime_speed_api_round_trip(monkeypatch, tmp_path):
+    client = _configure_control_panel_paths(monkeypatch, tmp_path)
+
+    default_payload = client.get("/api/runtime_speed", **_localhost_request_kwargs()).get_json()
+    assert "wait_seconds" in default_payload
+
+    update = client.post(
+        "/api/runtime_speed",
+        json={"wait_seconds": 11},
+        **_localhost_request_kwargs(),
+    ).get_json()
+    assert update["success"] is True
+    assert update["wait_seconds"] == 11
+
+    refreshed = client.get("/api/runtime_speed", **_localhost_request_kwargs()).get_json()
+    assert refreshed["wait_seconds"] == 11

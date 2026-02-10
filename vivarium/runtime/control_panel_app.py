@@ -48,6 +48,7 @@ KILL_SWITCH = MUTABLE_SWARM_DIR / "kill_switch.json"
 FREE_TIME_BALANCES = MUTABLE_SWARM_DIR / "free_time_balances.json"
 IDENTITIES_DIR = MUTABLE_SWARM_DIR / "identities"
 DISCUSSIONS_DIR = WORKSPACE / ".swarm" / "discussions"
+RUNTIME_SPEED_FILE = MUTABLE_SWARM_DIR / "runtime_speed.json"
 
 # Track last read position
 last_log_position = 0
@@ -59,6 +60,16 @@ def _safe_int_env(name: str, default: int) -> int:
         return default
     try:
         return int(raw)
+    except ValueError:
+        return default
+
+
+def _safe_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
     except ValueError:
         return default
 
@@ -816,7 +827,7 @@ CONTROL_PANEL_HTML = '''
                 <div class="sidebar-section-content">
             <div class="identity-card">
                 <div class="identity-stat">
-                    <span>Daily Cycle Budget</span>
+                    <span>Daily Budget</span>
                     <span class="stat-value" id="sessionBudget">$0.05</span>
                 </div>
                 <div class="identity-stat">
@@ -861,12 +872,15 @@ CONTROL_PANEL_HTML = '''
                     </label>
                 </div>
 
-                <!-- Manual mode: cycle-per-day slider -->
+                <!-- Manual mode: day allocation slider -->
                 <div id="manualScaleControls" style="margin-top: 0.75rem;">
-                    <label style="font-size: 0.8rem; color: var(--text-dim);">Daily Cycles: <span id="sessionCount" style="color: var(--teal);">3</span></label>
-                    <input type="range" id="sessionSlider" min="1" max="10" value="3"
+                    <label style="font-size: 0.8rem; color: var(--text-dim);">Audit Pace (seconds): <span id="sessionCount" style="color: var(--teal);">2</span>s</label>
+                    <input type="range" id="sessionSlider" min="0" max="120" value="2" step="1"
                            oninput="updateSessionCount(this.value)"
                            style="width: 100%; margin-top: 0.3rem; accent-color: var(--teal);">
+                    <p style="font-size: 0.7rem; color: var(--text-dim); margin-top: 0.3rem;">
+                        Wait between queue checks in the worker loop (human-auditable pace)
+                    </p>
                 </div>
 
                 <!-- Auto mode: budget input -->
@@ -879,16 +893,17 @@ CONTROL_PANEL_HTML = '''
                                       border-radius: 4px; font-size: 0.85rem;">
                     </label>
                     <p style="font-size: 0.7rem; color: var(--text-dim); margin-top: 0.3rem;">
-                        Cycle workers scale up/down based on remaining budget
+                        Worker days scale up/down based on remaining budget
                     </p>
                 </div>
 
-                <button onclick="saveSpawnerConfig()"
+                <button onclick="saveRuntimeSpeed()"
                     style="margin-top: 0.75rem; width: 100%; padding: 0.3rem; background: var(--bg-hover);
                            border: 1px solid var(--border); color: var(--text); border-radius: 4px;
                            cursor: pointer; font-size: 0.75rem;">
-                    Save Config
+                    Save Pace
                 </button>
+                <div id="runtimeSpeedStatus" style="font-size: 0.65rem; color: var(--green); margin-top: 0.3rem; text-align: center;"></div>
             </div>
                 </div>
             </details>
@@ -1038,6 +1053,7 @@ CONTROL_PANEL_HTML = '''
             console.log('Connected to control panel');
             loadSpawnerStatus();
             loadStopStatus();
+            loadRuntimeSpeed();
             loadSwarmInsights();
         });
 
@@ -1253,14 +1269,14 @@ CONTROL_PANEL_HTML = '''
                     // Stats bar (row 1)
                     content += `<div style="display: flex; gap: 1rem; margin-bottom: 0.5rem; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
                         <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--yellow);">${data.level || 1}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Level</div></div>
-                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--teal);">${data.sessions}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Cycles</div></div>
+                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--teal);">${data.sessions}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Days</div></div>
                         <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--green);">${data.tasks_completed}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Tasks</div></div>
                         <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: ${data.task_success_rate >= 80 ? 'var(--green)' : data.task_success_rate >= 50 ? 'var(--yellow)' : 'var(--red)'}">${data.task_success_rate}%</div><div style="font-size: 0.7rem; color: var(--text-dim);">Success</div></div>
                     </div>`;
                     // Stats bar (row 2 - respec info)
                     content += `<div style="display: flex; gap: 1rem; margin-bottom: 1rem; padding: 0.5rem 0.75rem; background: var(--bg-dark); border-radius: 8px; font-size: 0.8rem;">
                         <div style="flex: 1; color: var(--text-dim);">Respec Cost: <span style="color: var(--orange); font-weight: 600;">${data.respec_cost || 10} tokens</span></div>
-                        <div style="color: var(--text-dim); font-size: 0.7rem;">Level formula: sqrt(cycles) | Respec: 10 + (cycles × 3)</div>
+                        <div style="color: var(--text-dim); font-size: 0.7rem;">Level formula: sqrt(days) | Respec: 10 + (days × 3)</div>
                     </div>`;
 
                     // Core traits and values
@@ -1499,7 +1515,49 @@ CONTROL_PANEL_HTML = '''
         }
 
         function updateSessionCount(value) {
-            document.getElementById('sessionCount').textContent = value;
+            const numeric = parseFloat(value);
+            const display = Number.isFinite(numeric) ? numeric.toFixed(0) : value;
+            document.getElementById('sessionCount').textContent = display;
+        }
+
+        function loadRuntimeSpeed() {
+            fetch('/api/runtime_speed')
+                .then(r => r.json())
+                .then(data => {
+                    const slider = document.getElementById('sessionSlider');
+                    const waitSeconds = Number(data.wait_seconds ?? 2);
+                    if (slider && Number.isFinite(waitSeconds)) {
+                        slider.value = String(waitSeconds);
+                        updateSessionCount(waitSeconds);
+                    }
+                });
+        }
+
+        function saveRuntimeSpeed() {
+            const slider = document.getElementById('sessionSlider');
+            const status = document.getElementById('runtimeSpeedStatus');
+            const waitSeconds = Number(slider ? slider.value : 2);
+            fetch('/api/runtime_speed', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({wait_seconds: waitSeconds})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    if (status) {
+                        status.textContent = data.error || 'Failed to save pace';
+                        status.style.color = 'var(--red)';
+                    }
+                    return;
+                }
+                updateSessionCount(data.wait_seconds);
+                if (status) {
+                    status.textContent = `Saved: ${Number(data.wait_seconds).toFixed(0)}s idle wait`;
+                    status.style.color = 'var(--green)';
+                    setTimeout(() => { status.textContent = ''; }, 2500);
+                }
+            });
         }
 
         function updateBudgetLimit(value) {
@@ -1570,7 +1628,7 @@ CONTROL_PANEL_HTML = '''
             .then(data => {
                 if (data.success) {
                     const modeText = config.auto_model ? 'Auto mode enabled.' : `Model set to ${config.model}.`;
-                    alert('Config saved! ' + modeText + ' Changes apply on next cycle.');
+                    alert('Config saved! ' + modeText + ' Changes apply on the next day.');
                 }
             });
         }
@@ -2371,6 +2429,7 @@ CONTROL_PANEL_HTML = '''
         loadChatRooms();
         loadArtifacts();
         loadStopStatus();
+        loadRuntimeSpeed();
         loadSwarmInsights();
 
         // Refresh bounties, spawner status, and chat rooms periodically
@@ -2379,6 +2438,7 @@ CONTROL_PANEL_HTML = '''
         setInterval(loadChatRooms, 15000);  // Refresh chat rooms every 15 seconds
         setInterval(loadArtifacts, 15000);
         setInterval(loadStopStatus, 5000);
+        setInterval(loadRuntimeSpeed, 15000);
         setInterval(loadSwarmInsights, 10000);
     </script>
 </body>
@@ -2659,6 +2719,7 @@ def api_toggle_stop():
 # Spawner process tracking
 SPAWNER_PROCESS_FILE = WORKSPACE / ".swarm" / "spawner_process.json"
 SPAWNER_CONFIG_FILE = WORKSPACE / ".swarm" / "spawner_config.json"
+DEFAULT_RUNTIME_SPEED_SECONDS = max(0.0, _safe_float_env("VIVARIUM_RUNTIME_WAIT_SECONDS", 2.0))
 
 
 def get_spawner_status():
@@ -2827,6 +2888,55 @@ def api_update_spawner_config():
         'golden_path_only': True,
         'error': 'Detached spawner path is disabled. Configuration updates are ignored.'
     }), 410
+
+
+def get_runtime_speed():
+    """Get current worker-loop wait seconds."""
+    payload = {
+        "wait_seconds": DEFAULT_RUNTIME_SPEED_SECONDS,
+        "updated_at": None,
+    }
+    if not RUNTIME_SPEED_FILE.exists():
+        return payload
+    try:
+        with open(RUNTIME_SPEED_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        wait = float(data.get("wait_seconds", DEFAULT_RUNTIME_SPEED_SECONDS))
+        payload["wait_seconds"] = max(0.0, min(300.0, wait))
+        payload["updated_at"] = data.get("updated_at")
+    except Exception:
+        pass
+    return payload
+
+
+def save_runtime_speed(wait_seconds: float):
+    """Persist worker-loop wait seconds for auditable pacing."""
+    clamped = max(0.0, min(300.0, float(wait_seconds)))
+    payload = {
+        "wait_seconds": clamped,
+        "updated_at": datetime.now().isoformat(),
+    }
+    RUNTIME_SPEED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(RUNTIME_SPEED_FILE, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, indent=2)
+    return payload
+
+
+@app.route('/api/runtime_speed', methods=['GET'])
+def api_get_runtime_speed():
+    return jsonify(get_runtime_speed())
+
+
+@app.route('/api/runtime_speed', methods=['POST'])
+def api_set_runtime_speed():
+    data = request.json or {}
+    raw = data.get("wait_seconds", DEFAULT_RUNTIME_SPEED_SECONDS)
+    try:
+        wait_seconds = float(raw)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "wait_seconds must be a number"}), 400
+    saved = save_runtime_speed(wait_seconds)
+    return jsonify({"success": True, **saved})
 
 
 # Human request storage

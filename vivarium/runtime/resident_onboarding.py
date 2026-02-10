@@ -30,8 +30,13 @@ IDENTITY_LIBRARY_FILE = "identity_library.json"
 RESIDENT_DAYS_FILE = Path(".swarm") / "resident_days.json"
 IDENTITIES_DIR = Path(".swarm") / "identities"
 IDENTITY_LOCKS_FILE = Path(".swarm") / "identity_locks.json"
-# "Day" length at machine speed (seconds per cycle).
-RESIDENT_CYCLE_SECONDS = int(os.environ.get("RESIDENT_CYCLE_SECONDS", "900"))
+# One simulated "day" length (seconds). Default compressed to 1 minute.
+RESIDENT_CYCLE_SECONDS = int(
+    os.environ.get(
+        "RESIDENT_DAY_SECONDS",
+        os.environ.get("RESIDENT_CYCLE_SECONDS", "60"),
+    )
+)
 
 
 @dataclass
@@ -65,13 +70,21 @@ class ResidentContext:
     notifications: List[str]
     market_hint: str
 
+    @property
+    def week_count(self) -> int:
+        return max(1, ((self.day_count - 1) // 7) + 1)
+
+    @property
+    def day_of_week(self) -> int:
+        return ((self.day_count - 1) % 7) + 1
+
     def build_wakeup_context(self) -> str:
         lines = [
             "DAY START",
             "You are waking up in Vivarium.",
             "",
             f"You are {self.identity.name} ({self.identity.identity_id}).",
-            f"This is your day {self.day_count} (cycle {self.cycle_id}).",
+            f"This is day {self.day_count} (week {self.week_count}, day {self.day_of_week}/7).",
             f"Token wallet: {self.wallet.get('free_time', 0)} free time, "
             f"{self.wallet.get('journal', 0)} journal.",
             "",

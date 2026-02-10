@@ -58,6 +58,10 @@ def test_local_command_policy_allowlist_and_denylist():
     assert physics_read_error is not None
     assert "physics directory" in physics_read_error.lower()
 
+    security_read_error = swarm._validate_local_command("cat SECURITY.md")
+    assert security_read_error is not None
+    assert "security" in security_read_error.lower()
+
     python_error = swarm._validate_local_command("python3 -V")
     assert python_error is not None
     assert "allowlist" in python_error.lower()
@@ -76,6 +80,19 @@ def test_run_local_task_rejects_denied_command():
     with pytest.raises(HTTPException) as exc:
         swarm._run_local_task(req, safety_report={"passed": True})
     assert exc.value.status_code == 403
+
+
+def test_worker_idle_wait_uses_runtime_speed_file(monkeypatch, tmp_path):
+    runtime_speed_file = tmp_path / "runtime_speed.json"
+    runtime_speed_file.write_text('{"wait_seconds": 7}', encoding="utf-8")
+
+    monkeypatch.setattr(worker, "RUNTIME_SPEED_FILE", runtime_speed_file)
+    monkeypatch.setattr(worker, "DEFAULT_RUNTIME_WAIT_SECONDS", 2.0)
+
+    assert worker._resolve_idle_wait_seconds(3) == pytest.approx(7.0, rel=0.001)
+
+    runtime_speed_file.write_text('{"wait_seconds": -1}', encoding="utf-8")
+    assert worker._resolve_idle_wait_seconds(3) == pytest.approx(2.0, rel=0.001)
 
 
 def test_cycle_endpoint_requires_internal_execution_token(monkeypatch):
