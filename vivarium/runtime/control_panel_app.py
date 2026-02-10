@@ -14,12 +14,14 @@ Open: http://localhost:8421
 
 import json
 import os
+import re
 import secrets
 import time
 import threading
+from collections import Counter, deque
 from ipaddress import ip_address
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO, emit
 from watchdog.observers import Observer
@@ -40,9 +42,12 @@ socketio = SocketIO(app, cors_allowed_origins=LOCAL_UI_ORIGINS, async_mode='thre
 CODE_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = MUTABLE_ROOT
 ACTION_LOG = AUDIT_ROOT / "action_log.jsonl"
+EXECUTION_LOG = AUDIT_ROOT / "execution_log.jsonl"
+QUEUE_FILE = WORKSPACE / "queue.json"
 KILL_SWITCH = MUTABLE_SWARM_DIR / "kill_switch.json"
 FREE_TIME_BALANCES = MUTABLE_SWARM_DIR / "free_time_balances.json"
 IDENTITIES_DIR = MUTABLE_SWARM_DIR / "identities"
+DISCUSSIONS_DIR = WORKSPACE / ".swarm" / "discussions"
 
 # Track last read position
 last_log_position = 0
@@ -294,6 +299,55 @@ CONTROL_PANEL_HTML = '''
 
         .spawner-status .dot.stopped {
             background: var(--red);
+        }
+
+        .insights-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(170px, 1fr));
+            gap: 0.6rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .insight-card {
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.55rem 0.7rem;
+            min-height: 64px;
+        }
+
+        .insight-label {
+            color: var(--text-dim);
+            font-size: 0.65rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+
+        .insight-value {
+            color: var(--text);
+            font-size: 1.05rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .insight-sub {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            margin-top: 0.15rem;
+        }
+
+        .insight-value.good { color: var(--green); }
+        .insight-value.warn { color: var(--yellow); }
+        .insight-value.bad { color: var(--red); }
+        .insight-value.teal { color: var(--teal); }
+
+        @media (max-width: 1200px) {
+            .insights-strip {
+                grid-template-columns: repeat(2, minmax(160px, 1fr));
+            }
         }
 
         /* Main Content */
@@ -648,6 +702,49 @@ CONTROL_PANEL_HTML = '''
         </div>
     </div>
 
+    <div class="insights-strip">
+        <div class="insight-card">
+            <div class="insight-label">Queue</div>
+            <div class="insight-value teal" id="insightQueueOpen">--</div>
+            <div class="insight-sub" id="insightQueueSub">open / completed / failed</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Throughput (24h)</div>
+            <div class="insight-value" id="insightThroughput">--</div>
+            <div class="insight-sub" id="insightThroughputSub">completed vs failed</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Quality (24h)</div>
+            <div class="insight-value" id="insightQuality">--</div>
+            <div class="insight-sub" id="insightQualitySub">approval / pending review</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Cost + API (24h)</div>
+            <div class="insight-value" id="insightCost">--</div>
+            <div class="insight-sub" id="insightCostSub">API calls</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Safety + Errors (24h)</div>
+            <div class="insight-value" id="insightSafety">--</div>
+            <div class="insight-sub" id="insightSafetySub">blocked checks / errors</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Social</div>
+            <div class="insight-value" id="insightSocial">--</div>
+            <div class="insight-sub" id="insightSocialSub">unread messages / bounties</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Active Identities (24h)</div>
+            <div class="insight-value" id="insightActors">--</div>
+            <div class="insight-sub" id="insightActorsSub">top actor</div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-label">Swarm Health</div>
+            <div class="insight-value" id="insightHealth">--</div>
+            <div class="insight-sub" id="insightHealthSub">backlog pressure / failure streak</div>
+        </div>
+    </div>
+
     <!-- Slide-out toggle button -->
     <div class="slideout-toggle" onclick="toggleSlideout()">
         Completed Requests
@@ -941,6 +1038,7 @@ CONTROL_PANEL_HTML = '''
             console.log('Connected to control panel');
             loadSpawnerStatus();
             loadStopStatus();
+            loadSwarmInsights();
         });
 
         socket.on('disconnect', () => {
@@ -2169,6 +2267,99 @@ CONTROL_PANEL_HTML = '''
                 });
         }
 
+        function setInsightValue(id, value, tone = null) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = value;
+            el.classList.remove('good', 'warn', 'bad', 'teal');
+            if (tone) {
+                el.classList.add(tone);
+            }
+        }
+
+        function setInsightSub(id, text) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text;
+        }
+
+        function loadSwarmInsights() {
+            fetch('/api/insights')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) return;
+
+                    const queue = data.queue || {};
+                    const execution = data.execution || {};
+                    const ops = data.ops || {};
+                    const social = data.social || {};
+                    const identities = data.identities || {};
+                    const health = data.health || {};
+
+                    const queueOpen = Number(queue.open || 0);
+                    const queueCompleted = Number(queue.completed || 0);
+                    const queueFailed = Number(queue.failed || 0);
+                    setInsightValue('insightQueueOpen', String(queueOpen), queueOpen > 8 ? 'warn' : 'teal');
+                    setInsightSub('insightQueueSub', `${queueCompleted} completed • ${queueFailed} failed`);
+
+                    const completed = Number(execution.completed_24h || 0);
+                    const failed = Number(execution.failed_24h || 0);
+                    const throughputTone = failed > completed ? 'bad' : completed > 0 ? 'good' : null;
+                    setInsightValue('insightThroughput', `${completed} / ${failed}`, throughputTone);
+                    setInsightSub('insightThroughputSub', 'completed / failed (24h)');
+
+                    const approvalRate = execution.approval_rate_24h;
+                    const approved = Number(execution.approved_24h || 0);
+                    const pendingReview = Number(execution.pending_review_24h || 0);
+                    const qualityTone = approvalRate >= 85 ? 'good' : approvalRate >= 60 ? 'warn' : approvalRate > 0 ? 'bad' : null;
+                    setInsightValue(
+                        'insightQuality',
+                        approvalRate === null || approvalRate === undefined ? '--' : `${approvalRate.toFixed ? approvalRate.toFixed(1) : approvalRate}%`,
+                        qualityTone
+                    );
+                    setInsightSub('insightQualitySub', `${approved} approved • ${pendingReview} pending`);
+
+                    const apiCost = Number(ops.api_cost_24h || 0);
+                    const apiCalls = Number(ops.api_calls_24h || 0);
+                    setInsightValue('insightCost', `$${apiCost.toFixed(3)}`, apiCost > 1.0 ? 'warn' : apiCost > 0 ? 'teal' : null);
+                    setInsightSub('insightCostSub', `${apiCalls} API calls`);
+
+                    const safetyBlocks = Number(ops.safety_blocks_24h || 0);
+                    const errors = Number(ops.errors_24h || 0);
+                    const safetyTone = safetyBlocks > 0 || errors > 0 ? 'bad' : 'good';
+                    setInsightValue('insightSafety', `${safetyBlocks} / ${errors}`, safetyTone);
+                    setInsightSub('insightSafetySub', 'blocked safety / errors');
+
+                    const unread = Number(social.unread_messages || 0);
+                    const openBounties = Number(social.open_bounties || 0);
+                    const claimedBounties = Number(social.claimed_bounties || 0);
+                    setInsightValue('insightSocial', String(unread), unread > 5 ? 'warn' : unread > 0 ? 'teal' : null);
+                    setInsightSub('insightSocialSub', `${openBounties} open • ${claimedBounties} claimed bounties`);
+
+                    const activeIdentities = Number(identities.active_24h || 0);
+                    const totalIdentities = Number(identities.count || 0);
+                    setInsightValue('insightActors', `${activeIdentities}/${totalIdentities}`, activeIdentities > 0 ? 'good' : null);
+                    const topActor = identities.top_actor || {};
+                    if (topActor.id) {
+                        const topName = topActor.name || topActor.id;
+                        setInsightSub('insightActorsSub', `${topName} (${topActor.actions || 0} actions)`);
+                    } else {
+                        setInsightSub('insightActorsSub', 'No clear actor signal yet');
+                    }
+
+                    const healthState = String(health.state || 'unknown').toUpperCase();
+                    const healthTone = healthState === 'STABLE' ? 'good' : healthState === 'WATCH' ? 'warn' : 'bad';
+                    setInsightValue('insightHealth', healthState, healthTone);
+                    const backlogPressure = health.backlog_pressure || 'unknown';
+                    const failureStreak = Number(execution.failure_streak || 0);
+                    setInsightSub('insightHealthSub', `backlog ${backlogPressure} • streak ${failureStreak}`);
+                })
+                .catch(() => {
+                    setInsightValue('insightHealth', 'OFFLINE', 'bad');
+                    setInsightSub('insightHealthSub', 'Insights API unavailable');
+                });
+        }
+
         // Initial load
         setupDayVibe();
         setInterval(setupDayVibe, 60000); // Update every minute (for time-based changes)
@@ -2180,6 +2371,7 @@ CONTROL_PANEL_HTML = '''
         loadChatRooms();
         loadArtifacts();
         loadStopStatus();
+        loadSwarmInsights();
 
         // Refresh bounties, spawner status, and chat rooms periodically
         setInterval(loadBounties, 10000);
@@ -2187,6 +2379,7 @@ CONTROL_PANEL_HTML = '''
         setInterval(loadChatRooms, 15000);  // Refresh chat rooms every 15 seconds
         setInterval(loadArtifacts, 15000);
         setInterval(loadStopStatus, 5000);
+        setInterval(loadSwarmInsights, 10000);
     </script>
 </body>
 </html>
@@ -3448,10 +3641,269 @@ def api_list_artifacts():
 
 
 # ═══════════════════════════════════════════════════════════════════
-# CHAT ROOMS API - View watercooler, town hall, etc.
+# SWARM INSIGHTS API - At-a-glance health + behavior metrics
 # ═══════════════════════════════════════════════════════════════════
 
-DISCUSSIONS_DIR = WORKSPACE / ".swarm" / "discussions"
+def _parse_iso_timestamp(value):
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed
+
+
+def _read_jsonl_tail(path: Path, max_lines: int = 12000):
+    if not path.exists():
+        return []
+    lines = deque(maxlen=max_lines)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                entry = line.strip()
+                if entry:
+                    lines.append(entry)
+    except Exception:
+        return []
+
+    payloads = []
+    for line in lines:
+        try:
+            payloads.append(json.loads(line))
+        except Exception:
+            continue
+    return payloads
+
+
+def _extract_usd_cost(detail: str) -> float:
+    matches = re.findall(r"\$([0-9]+(?:\.[0-9]+)?)", str(detail or ""))
+    if not matches:
+        return 0.0
+    try:
+        return float(matches[-1])
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _count_discussion_messages_since(cutoff: datetime) -> int:
+    total = 0
+    if not DISCUSSIONS_DIR.exists():
+        return total
+    for room_file in DISCUSSIONS_DIR.glob("*.jsonl"):
+        try:
+            with open(room_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except Exception:
+                        continue
+                    timestamp = _parse_iso_timestamp(payload.get("timestamp"))
+                    if timestamp and timestamp >= cutoff:
+                        total += 1
+        except Exception:
+            continue
+    return total
+
+
+@app.route('/api/insights')
+def api_insights():
+    """Aggregate queue/execution/social/safety signals for quick UI scanning."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=24)
+
+    queue = {}
+    if QUEUE_FILE.exists():
+        try:
+            with open(QUEUE_FILE, 'r', encoding='utf-8') as f:
+                queue = json.load(f)
+        except Exception:
+            queue = {}
+    queue_tasks = queue.get("tasks", []) if isinstance(queue.get("tasks"), list) else []
+    queue_completed = queue.get("completed", []) if isinstance(queue.get("completed"), list) else []
+    queue_failed = queue.get("failed", []) if isinstance(queue.get("failed"), list) else []
+    queue_summary = {
+        "open": len(queue_tasks),
+        "completed": len(queue_completed),
+        "failed": len(queue_failed),
+    }
+
+    execution_entries = _read_jsonl_tail(EXECUTION_LOG)
+    completed_24h = 0
+    approved_24h = 0
+    failed_24h = 0
+    requeue_24h = 0
+    pending_review_24h = 0
+    last_event_at = None
+    for entry in execution_entries:
+        status = str(entry.get("status") or "").strip().lower()
+        timestamp = _parse_iso_timestamp(entry.get("timestamp"))
+        if timestamp and (last_event_at is None or timestamp > last_event_at):
+            last_event_at = timestamp
+        if not timestamp or timestamp < cutoff:
+            continue
+        if status in {"completed", "approved"}:
+            completed_24h += 1
+        if status == "approved":
+            approved_24h += 1
+        if status == "failed":
+            failed_24h += 1
+        if status == "requeue":
+            requeue_24h += 1
+        if status == "pending_review":
+            pending_review_24h += 1
+
+    failure_streak = 0
+    for entry in reversed(execution_entries):
+        status = str(entry.get("status") or "").strip().lower()
+        if not status:
+            continue
+        if status == "failed":
+            failure_streak += 1
+            continue
+        if status in {"in_progress", "pending_review", "requeue"}:
+            continue
+        break
+
+    reviewed_total = approved_24h + failed_24h + requeue_24h
+    approval_rate_24h = round((approved_24h / reviewed_total) * 100, 1) if reviewed_total > 0 else None
+    execution_summary = {
+        "completed_24h": completed_24h,
+        "approved_24h": approved_24h,
+        "failed_24h": failed_24h,
+        "requeue_24h": requeue_24h,
+        "pending_review_24h": pending_review_24h,
+        "approval_rate_24h": approval_rate_24h,
+        "failure_streak": failure_streak,
+        "last_event_at": last_event_at.isoformat() if last_event_at else None,
+    }
+
+    action_entries = _read_jsonl_tail(ACTION_LOG)
+    api_calls_24h = 0
+    api_cost_24h = 0.0
+    safety_blocks_24h = 0
+    errors_24h = 0
+    actor_counter = Counter()
+    for entry in action_entries:
+        timestamp = _parse_iso_timestamp(entry.get("timestamp"))
+        if not timestamp or timestamp < cutoff:
+            continue
+        actor = str(entry.get("actor") or "").strip()
+        action_type = str(entry.get("action_type") or "").strip().upper()
+        action_blob = f"{entry.get('action', '')} {entry.get('detail', '')}".upper()
+        if actor and actor not in {"SYSTEM", "UNKNOWN"}:
+            actor_counter[actor] += 1
+        if action_type == "API":
+            api_calls_24h += 1
+            api_cost_24h += _extract_usd_cost(entry.get("detail", ""))
+        if action_type == "SAFETY" and "BLOCKED" in action_blob:
+            safety_blocks_24h += 1
+        if action_type == "ERROR":
+            errors_24h += 1
+    ops_summary = {
+        "api_calls_24h": api_calls_24h,
+        "api_cost_24h": round(api_cost_24h, 6),
+        "safety_blocks_24h": safety_blocks_24h,
+        "errors_24h": errors_24h,
+    }
+
+    identities = get_identities()
+    identity_name_map = {item.get("id"): item.get("name") for item in identities}
+    active_identity_ids = {
+        actor for actor in actor_counter
+        if actor in identity_name_map or actor.startswith("identity_")
+    }
+    top_actor = None
+    if actor_counter:
+        actor_id, actor_actions = actor_counter.most_common(1)[0]
+        top_actor = {
+            "id": actor_id,
+            "name": identity_name_map.get(actor_id) or actor_id,
+            "actions": actor_actions,
+        }
+    identities_summary = {
+        "count": len(identities),
+        "active_24h": len(active_identity_ids),
+        "top_actor": top_actor,
+    }
+
+    messages = get_messages_to_human()
+    responses = get_human_responses()
+    unread_messages = 0
+    for msg in messages:
+        msg_id = msg.get("id")
+        if msg_id and msg_id not in responses:
+            unread_messages += 1
+    bounties = load_bounties()
+    open_bounties = len([b for b in bounties if b.get("status") == "open"])
+    claimed_bounties = len([b for b in bounties if b.get("status") == "claimed"])
+    completed_bounties = len([b for b in bounties if b.get("status") == "completed"])
+    social_summary = {
+        "total_messages": len(messages),
+        "unread_messages": unread_messages,
+        "open_bounties": open_bounties,
+        "claimed_bounties": claimed_bounties,
+        "completed_bounties": completed_bounties,
+        "chat_messages_24h": _count_discussion_messages_since(cutoff),
+    }
+
+    backlog_pressure = "low"
+    if queue_summary["open"] >= 12:
+        backlog_pressure = "high"
+    elif queue_summary["open"] >= 5:
+        backlog_pressure = "medium"
+
+    kill_switch = get_stop_status()
+    health_state = "stable"
+    if kill_switch:
+        health_state = "critical"
+    elif (
+        execution_summary["failure_streak"] >= 3
+        or execution_summary["failed_24h"] > max(1, execution_summary["completed_24h"])
+        or ops_summary["safety_blocks_24h"] > 0
+    ):
+        health_state = "watch"
+    if (
+        execution_summary["failure_streak"] >= 6
+        or ops_summary["errors_24h"] >= 5
+        or ops_summary["safety_blocks_24h"] >= 3
+    ):
+        health_state = "critical"
+
+    health_summary = {
+        "state": health_state,
+        "kill_switch": kill_switch,
+        "backlog_pressure": backlog_pressure,
+    }
+
+    return jsonify(
+        {
+            "success": True,
+            "timestamp": now.isoformat(),
+            "queue": queue_summary,
+            "execution": execution_summary,
+            "ops": ops_summary,
+            "social": social_summary,
+            "identities": identities_summary,
+            "health": health_summary,
+        }
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CHAT ROOMS API - View watercooler, town hall, etc.
+# ═══════════════════════════════════════════════════════════════════
 
 # Room display names and icons
 ROOM_INFO = {
