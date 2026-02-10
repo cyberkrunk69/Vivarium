@@ -98,13 +98,13 @@ def test_cycle_endpoint_requires_internal_execution_token(monkeypatch):
         ),
     )
 
-    denied = client.post("/cycle", json={"mode": "local", "task": "git status"})
+    denied = client.post("/cycle", json={"mode": "local", "task": "cat README.md"})
     assert denied.status_code == 403
     assert "internal execution token" in denied.json()["detail"]
 
     allowed = client.post(
         "/cycle",
-        json={"mode": "local", "task": "git status"},
+        json={"mode": "local", "task": "cat README.md"},
         headers={"X-Vivarium-Internal-Token": swarm.INTERNAL_EXECUTION_TOKEN},
     )
     assert allowed.status_code == 200
@@ -115,6 +115,17 @@ def test_plan_endpoint_requires_internal_execution_token():
     denied = client.post("/plan")
     assert denied.status_code == 403
     assert "internal execution token" in denied.json()["detail"]
+
+
+def test_plan_endpoint_disabled_in_mvp_mode(monkeypatch):
+    client = TestClient(swarm.app)
+    monkeypatch.setattr(swarm, "MVP_DOCS_ONLY_MODE", True)
+    allowed = client.post(
+        "/plan",
+        headers={"X-Vivarium-Internal-Token": swarm.INTERNAL_EXECUTION_TOKEN},
+    )
+    assert allowed.status_code == 410
+    assert "disabled in MVP docs-only mode" in allowed.json()["detail"]
 
 
 def test_worker_execute_task_rejects_non_loopback_api_endpoint():

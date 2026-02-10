@@ -336,8 +336,8 @@ def test_worker_execute_task_persists_mvp_markdown_artifacts(monkeypatch, tmp_pa
             return prompt
 
     journals_dir = tmp_path / ".swarm" / "journals"
-    suggestions_dir = tmp_path / ".swarm" / "suggestions"
     library_docs_dir = tmp_path / "library" / "swarm_docs"
+    resident_suggestions_root = tmp_path / "library" / "resident_suggestions"
 
     monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", None)
     monkeypatch.setattr(worker, "WORKER_TOOL_ROUTER", None)
@@ -346,12 +346,12 @@ def test_worker_execute_task_persists_mvp_markdown_artifacts(monkeypatch, tmp_pa
     monkeypatch.setattr(worker, "MVP_DOCS_ONLY_MODE", True)
     monkeypatch.setattr(worker, "WORKSPACE", tmp_path)
     monkeypatch.setattr(worker, "MVP_JOURNALS_DIR", journals_dir)
-    monkeypatch.setattr(worker, "MVP_SUGGESTIONS_DIR", suggestions_dir)
     monkeypatch.setattr(worker, "MVP_LIBRARY_DOCS_DIR", library_docs_dir)
+    monkeypatch.setattr(worker, "MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT", resident_suggestions_root)
     monkeypatch.setattr(
         worker,
         "MVP_ALLOWED_DOC_ROOTS",
-        (journals_dir, suggestions_dir, library_docs_dir),
+        (journals_dir, library_docs_dir, resident_suggestions_root),
     )
     monkeypatch.setattr(
         worker,
@@ -400,3 +400,96 @@ def test_worker_execute_task_persists_mvp_markdown_artifacts(monkeypatch, tmp_pa
     assert journal_path.exists()
     journal_content = journal_path.read_text(encoding="utf-8")
     assert "Journal Entry: task_docs_only" in journal_content
+
+
+def test_worker_execute_task_defaults_suggestions_to_resident_library_folder(monkeypatch, tmp_path):
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "result": "## Proposal\n\n- Improve onboarding docs\n- Clarify reward signals",
+                "model": "llama-3.1-8b-instant",
+                "safety_report": {"passed": True},
+            }
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json, headers=None):
+            return _FakeResponse()
+
+    class _StubResidentContext:
+        resident_id = "resident_docs"
+
+        class _Identity:
+            identity_id = "identity_docs"
+            name = "Docsmith"
+
+        identity = _Identity()
+
+        @staticmethod
+        def apply_to_prompt(prompt: str) -> str:
+            return prompt
+
+    journals_dir = tmp_path / ".swarm" / "journals"
+    library_docs_dir = tmp_path / "library" / "swarm_docs"
+    resident_suggestions_root = tmp_path / "library" / "resident_suggestions"
+
+    monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", None)
+    monkeypatch.setattr(worker, "WORKER_TOOL_ROUTER", None)
+    monkeypatch.setattr(worker, "WORKER_ENRICHMENT", None)
+    monkeypatch.setattr(worker, "WORKER_MUTABLE_VCS", None)
+    monkeypatch.setattr(worker, "MVP_DOCS_ONLY_MODE", True)
+    monkeypatch.setattr(worker, "WORKSPACE", tmp_path)
+    monkeypatch.setattr(worker, "MVP_JOURNALS_DIR", journals_dir)
+    monkeypatch.setattr(worker, "MVP_LIBRARY_DOCS_DIR", library_docs_dir)
+    monkeypatch.setattr(worker, "MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT", resident_suggestions_root)
+    monkeypatch.setattr(
+        worker,
+        "MVP_ALLOWED_DOC_ROOTS",
+        (journals_dir, library_docs_dir, resident_suggestions_root),
+    )
+    monkeypatch.setattr(
+        worker,
+        "resolve_mutable_path",
+        lambda path_token, cwd=None: (
+            Path(path_token).resolve()
+            if Path(path_token).is_absolute()
+            else (Path(cwd or tmp_path) / path_token).resolve()
+        ),
+    )
+    monkeypatch.setattr(worker, "validate_model_id", lambda _model: None)
+    monkeypatch.setattr(
+        worker,
+        "_run_worker_safety_check",
+        lambda task_id, prompt, command, mode: (
+            True,
+            {"passed": True, "task_id": task_id, "checks": {}},
+        ),
+    )
+    monkeypatch.setattr(worker.httpx, "Client", _FakeClient)
+
+    result = worker.execute_task(
+        {
+            "id": "task_docs_default_folder",
+            "prompt": "Suggest improvements for UI docs.",
+            "mode": "llm",
+            "model": "llama-3.1-8b-instant",
+        },
+        api_endpoint="http://127.0.0.1:8420",
+        resident_ctx=_StubResidentContext(),
+    )
+
+    assert result["status"] == "completed"
+    artifacts = result["mvp_markdown_artifacts"]
+    assert artifacts["written"] is True
+    assert "library/resident_suggestions/identity_docs/" in artifacts["doc_path"]

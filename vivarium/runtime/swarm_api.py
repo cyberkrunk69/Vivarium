@@ -137,6 +137,10 @@ SWARM_ENFORCE_INTERNAL_TOKEN = (
     os.environ.get("SWARM_ENFORCE_INTERNAL_TOKEN", "1").strip().lower()
     not in {"0", "false", "no"}
 )
+MVP_DOCS_ONLY_MODE = (
+    os.environ.get("VIVARIUM_MVP_DOCS_ONLY", "1").strip().lower()
+    not in {"0", "false", "no"}
+)
 LOOPBACK_HOST_ALIASES = {"localhost", "testclient"}
 
 
@@ -569,6 +573,12 @@ async def plan(
         x_vivarium_internal_token,
         endpoint="/plan",
     )
+
+    if MVP_DOCS_ONLY_MODE:
+        raise HTTPException(
+            status_code=410,
+            detail="Planning endpoint disabled in MVP docs-only mode. Add tasks manually to queue.json.",
+        )
 
     validate_config(require_groq_key=True)
 

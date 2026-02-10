@@ -150,12 +150,12 @@ MVP_DOCS_ONLY_MODE: bool = (
     not in {"0", "false", "no"}
 )
 MVP_JOURNALS_DIR: Path = MUTABLE_SWARM_DIR / "journals"
-MVP_SUGGESTIONS_DIR: Path = MUTABLE_SWARM_DIR / "suggestions"
 MVP_LIBRARY_DOCS_DIR: Path = WORKSPACE / "library" / "swarm_docs"
+MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT: Path = WORKSPACE / "library" / "resident_suggestions"
 MVP_ALLOWED_DOC_ROOTS: Tuple[Path, ...] = (
     MVP_JOURNALS_DIR,
-    MVP_SUGGESTIONS_DIR,
     MVP_LIBRARY_DOCS_DIR,
+    MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT,
 )
 
 _EXECUTION_LOG_STATE: Dict[str, Any] = {"offset": 0, "size": 0, "tasks": {}}
@@ -233,6 +233,9 @@ def _init_quality_gate_manager():
 
 
 def _init_worker_tool_router():
+    if MVP_DOCS_ONLY_MODE:
+        _log("INFO", "MVP docs-only mode enabled; tool routing disabled.")
+        return None
     if get_tool_router is None:
         _log("WARN", "tool_router module unavailable; tool-first routing disabled.")
         return None
@@ -266,6 +269,9 @@ def _init_worker_enrichment():
 
 
 def _init_mutable_version_control():
+    if MVP_DOCS_ONLY_MODE:
+        _log("INFO", "MVP docs-only mode enabled; mutable git checkpointing disabled.")
+        return None
     try:
         return get_mutable_version_control()
     except Exception as exc:
@@ -410,8 +416,10 @@ def _persist_mvp_markdown_artifacts(
     date_label = now.strftime("%Y-%m-%d")
 
     MVP_JOURNALS_DIR.mkdir(parents=True, exist_ok=True)
-    MVP_SUGGESTIONS_DIR.mkdir(parents=True, exist_ok=True)
     MVP_LIBRARY_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT.mkdir(parents=True, exist_ok=True)
+    resident_suggestions_dir = MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT / identity_slug
+    resident_suggestions_dir.mkdir(parents=True, exist_ok=True)
 
     journal_path = MVP_JOURNALS_DIR / f"{identity_slug}_{date_label}.md"
     journal_entry = _format_markdown_record(
@@ -440,7 +448,7 @@ def _persist_mvp_markdown_artifacts(
     doc_action = "created"
     doc_path = None
     if doc_target is None:
-        doc_target = MVP_SUGGESTIONS_DIR / f"{stamp}_{task_slug}.md"
+        doc_target = resident_suggestions_dir / f"{stamp}_{task_slug}.md"
     else:
         doc_action = "updated" if doc_target.exists() else "created"
         doc_target.parent.mkdir(parents=True, exist_ok=True)
@@ -1754,6 +1762,7 @@ def execute_task(
                 "MVP MODE: You are currently limited to documentation artifacts.\n"
                 "- Do NOT perform direct code changes.\n"
                 "- You MAY read non-physics repository files for context.\n"
+                "- Store improvement proposals as markdown in your resident library folder.\n"
                 "- Produce markdown proposals, plans, or review notes.\n"
                 "- Prefer concrete change suggestions and acceptance criteria.\n\n"
                 f"{prompt}"
