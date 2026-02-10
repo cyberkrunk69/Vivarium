@@ -14,7 +14,7 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -405,7 +405,7 @@ def create_identity_from_resident(
         "id": identity_id,
         "name": clean_name,
         "summary": clean_summary,
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "created_by": {
             "resident_id": creator_resident_id,
             "identity_id": creator_identity_id,
