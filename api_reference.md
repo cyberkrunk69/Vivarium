@@ -3,78 +3,75 @@
 ## API Overview
 - **Title**: Vivarium
 - **Version**: 1.0
-- **Base URL**: http://127.0.0.1:8420
+- **Base URL**: `http://127.0.0.1:8420`
+- **Primary execution endpoint**: `/cycle`
+
+---
+
+## Human timescale framing
+
+Vivarium executes in **cycles** and reports progress in compressed human windows:
+- **Today**: currently active cycles
+- **This week**: grouped outcomes and quality trends
+- **Next week**: queued improvements and follow-ups
+
+---
+
+## Auth and locality rules
+
+- `/cycle` and `/plan` are **loopback-only**.
+- `/cycle` and `/plan` require:
+  - `X-Vivarium-Internal-Token: <token>`
+- `/status` is loopback-only (no token required).
 
 ---
 
 ## Endpoints
 
-### 1. POST /grind
-Execute a grind task with budget parameters.
+### 1) POST /cycle
+Execute one cycle task (`llm` or `local` mode).
 
-**Request Body Schema:**
+**Request body (common fields):**
 ```json
 {
-  "min_budget": float,        // Minimum budget in dollars (default: 0.05)
-  "max_budget": float,        // Maximum budget in dollars (default: 0.10)
-  "intensity": string         // Task intensity: "low", "medium", or "high" (default: "medium")
+  "prompt": "optional llm instruction",
+  "task": "optional local command",
+  "mode": "llm|local",
+  "model": "optional model id",
+  "min_budget": 0.05,
+  "max_budget": 0.10,
+  "intensity": "low|medium|high",
+  "task_id": "optional task id"
 }
 ```
 
-**Response Schema:**
+**Response (shape):**
 ```json
 {
-  "status": string,           // Execution status ("completed" or "failed")
-  "result": string,           // Human-readable result message
-  "budget_used": float        // Actual budget consumed (between min and max)
+  "status": "completed|failed",
+  "result": "human-readable summary",
+  "model": "model used",
+  "task_id": "optional echoed id",
+  "budget_used": 0.0123,
+  "exit_code": 0,
+  "safety_report": {
+    "passed": true
+  }
 }
 ```
 
-**Example Request:**
+**Example (local mode):**
 ```bash
-curl -X POST http://127.0.0.1:8420/grind \
+curl -X POST http://127.0.0.1:8420/cycle \
   -H "Content-Type: application/json" \
-  -d '{"min_budget": 0.05, "max_budget": 0.10, "intensity": "high"}'
+  -H "X-Vivarium-Internal-Token: <token>" \
+  -d '{"mode":"local","task":"git status","task_id":"cycle_001"}'
 ```
 
-**Example Response:**
-```json
-{
-  "status": "completed",
-  "result": "Grind completed with intensity=high",
-  "budget_used": 0.0873
-}
-```
+### 2) POST /plan
+Scan the codebase with Groq-backed analysis and write planned tasks to queue.
 
----
-
-### 2. POST /plan
-Scan codebase, analyze with Together AI, write tasks to queue.
-
-**Request Body Schema:**
-None (no parameters)
-
-**Response Schema:**
-```json
-{
-  "status": string,           // "planned"
-  "files_scanned": integer,   // Number of Python files found
-  "total_lines": integer,     // Total lines of code analyzed
-  "tasks_created": integer    // Number of improvement tasks created
-}
-```
-
-**Process:**
-1. Scan workspace for .py files and collect metadata
-2. Send scan results to Together AI (Llama 3.3 70B) for analysis
-3. Write suggested improvement tasks to queue.json
-
-**Example Request:**
-```bash
-curl -X POST http://127.0.0.1:8420/plan
-```
-
-**Example Response:**
+**Response schema:**
 ```json
 {
   "status": "planned",
@@ -84,32 +81,12 @@ curl -X POST http://127.0.0.1:8420/plan
 }
 ```
 
-**Error Handling:**
-- Returns 500 HTTPException if `TOGETHER_API_KEY` environment variable is not set.
-
 ---
 
-### 3. GET /status
-Get current queue status with task counts by state.
+### 3) GET /status
+Return queue counts by state.
 
-**Request Body Schema:**
-None (no parameters)
-
-**Response Schema:**
-```json
-{
-  "tasks": integer,           // Number of pending tasks
-  "completed": integer,       // Number of completed tasks
-  "failed": integer           // Number of failed tasks
-}
-```
-
-**Example Request:**
-```bash
-curl http://127.0.0.1:8420/status
-```
-
-**Example Response:**
+**Response schema:**
 ```json
 {
   "tasks": 5,
@@ -120,18 +97,17 @@ curl http://127.0.0.1:8420/status
 
 ---
 
-## Task Queue Format (queue.json)
+## Queue task format (`queue.json`)
 
-Tasks written by `/plan` endpoint follow this structure:
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "api_endpoint": "http://127.0.0.1:8420",
   "tasks": [
     {
       "id": "task_001",
-      "type": "grind",
-      "description": "Task description",
+      "type": "cycle",
+      "prompt": "Task description",
       "min_budget": 0.05,
       "max_budget": 0.15,
       "intensity": "high|medium|low",
@@ -147,19 +123,7 @@ Tasks written by `/plan` endpoint follow this structure:
 
 ---
 
-## Priority to Budget Mapping
+## Environment requirements
 
-Budget allocation is determined by task priority:
-
-| Priority | Intensity | Min Budget | Max Budget |
-|----------|-----------|-----------|-----------|
-| high     | high      | $0.08     | $0.15     |
-| medium   | medium    | $0.05     | $0.10     |
-| low      | low       | $0.02     | $0.05     |
-
----
-
-## Environment Requirements
-
-- `TOGETHER_API_KEY`: API key for Together AI (required for `/plan` endpoint)
-- `TOGETHER_MODEL`: Model name (default: "meta-llama/Llama-3.3-70B-Instruct-Turbo")
+- `GROQ_API_KEY`: required for LLM planning/execution paths.
+- `VIVARIUM_INTERNAL_EXECUTION_TOKEN`: optional override for internal execution token.

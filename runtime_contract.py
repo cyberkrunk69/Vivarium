@@ -35,7 +35,7 @@ KNOWN_EXECUTION_STATUSES = {
 def normalize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Return a task dict with canonical defaults applied."""
     normalized = dict(task or {})
-    normalized.setdefault("type", "grind")
+    normalized.setdefault("type", "cycle")
     normalized.setdefault("depends_on", [])
     normalized.setdefault("parallel_safe", True)
     normalized.setdefault("status", "pending")

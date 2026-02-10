@@ -713,7 +713,7 @@ CONTROL_PANEL_HTML = '''
                 <div class="sidebar-section-content">
             <div class="identity-card">
                 <div class="identity-stat">
-                    <span>Session Budget</span>
+                    <span>Daily Cycle Budget</span>
                     <span class="stat-value" id="sessionBudget">$0.05</span>
                 </div>
                 <div class="identity-stat">
@@ -758,9 +758,9 @@ CONTROL_PANEL_HTML = '''
                     </label>
                 </div>
 
-                <!-- Manual mode: session slider -->
+                <!-- Manual mode: cycle-per-day slider -->
                 <div id="manualScaleControls" style="margin-top: 0.75rem;">
-                    <label style="font-size: 0.8rem; color: var(--text-dim);">Max Sessions: <span id="sessionCount" style="color: var(--teal);">3</span></label>
+                    <label style="font-size: 0.8rem; color: var(--text-dim);">Daily Cycles: <span id="sessionCount" style="color: var(--teal);">3</span></label>
                     <input type="range" id="sessionSlider" min="1" max="10" value="3"
                            oninput="updateSessionCount(this.value)"
                            style="width: 100%; margin-top: 0.3rem; accent-color: var(--teal);">
@@ -776,7 +776,7 @@ CONTROL_PANEL_HTML = '''
                                       border-radius: 4px; font-size: 0.85rem;">
                     </label>
                     <p style="font-size: 0.7rem; color: var(--text-dim); margin-top: 0.3rem;">
-                        Sessions scale up/down based on remaining budget
+                        Cycle workers scale up/down based on remaining budget
                     </p>
                 </div>
 
@@ -1130,14 +1130,14 @@ CONTROL_PANEL_HTML = '''
                     // Stats bar (row 1)
                     content += `<div style="display: flex; gap: 1rem; margin-bottom: 0.5rem; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
                         <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--yellow);">${data.level || 1}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Level</div></div>
-                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--teal);">${data.sessions}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Sessions</div></div>
+                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--teal);">${data.sessions}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Cycles</div></div>
                         <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--green);">${data.tasks_completed}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Tasks</div></div>
                         <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: ${data.task_success_rate >= 80 ? 'var(--green)' : data.task_success_rate >= 50 ? 'var(--yellow)' : 'var(--red)'}">${data.task_success_rate}%</div><div style="font-size: 0.7rem; color: var(--text-dim);">Success</div></div>
                     </div>`;
                     // Stats bar (row 2 - respec info)
                     content += `<div style="display: flex; gap: 1rem; margin-bottom: 1rem; padding: 0.5rem 0.75rem; background: var(--bg-dark); border-radius: 8px; font-size: 0.8rem;">
                         <div style="flex: 1; color: var(--text-dim);">Respec Cost: <span style="color: var(--orange); font-weight: 600;">${data.respec_cost || 10} tokens</span></div>
-                        <div style="color: var(--text-dim); font-size: 0.7rem;">Level formula: sqrt(sessions) | Respec: 10 + (sessions × 3)</div>
+                        <div style="color: var(--text-dim); font-size: 0.7rem;">Level formula: sqrt(cycles) | Respec: 10 + (cycles × 3)</div>
                     </div>`;
 
                     // Core traits and values
@@ -1412,7 +1412,7 @@ CONTROL_PANEL_HTML = '''
             .then(data => {
                 if (data.success) {
                     const modeText = config.auto_model ? 'Auto mode enabled.' : `Model set to ${config.model}.`;
-                    alert('Config saved! ' + modeText + ' Changes apply on next session.');
+                    alert('Config saved! ' + modeText + ' Changes apply on next cycle.');
                 }
             });
         }
@@ -1640,7 +1640,7 @@ CONTROL_PANEL_HTML = '''
             } else if (day === 5 && hour < 12) {
                 vibe = { class: 'friday', icon: '!', text: 'Friday Morning!' };
             } else if (day === 1 && hour < 10) {
-                vibe = { class: 'monday', icon: '>', text: 'Monday Grind' };
+                vibe = { class: 'monday', icon: '>', text: 'Monday Sprint' };
             } else if ((day === 0 || day === 6) && hour >= 22) {
                 vibe = { class: 'weekend', icon: '~', text: 'Weekend Winding Down' };
             }
@@ -2520,9 +2520,9 @@ def api_start_spawner():
 
     # Start spawner process
     try:
-        spawner_script = CODE_ROOT / "grind_spawner_unified.py"
+        spawner_script = CODE_ROOT / "cycle_runner.py"
         if not spawner_script.exists():
-            return jsonify({'success': False, 'error': 'grind_spawner_unified.py not found'})
+            return jsonify({'success': False, 'error': 'Cycle runner script not found'})
 
         # Build command
         cmd = [

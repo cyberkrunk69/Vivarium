@@ -200,6 +200,6 @@ def test_worker_execute_task_injects_intent_context(monkeypatch):
     )
 
     assert result["status"] == "completed"
-    assert captured["url"].endswith("/grind")
+    assert captured["url"].endswith("/cycle")
     assert captured["headers"]["X-Vivarium-Internal-Token"]
     assert captured["payload"]["prompt"].startswith("##INTENT goal=Ship feature set")

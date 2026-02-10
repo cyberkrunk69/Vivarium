@@ -45,7 +45,7 @@ These modules exist and are used in canonical worker flow; execution API routes 
 
 ## 4) Known limitations and active gaps
 
-- Direct human-triggered `/grind` calls are blocked; the intended operator flow is localhost control panel -> worker runtime -> internal API.
+- Direct human-triggered `/cycle` calls are blocked; the intended operator flow is localhost control panel -> worker runtime -> internal API.
 - `swarm_orchestrator_v2.py` and `worker_pool.py` remain experimental/non-canonical.
 - Phase 6 (multi-user/LAN + vision dashboard) and Phase 7 (autonomous improvement checkpoints) are still planned, not runtime defaults.
 - System remains experimental; operational use should stay in isolated environments.
@@ -63,4 +63,4 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 
 ## 6) Short summary
 
-The current Vivarium runtime is a queue-driven, safety-checked, quality-reviewed execution system with implemented Phase 0-5 foundations in the canonical worker path. The next major work is closing worker-vs-direct-API parity and delivering planned Phase 6/7 capabilities.
+The current Vivarium runtime is a queue-driven, safety-checked, quality-reviewed execution system with implemented Phase 0-5 foundations in the canonical worker path. Operational language now frames execution in compressed human timescales (today/this week cycle planning), with Phase 6/7 still deferred roadmap work.

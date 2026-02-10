@@ -107,7 +107,8 @@ API_REQUEST_TIMEOUT: float = API_TIMEOUT_SECONDS
 WORKER_CHECK_INTERVAL: float = 2.0  # Delay between queue checks in seconds
 MAX_IDLE_CYCLES: int = 10  # Exit after N consecutive idle checks
 DEFAULT_INTENSITY: str = "medium"
-DEFAULT_TASK_TYPE: str = "grind"
+DEFAULT_TASK_TYPE: str = "cycle"
+CYCLE_EXECUTION_ENDPOINT: str = "/cycle"
 DEFAULT_MIN_SCORE: float = float(os.environ.get("RESIDENT_MIN_SCORE", "0"))
 FOCUS_HAT_MAP = {
     "strategy": "Strategist",
@@ -779,7 +780,7 @@ def _phase4_atomize_task(
         subtask = normalize_task(
             {
                 "id": subtask_id,
-                "type": "grind",
+                "type": DEFAULT_TASK_TYPE,
                 "prompt": subtask_prompt,
                 "min_budget": per_min,
                 "max_budget": per_max,
@@ -1321,7 +1322,7 @@ def _execute_delegated_subtasks(
         try:
             with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
                 response = client.post(
-                    f"{api_endpoint}/grind",
+                    f"{api_endpoint}{CYCLE_EXECUTION_ENDPOINT}",
                     json=payload,
                     headers=_internal_api_headers(),
                 )
@@ -1589,7 +1590,7 @@ def execute_task(
     try:
         with httpx.Client(timeout=API_REQUEST_TIMEOUT) as client:
             response = client.post(
-                f"{api_endpoint}/grind",
+                f"{api_endpoint}{CYCLE_EXECUTION_ENDPOINT}",
                 json=payload,
                 headers=_internal_api_headers(),
             )
@@ -1895,7 +1896,7 @@ def add_task(
     task_id: str,
     prompt: str,
     depends_on: Optional[List[str]] = None,
-    task_type: str = "grind",
+    task_type: str = DEFAULT_TASK_TYPE,
     min_budget: float = DEFAULT_MIN_BUDGET,
     max_budget: float = DEFAULT_MAX_BUDGET,
     intensity: str = DEFAULT_INTENSITY,

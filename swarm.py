@@ -2,7 +2,7 @@
 Vivarium API Server (Groq + Local Execution)
 
 Endpoints:
-  POST /grind  - Execute a task (Groq or local command)
+  POST /cycle  - Execute one cycle task (Groq or local command)
   POST /plan   - Scan codebase and write tasks to queue.json
   GET  /status - Queue summary
 """
@@ -58,7 +58,7 @@ IGNORE_DIRS = {
     "node_modules",
     "knowledge",
     ".checkpoints",
-    ".grind_cache",
+    ".cycle_cache",
 }
 
 LOCAL_COMMAND_ALLOWLIST = {
@@ -159,9 +159,9 @@ SWARM_ENFORCE_INTERNAL_TOKEN = (
 LOOPBACK_HOST_ALIASES = {"localhost", "testclient"}
 
 
-class GrindRequest(BaseModel):
+class CycleRequest(BaseModel):
     """
-    Request model for the /grind endpoint.
+    Request model for the /cycle endpoint.
 
     Attributes:
         prompt: Task prompt to send to the Groq API.
@@ -188,8 +188,8 @@ class GrindRequest(BaseModel):
     task_id: Optional[str] = None
 
 
-class GrindResponse(BaseModel):
-    """Response model for the /grind endpoint."""
+class CycleResponse(BaseModel):
+    """Response model for the /cycle endpoint."""
 
     status: str
     result: str
@@ -447,15 +447,15 @@ def _enforce_local_token_scope(tokens: List[str]) -> None:
     return None
 
 
-@app.post("/grind", response_model=GrindResponse)
-async def grind(
-    req: GrindRequest,
+@app.post("/cycle", response_model=CycleResponse)
+async def cycle(
+    req: CycleRequest,
     request: Request,
     x_vivarium_internal_token: Optional[str] = Header(
         default=None,
         alias="X-Vivarium-Internal-Token",
     ),
-) -> GrindResponse:
+) -> CycleResponse:
     """
     Execute a task by calling Groq's OpenAI-compatible chat completions API,
     or by running a local command when mode is "local".
@@ -463,7 +463,7 @@ async def grind(
     _enforce_internal_api_access(
         request,
         x_vivarium_internal_token,
-        endpoint="/grind",
+        endpoint="/cycle",
     )
 
     if not req.prompt and not req.task:
@@ -486,9 +486,9 @@ async def grind(
 
 
 async def _run_groq_task(
-    req: GrindRequest,
+    req: CycleRequest,
     safety_report: Optional[Dict[str, Any]] = None,
-) -> GrindResponse:
+) -> CycleResponse:
     if not req.prompt:
         raise HTTPException(status_code=400, detail="llm mode requires prompt")
     validate_config(require_groq_key=True)
@@ -538,7 +538,7 @@ async def _run_groq_task(
     }
     budget_used = result.get("cost")
 
-    return GrindResponse(
+    return CycleResponse(
         status="completed",
         result=result_text,
         model=result.get("model", model),
@@ -550,9 +550,9 @@ async def _run_groq_task(
 
 
 def _run_local_task(
-    req: GrindRequest,
+    req: CycleRequest,
     safety_report: Optional[Dict[str, Any]] = None,
-) -> GrindResponse:
+) -> CycleResponse:
     task = (req.task or "").strip()
     if not task:
         raise HTTPException(status_code=400, detail="local mode requires task")
@@ -597,7 +597,7 @@ def _run_local_task(
     if req.min_budget is not None and req.max_budget is not None:
         budget_used = max(req.min_budget, min(req.max_budget, time_cost))
 
-    return GrindResponse(
+    return CycleResponse(
         status=status,
         result=result,
         output=output,
@@ -607,6 +607,8 @@ def _run_local_task(
         exit_code=process.returncode,
         safety_report=safety_report,
     )
+
+
 
 
 @app.post("/plan")
@@ -766,7 +768,7 @@ Return ONLY valid JSON array, no other text."""
 
         tasks.append({
             "id": task_id,
-            "type": "grind",
+            "type": "cycle",
             "prompt": description,
             "min_budget": min_b,
             "max_budget": max_b,

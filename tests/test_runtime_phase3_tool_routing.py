@@ -129,7 +129,7 @@ def test_worker_execute_task_injects_tool_context(monkeypatch):
     assert result["tool_route"] == "semantic"
     assert result["tool_name"] == "phase3_injected_tool"
     assert result["tool_confidence"] == pytest.approx(0.91)
-    assert captured["url"].endswith("/grind")
+    assert captured["url"].endswith("/cycle")
     assert captured["headers"]["X-Vivarium-Internal-Token"]
     assert "RELEVANT TOOL CONTEXT" in captured["payload"]["prompt"]
     assert "phase3_injected_tool" in captured["payload"]["prompt"]

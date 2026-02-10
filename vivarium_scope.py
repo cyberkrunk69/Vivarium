@@ -34,7 +34,9 @@ EXECUTION_TOKEN_FILE = SECURITY_ROOT / "internal_execution_token.txt"
 MUTABLE_QUEUE_FILE = MUTABLE_ROOT / "queue.json"
 MUTABLE_DATA_DIR = MUTABLE_ROOT / "data"
 MUTABLE_EXPERIMENTS_DIR = MUTABLE_ROOT / "experiments"
-MUTABLE_GRIND_LOGS_DIR = MUTABLE_ROOT / "grind_logs"
+MUTABLE_CYCLE_LOGS_DIR = MUTABLE_ROOT / "cycle_logs"
+# Legacy alias retained for modules not yet migrated.
+MUTABLE_GRIND_LOGS_DIR = MUTABLE_CYCLE_LOGS_DIR
 MUTABLE_LOCKS_DIR = MUTABLE_ROOT / "task_locks"
 MUTABLE_SWARM_DIR = MUTABLE_ROOT / ".swarm"
 
@@ -74,7 +76,7 @@ def ensure_scope_layout() -> None:
         CHECKPOINT_ROOT,
         MUTABLE_DATA_DIR,
         MUTABLE_EXPERIMENTS_DIR,
-        MUTABLE_GRIND_LOGS_DIR,
+        MUTABLE_CYCLE_LOGS_DIR,
         MUTABLE_LOCKS_DIR,
         MUTABLE_SWARM_DIR,
     ):

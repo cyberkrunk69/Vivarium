@@ -42,7 +42,7 @@ credentials.json
 secrets.json
 
 # Logs and data (optional - uncomment if you want to track these)
-# grind_logs/
+# cycle_logs/
 # learned_lessons.json
 # skill_library.json
 

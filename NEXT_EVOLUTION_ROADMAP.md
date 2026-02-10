@@ -23,13 +23,13 @@
 
 ## Ordered execution plan
 
-Primary task file: **`grind_tasks.json`**
+Primary task file: **`cycle_tasks.json`**
 
 | Order | Task ID | Outcome | Primary files to open first |
 |---|---|---|---|
 | 0 | `ctx-bootstrap-00` | Establish clean cycle context before coding | `README.md`, `CURRENT_CAPABILITIES.md`, `RUNTIME_GOLDEN_PATH.md`, `control_panel.py`, `worker.py`, `swarm.py` |
 | 1 | `ui-golden-01-queue-intake` | UI can create/edit queue tasks safely | `control_panel.py`, `runtime_contract.py`, `vivarium_scope.py`, `worker.py` |
-| 2 | `ui-golden-02-worker-lifecycle` | UI controls canonical worker process | `control_panel.py`, `worker.py`, `grind_spawner_unified.py` |
+| 2 | `ui-golden-02-worker-lifecycle` | UI controls canonical worker process | `control_panel.py`, `worker.py`, `cycle_runner.py` |
 | 3 | `ui-golden-03-execution-timeline` | UI shows real task lifecycle timeline | `control_panel.py`, `worker.py`, `runtime_contract.py` |
 | 4 | `ui-golden-04-backend-status-proxy` | UI gets runtime status via backend-safe token handling | `control_panel.py`, `swarm.py`, `vivarium_scope.py` |
 | 5 | `ui-golden-05-security-polish` | Tighten UI security posture while preserving localhost-only behavior | `control_panel.py`, `README.md` |
@@ -40,7 +40,7 @@ Primary task file: **`grind_tasks.json`**
 
 ## Agent startup protocol (fast path)
 
-1. Read this file and `grind_tasks.json`.
+1. Read this file and `cycle_tasks.json`.
 2. Start with the first `pending` task whose dependencies are complete.
 3. Open **only** files listed in that task's `relevant_file_context` initially.
 4. Run targeted `rg` probes from that task's `pre_execution_exploration` before editing.
