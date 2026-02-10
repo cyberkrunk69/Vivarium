@@ -64,6 +64,17 @@ def test_local_command_policy_allowlist_and_denylist():
     assert security_read_error is not None
     assert "security" in security_read_error.lower()
 
+    journal_read_error = swarm._validate_local_command(
+        "cat vivarium/world/mutable/.swarm/journals/identity_alpha.jsonl"
+    )
+    assert journal_read_error is not None
+    assert "journal" in journal_read_error.lower() or "private" in journal_read_error.lower()
+    journal_votes_error = swarm._validate_local_command(
+        "cat vivarium/world/mutable/.swarm/journal_votes.json"
+    )
+    assert journal_votes_error is not None
+    assert "journal" in journal_votes_error.lower() or "private" in journal_votes_error.lower()
+
     python_error = swarm._validate_local_command("python3 -V")
     assert python_error is not None
     assert "allowlist" in python_error.lower()
@@ -138,6 +149,78 @@ def test_swarm_enrichment_discussion_post_and_context(tmp_path):
     assert "SWARM DISCUSSION MEMORY" in context
     assert "Alpha" in context
     assert "Replying with a test plan" in context
+
+
+def test_swarm_enrichment_journal_privacy_and_blind_review(tmp_path):
+    enrichment = swarm_enrichment.EnrichmentSystem(workspace=tmp_path)
+    enrichment._save_free_time_balances(
+        {
+            "identity_author": {
+                "tokens": 120,
+                "journal_tokens": 40,
+                "free_time_cap": enrichment.BASE_FREE_TIME_CAP,
+                "history": [],
+                "spending_history": [],
+            },
+            "identity_voter_1": {
+                "tokens": 120,
+                "journal_tokens": 40,
+                "free_time_cap": enrichment.BASE_FREE_TIME_CAP,
+                "history": [],
+                "spending_history": [],
+            },
+            "identity_voter_2": {
+                "tokens": 120,
+                "journal_tokens": 40,
+                "free_time_cap": enrichment.BASE_FREE_TIME_CAP,
+                "history": [],
+                "spending_history": [],
+            },
+            "identity_voter_3": {
+                "tokens": 120,
+                "journal_tokens": 40,
+                "free_time_cap": enrichment.BASE_FREE_TIME_CAP,
+                "history": [],
+                "spending_history": [],
+            },
+        }
+    )
+
+    write_result = enrichment.write_journal(
+        identity_id="identity_author",
+        identity_name="Author",
+        content="I learned that small prompt constraints create big behavior shifts in collaborative systems.",
+    )
+    assert write_result["success"] is True
+    assert "private" in write_result["note"].lower()
+    journal_id = write_result["journal_id"]
+
+    pending_for_voter = enrichment.get_pending_journal_reviews(reviewer_id="identity_voter_1")
+    assert pending_for_voter
+    target = next((entry for entry in pending_for_voter if entry["journal_id"] == journal_id), None)
+    assert target is not None
+    assert target["blind_review"] is True
+    assert "content_preview" in target and target["content_preview"]
+    assert "author_id" not in target
+    assert "author_name" not in target
+
+    pending_for_author = enrichment.get_pending_journal_reviews(reviewer_id="identity_author")
+    assert all(entry["journal_id"] != journal_id for entry in pending_for_author)
+
+    assert enrichment.submit_journal_vote(journal_id, "identity_voter_1", "accept", "Thoughtful reflection.")["success"]
+    assert enrichment.submit_journal_vote(journal_id, "identity_voter_2", "accept", "Specific and useful.")["success"]
+    assert enrichment.submit_journal_vote(journal_id, "identity_voter_3", "accept", "Clear learning signal.")["success"]
+
+    finalized = enrichment.finalize_journal_review(journal_id)
+    assert finalized["success"] is True
+
+    votes_state = enrichment._load_journal_votes()
+    stored = votes_state["journals"][journal_id]
+    assert "review_excerpt" not in stored
+    assert "content_preview" not in stored
+
+    assert enrichment.get_journal_history("identity_author", requester_id="identity_voter_1") == []
+    assert enrichment.get_journal_history("identity_author", requester_id="identity_author")
 
 
 def test_cycle_endpoint_requires_internal_execution_token(monkeypatch):

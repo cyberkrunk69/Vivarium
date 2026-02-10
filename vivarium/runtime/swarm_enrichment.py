@@ -649,6 +649,7 @@ class EnrichmentSystem:
     JOURNAL_PENALTY_MULTIPLIER = 1.25   # 1.25x attempt cost
     JOURNAL_PENALTY_DAYS = 2
     BLIND_VOTE_MIN_REASON_CHARS = 3
+    JOURNAL_REVIEW_EXCERPT_MAX_CHARS = 280
     JOURNAL_VOTE_SCORES = {
         "reject": 0,
         "accept": 1,
@@ -1406,24 +1407,35 @@ class EnrichmentSystem:
         self._save_journal_penalties(penalties)
         return penalty
 
-    def get_pending_journal_reviews(self, limit: int = 10) -> list:
-        """List journal entries pending community review (blind voting)."""
+    def get_pending_journal_reviews(
+        self,
+        limit: int = 10,
+        reviewer_id: Optional[str] = None,
+        include_author: bool = False,
+    ) -> list:
+        """List pending blind-review journals without revealing author identity."""
         votes = self._load_journal_votes()
         pending = []
         for entry in votes.get("journals", {}).values():
             if entry.get("status") != "pending":
                 continue
-            pending.append({
+            author_id = entry.get("author_id")
+            if reviewer_id and reviewer_id == author_id:
+                continue
+            payload = {
                 "journal_id": entry.get("journal_id"),
-                "author_id": entry.get("author_id"),
-                "author_name": entry.get("author_name"),
                 "created_at": entry.get("created_at"),
                 "journal_type": entry.get("journal_type"),
-                "content_preview": entry.get("content_preview"),
+                "content_preview": entry.get("review_excerpt") or entry.get("content_preview"),
                 "word_count": entry.get("word_count"),
                 "attempt_cost": entry.get("attempt_cost"),
-                "quality_estimate": entry.get("quality_estimate")
-            })
+                "quality_estimate": entry.get("quality_estimate"),
+                "blind_review": True,
+            }
+            if include_author:
+                payload["author_id"] = author_id
+                payload["author_name"] = entry.get("author_name")
+            pending.append(payload)
 
         pending.sort(key=lambda e: e.get("created_at", ""), reverse=True)
         return pending[:limit]
@@ -1565,6 +1577,9 @@ class EnrichmentSystem:
             journal["status"] = "rejected"
 
         journal["resolved_at"] = datetime.now().isoformat()
+        # Privacy guarantee: clear temporary review text after vote is finalized.
+        journal.pop("review_excerpt", None)
+        journal.pop("content_preview", None)
         journal["result"] = result
         votes["journals"][journal_id] = journal
         self._save_journal_votes(votes)
@@ -1582,7 +1597,9 @@ class EnrichmentSystem:
         """
         Write a journal entry. Costs journal tokens (or free time if journal pool empty).
 
-        Journals are community reviewed with blind voting. Accepted entries
+        Journals are private to their author. Community review uses a temporary
+        anonymized excerpt for blind voting while pending; excerpt context is
+        cleared from shared review state after the vote resolves. Accepted entries
         guarantee at least 50% refund, with potential rewards up to 2x cost.
 
         Args:
@@ -1646,6 +1663,11 @@ class EnrichmentSystem:
         with open(journal_file, 'a') as f:
             f.write(json.dumps(journal_entry) + '\n')
 
+        review_excerpt = (
+            content[: self.JOURNAL_REVIEW_EXCERPT_MAX_CHARS] + "..."
+            if len(content) > self.JOURNAL_REVIEW_EXCERPT_MAX_CHARS
+            else content
+        )
         votes = self._load_journal_votes()
         votes["journals"][journal_id] = {
             "journal_id": journal_id,
@@ -1653,13 +1675,17 @@ class EnrichmentSystem:
             "author_name": identity_name,
             "journal_type": journal_type,
             "created_at": journal_entry["timestamp"],
-            "content": content,
-            "content_preview": (content[:200] + "...") if len(content) > 200 else content,
+            "review_excerpt": review_excerpt,
             "word_count": quality_estimate.get("word_count"),
             "attempt_cost": attempt_cost,
             "quality_estimate": quality_estimate,
             "status": "pending",
-            "votes": []
+            "votes": [],
+            "privacy": {
+                "blind_review": True,
+                "author_private": True,
+                "review_excerpt_ephemeral": True,
+            },
         }
         self._save_journal_votes(votes)
 
@@ -1675,7 +1701,11 @@ class EnrichmentSystem:
             "attempt_cost": attempt_cost,
             "penalty_multiplier": penalty_multiplier,
             "quality_estimate": quality_estimate,
-            "note": "Community review required. Votes must include reasons.",
+            "note": (
+                "Blind community review required. Your journal remains private to you. "
+                "Only a temporary anonymized excerpt is shown for voting, then cleared "
+                "from community review context once voting is finalized."
+            ),
             "new_balances": {
                 "free_time": balances[identity_id]["tokens"],
                 "journal": balances[identity_id]["journal_tokens"],
@@ -1717,8 +1747,15 @@ class EnrichmentSystem:
             "markers_found": markers_found
         }
 
-    def get_journal_history(self, identity_id: str, limit: int = 10) -> list:
-        """Get recent journal entries for an identity."""
+    def get_journal_history(
+        self,
+        identity_id: str,
+        limit: int = 10,
+        requester_id: Optional[str] = None,
+    ) -> list:
+        """Get recent journal entries for an identity (owner-only)."""
+        if requester_id is None or requester_id != identity_id:
+            return []
         journal_file = self.journals_dir / f"{identity_id}.jsonl"
         if not journal_file.exists():
             return []
@@ -6028,6 +6065,9 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             "  - Accepted entries guarantee at least 50% refund",
             "  - High-quality entries can earn up to 2x the attempt cost",
             "  - Voting is blind (no visible vote counts while pending)",
+            "  - Voters see temporary anonymized excerpts for quality review only",
+            "  - After review is finalized, excerpt context is cleared from shared review state",
+            "  - Your full journal text remains private to you",
             "  - Gaming flags trigger 1.25x attempt cost for 2 days",
             "",
             "  Reflection earns you real returns when the community agrees it mattered.",

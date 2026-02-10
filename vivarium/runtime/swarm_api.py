@@ -81,7 +81,11 @@ SECURITY_READ_BLOCKLIST = (
     (REPO_ROOT / "vivarium" / "runtime" / "secure_api_wrapper.py").resolve(),
     (REPO_ROOT / "vivarium" / "runtime" / "vivarium_scope.py").resolve(),
 )
-READ_BLOCKLIST = PHYSICS_READ_BLOCKLIST + SECURITY_READ_BLOCKLIST
+JOURNAL_PRIVACY_READ_BLOCKLIST = (
+    (REPO_ROOT / "vivarium" / "world" / "mutable" / ".swarm" / "journals").resolve(),
+    (REPO_ROOT / "vivarium" / "world" / "mutable" / ".swarm" / "journal_votes.json").resolve(),
+)
+READ_BLOCKLIST = PHYSICS_READ_BLOCKLIST + SECURITY_READ_BLOCKLIST + JOURNAL_PRIVACY_READ_BLOCKLIST
 RG_BLOCKED_GLOBS = (
     "vivarium/physics/**",
     "vivarium/meta/security/**",
@@ -91,6 +95,8 @@ RG_BLOCKED_GLOBS = (
     "vivarium/runtime/safety_validator.py",
     "vivarium/runtime/secure_api_wrapper.py",
     "vivarium/runtime/vivarium_scope.py",
+    "vivarium/world/mutable/.swarm/journals/**",
+    "vivarium/world/mutable/.swarm/journal_votes.json",
 )
 
 LOCAL_COMMAND_DENYLIST = [
@@ -310,6 +316,12 @@ def _blocked_read_reason(path: Path) -> Optional[str]:
     for blocked_root in PHYSICS_READ_BLOCKLIST:
         if _is_within(path, blocked_root):
             return "Local command blocked: physics files are restricted in MVP mode"
+    for blocked_root in JOURNAL_PRIVACY_READ_BLOCKLIST:
+        if _is_within(path, blocked_root):
+            return (
+                "Local command blocked: journal files are private "
+                "(blind review excerpts are exposed only via journal voting APIs)"
+            )
     for blocked_root in SECURITY_READ_BLOCKLIST:
         if _is_within(path, blocked_root):
             return "Local command blocked: security files are restricted in MVP mode"
