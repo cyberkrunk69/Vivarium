@@ -35,6 +35,22 @@ python3 -m pytest -q tests/test_runtime_phase2_quality_review.py tests/test_runt
 # Result: 22 passed
 ```
 
+### Hard evidence snapshot (as of 2026-02-09)
+
+The strongest verifiable signals currently in logs/history:
+
+- **Self-learning signal (promising):** In historical `performance_history.json`
+  (commit `5b6a0b6`), average quality score rises from `0.858` (first 10
+  sessions) to `0.995` (last 10), a `+15.97%` lift.
+- **Execution evidence at scale:** In historical `structured_logs.jsonl`
+  (commit `5b6a0b6`), there are `153` completed sessions with an `86.93%`
+  completion success rate and a median elapsed time of `70.441s`.
+- **Cost and guardrail evidence in current runtime logs:** `api_audit.log` shows
+  successful costed calls (4 successes, total logged success cost
+  `0.05331729`) and explicit budget enforcement (`BUDGET_EXCEEDED` event).
+
+More results to come tomorrow (2026-02-10).
+
 ---
 
 ## Current architecture (as implemented)
