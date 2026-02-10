@@ -82,9 +82,11 @@ _DEFAULT_SKILLS: Tuple[Dict[str, object], ...] = (
         "name": "run_command",
         "description": "Execute a shell command and return status/output.",
         "code": (
+            "import shlex\n"
             "import subprocess\n\n"
             "def run_command(command: str):\n"
-            "    proc = subprocess.run(command, shell=True, capture_output=True, text=True)\n"
+            "    args = shlex.split(command)\n"
+            "    proc = subprocess.run(args, shell=False, capture_output=True, text=True)\n"
             "    return {'returncode': proc.returncode, 'stdout': proc.stdout, 'stderr': proc.stderr}"
         ),
         "keywords": ["shell", "command", "execute"],
