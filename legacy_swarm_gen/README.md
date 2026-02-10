@@ -11,8 +11,8 @@ previously at the repository root.
 
 ## Notes
 
-- Root-level compatibility shims remain for old entrypoints (`grind_spawner.py`,
-  `grind_spawner_unified.py`, `spawn_opus.py`, etc.).
-- New development should not add features here unless the change is explicitly a
-  legacy compatibility fix.
+- Root-level compatibility shims have been removed; invoke legacy entrypoints
+  from this package directly (`legacy_swarm_gen/grind_spawner.py`, etc.).
+- New development should not add features here unless the change is explicitly
+  a legacy compatibility fix.
 

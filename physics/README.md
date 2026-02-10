@@ -1,11 +1,17 @@
 # Physics
 
-Shared mathematical/physics-style primitives used by swarm runtime components.
+Swarm-world invariants and simulation controls.
 
-Current module:
+Modules:
 
-- `math_utils.py` - vector similarity, distances, normalization, and utility
-  transforms used by ranking and intent systems.
+- `world_physics.py`
+  - Immutable swarm-world properties (state layout, contract versions, status
+    vocabulary).
+  - Runtime control surface for queue/task payload bounds.
+- `math_utils.py`
+  - Shared vector similarity, distance, normalization, and utility transforms
+    used by ranking and intent systems.
 
-This folder is intentionally independent from legacy swarm generation code.
+This folder is intentionally independent from legacy swarm generation code and
+is the canonical location for swarm-simulation world rules.
 

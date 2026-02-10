@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+LEGACY_SWARM_ROOT = Path(__file__).resolve().parent
 WORKSPACE = REPO_ROOT
 STATE_FILE = WORKSPACE / "opus_orchestrator_state.json"
 RECOMMENDATIONS_FILE = WORKSPACE / "opus_recommendations.json"
@@ -91,7 +92,7 @@ class OpusOrchestrator:
         # Spawn via spawn_opus.py
         try:
             subprocess.Popen(
-                [sys.executable, str(WORKSPACE / "spawn_opus.py")],
+                [sys.executable, str(LEGACY_SWARM_ROOT / "spawn_opus.py")],
                 cwd=str(WORKSPACE),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL

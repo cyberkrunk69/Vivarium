@@ -14,7 +14,7 @@ from pathlib import Path
 # Add workspace to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from grind_spawner_unified import UnifiedGrindSession, EngineType
+from legacy_swarm_gen.grind_spawner_unified import UnifiedGrindSession, EngineType
 from groq_code_extractor import GroqArtifactExtractor
 from verification_fix import verify_file_changed, APPLIED, FAILED
 

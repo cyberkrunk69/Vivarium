@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+LEGACY_SWARM_ROOT = Path(__file__).resolve().parent
 WORKSPACE = REPO_ROOT
 
 def spawn_opus_researchers(tasks_file: str = "opus_research_tasks.json"):
@@ -29,7 +30,7 @@ def spawn_opus_researchers(tasks_file: str = "opus_research_tasks.json"):
     # Use grind_spawner with opus model
     cmd = [
         sys.executable,  # Use same Python that ran this script
-        str(WORKSPACE / "grind_spawner.py"),
+        str(LEGACY_SWARM_ROOT / "grind_spawner.py"),
         "--delegate",
         "--model", "opus",
         "--once"
@@ -76,7 +77,7 @@ def spawn_single_opus(task: str, budget: float = 5.0):
 
         cmd = [
             sys.executable,
-            str(WORKSPACE / "grind_spawner.py"),
+            str(LEGACY_SWARM_ROOT / "grind_spawner.py"),
             "--delegate",
             "--model", "opus",
             "--once"

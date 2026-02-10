@@ -158,7 +158,7 @@ class SelfHealingSpawner:
 
         try:
             # Import and run the actual spawner
-            from grind_spawner_unified import main as spawner_main
+            from legacy_swarm_gen.grind_spawner_unified import main as spawner_main
 
             # Record successful startup
             self.health_checker.record_startup_success()
@@ -167,7 +167,7 @@ class SelfHealingSpawner:
             return spawner_main()
 
         except ImportError as e:
-            print(f"\n[ERROR] Failed to import grind_spawner_unified: {e}")
+            print(f"\n[ERROR] Failed to import legacy_swarm_gen.grind_spawner_unified: {e}")
             traceback.print_exc()
             return 1
 

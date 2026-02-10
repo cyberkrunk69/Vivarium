@@ -66,7 +66,7 @@ def _inject_skill_into_prompt(original_func):
 
 def _patch_grind_spawner():
     try:
-        grind_spawner = importlib.import_module('grind_spawner')
+        grind_spawner = importlib.import_module('legacy_swarm_gen.grind_spawner')
     except ImportError:
         _logger.debug("grind_spawner module not found – skipping skill injection.")
         return

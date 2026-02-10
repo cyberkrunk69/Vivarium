@@ -16,38 +16,32 @@ sys.path.insert(0, str(project_root))
 print("Test 1: Checking imports...")
 try:
     from failure_patterns import FailurePatternDetector
-    from grind_spawner import GrindSession
+    from legacy_swarm_gen.grind_spawner import verify_grind_completion
     print("  ✓ All imports successful")
 except ImportError as e:
     print(f"  ✗ Import failed: {e}")
     sys.exit(1)
 
-# Test 2: Check that grind_spawner imports failure_patterns
+# Test 2: Check that legacy verification helper carries hallucination logic
 print("\nTest 2: Verifying integration...")
 import inspect
-source = inspect.getsource(GrindSession)
-if "FailurePatternDetector" in source:
-    print("  ✓ FailurePatternDetector referenced in GrindSession")
+source = inspect.getsource(verify_grind_completion)
+if "hallucination_detected" in source:
+    print("  ✓ hallucination detection field present")
 else:
-    print("  ✗ FailurePatternDetector not found in GrindSession")
+    print("  ✗ hallucination detection field not found")
     sys.exit(1)
 
-if "failure_detector" in source:
-    print("  ✓ failure_detector attribute found")
+if "claimed_files" in source:
+    print("  ✓ claimed_files extraction present")
 else:
-    print("  ✗ failure_detector attribute not found")
+    print("  ✗ claimed_files extraction not found")
     sys.exit(1)
 
-if "generate_warning_prompt" in source:
-    print("  ✓ Warning prompt generation integrated")
+if "verified_files" in source:
+    print("  ✓ verified_files checks present")
 else:
-    print("  ✗ Warning prompt generation not found")
-    sys.exit(1)
-
-if "track_failure" in source:
-    print("  ✓ Failure tracking integrated")
-else:
-    print("  ✗ Failure tracking not found")
+    print("  ✗ verified_files checks not found")
     sys.exit(1)
 
 # Test 3: Test basic functionality

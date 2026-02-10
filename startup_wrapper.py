@@ -1,6 +1,6 @@
 import time
 import logging
-from grind_spawner import main as spawner_main
+from legacy_swarm_gen.grind_spawner import main as spawner_main
 
 logger = logging.getLogger("startup_total")
 if not logger.handlers:

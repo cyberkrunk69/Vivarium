@@ -6,7 +6,8 @@ surface for new swarm/runtime work.
 ## Top-level domains
 
 - `physics/`
-  - Shared mathematical primitives (`math_utils.py`).
+  - Swarm-world invariants and control surface (`world_physics.py`) plus
+    shared math primitives.
 - `legacy_code/`
   - Archived generated artifacts and non-canonical leftovers.
 - `legacy_swarm_gen/`
@@ -16,9 +17,9 @@ surface for new swarm/runtime work.
 
 ## Compatibility policy
 
-Root-level compatibility shims are preserved for major historical module names
-(`grind_spawner.py`, `grind_spawner_unified.py`, `spawn_opus.py`, etc.) so
-existing tooling can keep running during transition.
+Root-level compatibility shims have been retired. Legacy entrypoints now live
+under `legacy_swarm_gen/` and are intentionally isolated from the canonical
+runtime surface.
 
 ## New work policy
 

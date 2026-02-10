@@ -19,13 +19,13 @@ Today, the repo is in an "implemented core + partially wired vision" state. This
 
 To reduce root-level sprawl and separate old paths from new ones:
 
-- `physics/` - shared math/physics primitives (`math_utils.py` migrated here)
+- `physics/` - swarm-world invariants + control surface (`world_physics.py`) and shared math utils
 - `legacy_code/` - archived/generated legacy artifacts (`extracted_code/*`)
 - `legacy_swarm_gen/` - old swarm-generation and spawner/orchestrator scripts
 - `swarm_environment/` - fresh environment API for new swarm interaction loops
 
-Compatibility shims remain at the old root paths for key legacy entrypoints so
-existing scripts do not immediately break while migration continues.
+Root-level legacy compatibility shims were retired; legacy entrypoints now live
+only under `legacy_swarm_gen/`.
 
 ---
 
