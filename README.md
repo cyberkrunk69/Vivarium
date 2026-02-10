@@ -20,11 +20,11 @@ Today, the repo is in an "implemented core + partially wired vision" state. This
 This repo now follows a strict golden-path policy:
 - **only canonical runtime execution is supported**
 - **no optional detached runner paths**
-- **no compatibility entrypoint surface at root**
+- **thin root entrypoint shims map to runtime package modules**
 
 - `vivarium/physics/` - swarm-world invariants + control surface (`world_physics.py`) and shared math utils
 - `vivarium/swarm_environment/` - fresh environment API for new swarm interaction loops
-- `vivarium/runtime/` - canonical runtime modules used by root entrypoints (`worker.py`, `swarm.py`, `control_panel.py`)
+- `vivarium/runtime/` - canonical runtime implementations (root entrypoints delegate to these modules)
 - `docs/` - roadmap, architecture notes, and operational playbooks
 
 ---
@@ -33,7 +33,7 @@ This repo now follows a strict golden-path policy:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Phase 0 - Canonical runtime | Implemented | `worker.py + swarm.py + control_panel.py` are the default production path. |
+| Phase 0 - Canonical runtime | Implemented | Root entrypoints (`worker.py + swarm.py + control_panel.py`) delegate to canonical runtime modules under `vivarium/runtime/`. |
 | Phase 1 - Safety gating | Implemented in worker path | Worker preflight safety checks run before task dispatch. |
 | Phase 2 - Quality/critic lifecycle | Implemented | Post-execution review transitions include `pending_review`, `approved`, `requeue`, and `failed`. |
 | Phase 3 - Tool-first compounding | Implemented | Tool routing runs before LLM dispatch and logs route metadata. |
@@ -109,7 +109,7 @@ For the full, phased execution plan plus acceptance criteria, see:
 Short version of build order:
 
 1. **Canonicalize the runtime path**
-   - Make `worker.py + swarm.py + control_panel.py` the explicit source of truth.
+   - Make `vivarium/runtime/{worker_runtime.py, swarm_api.py, control_panel_app.py}` the source of truth, surfaced via root entrypoint shims.
    - Quarantine or repair non-canonical orchestration remnants.
 2. **Wire hard safety gates into execution**
    - Enforce `safety_gateway` + `secure_api_wrapper` on actual task execution paths, not only tests/startup scripts.
@@ -193,9 +193,12 @@ The recovery sequence for these findings is defined in `docs/VISION_ROADMAP.md`.
 
 | File | Role |
 | --- | --- |
-| `swarm.py` | FastAPI execution API (`/cycle`, `/plan`, `/status`) |
-| `worker.py` | Resident runtime: queue polling, lock protocol, task execution, event logging |
-| `control_panel.py` | Web UI + API for monitoring, identities, bounties, and chatrooms |
+| `swarm.py` | Root shim for canonical FastAPI API module (`vivarium/runtime/swarm_api.py`) |
+| `worker.py` | Root shim for canonical worker runtime (`vivarium/runtime/worker_runtime.py`) |
+| `control_panel.py` | Root shim for control panel module (`vivarium/runtime/control_panel_app.py`) |
+| `vivarium/runtime/swarm_api.py` | FastAPI execution API (`/cycle`, `/plan`, `/status`) |
+| `vivarium/runtime/worker_runtime.py` | Resident runtime: queue polling, lock protocol, task execution, event logging |
+| `vivarium/runtime/control_panel_app.py` | Web UI + API for monitoring, identities, bounties, and chatrooms |
 | `vivarium/runtime/resident_onboarding.py` | Identity selection, cycle/day tracking, resident context injection |
 | `vivarium/runtime/swarm_enrichment.py` | Token economy, journals, guild voting, disputes, bounty reward distribution |
 | `vivarium/runtime/runtime_contract.py` | Canonical queue/task normalization and execution status vocabulary |
