@@ -134,7 +134,7 @@ def handle_404(e):
     """Return JSON 404 for API routes; HTML for page requests."""
     if _wants_json():
         return jsonify({"success": False, "error": "not found"}), 404
-    return e
+    return e.get_response(request.environ)
 
 
 @app.errorhandler(500)
@@ -142,7 +142,8 @@ def handle_500(e):
     """Return JSON 500 for API routes; HTML for page requests."""
     if _wants_json():
         return jsonify({"success": False, "error": "internal server error"}), 500
-    return e
+    from werkzeug.exceptions import InternalServerError
+    return InternalServerError().get_response(request.environ)
 
 
 # Track last read position (lock guards against race with watcher thread + poll)
