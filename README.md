@@ -114,189 +114,27 @@ Canonical entrypoints:
 
 ### System Design (MVP Runtime)
 
-```mermaid
-flowchart LR
-    %% ---------- Human and launch layer ----------
-    U[Human Operator]
-    LM[dev_launcher.py]
-    LS1[dev_launcher_mac.sh]
-    LS2[dev_launcher_windows.ps1]
-    LS3[dev_launcher_windows.bat]
-    CACHE[.swarm/dev_install_state.json]
+Static diagram (SVG, committed to repo for deterministic GitHub rendering):
 
-    U --> LS1
-    U --> LS2
-    U --> LS3
-    LS1 --> LM
-    LS2 --> LM
-    LS3 --> LM
-    LM --> CACHE
+![Vivarium MVP Runtime System Design](docs/assets/diagrams/system-design.svg)
 
-    %% ---------- Runtime processes ----------
-    subgraph RUNTIME["Runtime Processes (golden path)"]
-        UI[control_panel_app.py<br/>:8421]
-        API[swarm_api.py<br/>/cycle]
-        WR[worker_runtime.py<br/>queue executor]
-    end
-
-    LM --> UI
-    LM --> API
-    U --> UI
-    WR <-- poll/lock --> Q[(queue.json)]
-    WR -->|dispatch task| API
-
-    %% ---------- Identity/state domain ----------
-    subgraph STATE["Mutable State Domain"]
-        ID[(.swarm/identities/*.json)]
-        BAL[(free_time_balances.json)]
-        BQ[(bounties.json)]
-        DISC[(discussions/*.jsonl)]
-        M2H[(messages_to_human.jsonl)]
-        H2M[(messages_from_human.json)]
-        OUT[(messages_from_human_outbox.jsonl)]
-        MQ[(mailbox_quests.json)]
-    end
-
-    WR <--> ID
-    WR <--> BAL
-    WR <--> BQ
-    WR <--> DISC
-    UI <--> M2H
-    UI <--> H2M
-    UI <--> OUT
-    UI <--> MQ
-    UI <--> Q
-
-    %% ---------- Logging and review ----------
-    subgraph AUDIT["Audit + Review Trail"]
-        EX[(execution_log.jsonl)]
-        AC[(action_log.jsonl)]
-        RL[[review lifecycle<br/>pending_review | approved | requeue | failed]]
-    end
-
-    WR --> EX
-    WR --> AC
-    EX --> RL
-    RL --> Q
-    UI -->|live tail + backfill| AC
-    UI -->|quest status from execution events| EX
-
-    %% ---------- Mailbox + quest orchestration ----------
-    subgraph MAILBOX["Mailbox / Phone + Quest Orchestration"]
-        TH[[Thread inbox/outbox]]
-        QM[[Quest manager]]
-        TQ[[Tip / pause / resume / approve]]
-        RT[[Realtime polling]]
-    end
-
-    UI --> TH
-    UI --> QM
-    UI --> TQ
-    UI --> RT
-    QM --> MQ
-    QM --> Q
-    TQ --> BAL
-    TQ --> MQ
-    TQ --> Q
-
-    %% ---------- Prompt/context compaction ----------
-    subgraph CONTEXT["Deterministic Context Compaction"]
-        DC[get_discussion_context()<br/>room/DM metrics only]
-        EC[get_enrichment_context()<br/>option-tree menu]
-        MENU[[checkSelf/checkMemory/checkMailbox/<br/>checkBounties/checkGuild/checkLibrary/checkIdentityTools]]
-    end
-
-    WR --> DC
-    WR --> EC
-    DC --> MENU
-    EC --> MENU
-    MENU --> API
-
-    %% ---------- Style ----------
-    classDef proc fill:#1f2937,stroke:#60a5fa,color:#e5e7eb;
-    classDef data fill:#111827,stroke:#34d399,color:#d1fae5;
-    classDef note fill:#312e81,stroke:#a78bfa,color:#ede9fe;
-
-    class UI,API,WR,LM,LS1,LS2,LS3 proc;
-    class Q,ID,BAL,BQ,DISC,M2H,H2M,OUT,MQ,EX,AC,CACHE data;
-    class RL,TH,QM,TQ,RT,DC,EC,MENU note;
-```
+[Open full-size SVG](docs/assets/diagrams/system-design.svg)
 
 ### Quest Lifecycle (Mailbox -> Completion)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Human as Human Operator
-    participant UI as Control Panel (Mailbox)
-    participant MQ as mailbox_quests.json
-    participant Q as queue.json
-    participant WR as worker_runtime.py
-    participant API as /cycle (swarm_api.py)
-    participant EX as execution_log.jsonl
-    participant BAL as free_time_balances.json
-    participant DISC as human_async / DMs
+Static diagram (SVG):
 
-    Human->>UI: Assign quest(identity, objective, budget, tip, reward)
-    UI->>MQ: Create quest record(status=active)
-    UI->>Q: Enqueue identity-bound quest task
-    UI->>BAL: Grant upfront tip tokens
-    UI->>DISC: Post quest assignment notice
+![Vivarium Mailbox Quest Lifecycle](docs/assets/diagrams/quest-lifecycle.svg)
 
-    loop Polling
-        UI->>EX: Read latest events for task_id
-        UI->>MQ: Refresh status(active/awaiting_approval/failed/paused)
-        UI-->>Human: Render live quest progress
-    end
-
-    par Main time running
-        WR->>Q: Poll + lock task
-        WR->>API: Execute quest task cycle
-        API-->>WR: Result + usage/status
-        WR->>EX: Append lifecycle event
-        WR->>DISC: Continue social posting/coordination
-    and Operator controls
-        Human->>UI: Tip / Pause / Resume quest
-        UI->>BAL: Tip tokens
-        UI->>Q: Remove/reinsert open task for pause/resume
-        UI->>MQ: Persist manual pause/resume state
-    end
-
-    WR->>EX: Emit completed/approved/ready_for_merge
-    UI->>MQ: Mark awaiting_approval
-    Human->>UI: Approve quest completion
-    UI->>BAL: Grant guaranteed completion reward
-    UI->>MQ: Mark completed + reward paid
-```
+[Open full-size SVG](docs/assets/diagrams/quest-lifecycle.svg)
 
 ### Task + Review State Machine
 
-```mermaid
-stateDiagram-v2
-    [*] --> queued
-    queued --> in_progress: worker acquires lock
-    in_progress --> pending_review: execution finished\n(review required)
-    in_progress --> failed: runtime/api error
-    in_progress --> requeue: quality/safety gate asks retry
-    requeue --> queued: task returned to queue
+Static diagram (SVG):
 
-    pending_review --> approved: passes review gate
-    pending_review --> requeue: revision requested
-    pending_review --> failed: hard reject
+![Vivarium Task Review State Machine](docs/assets/diagrams/task-review-state-machine.svg)
 
-    approved --> completed: queue outcome sync
-    failed --> [*]
-    completed --> [*]
-
-    state "Mailbox Quest Overlay" as MQO {
-        [*] --> active
-        active --> paused: operator pause
-        paused --> active: operator resume
-        active --> awaiting_approval: execution success
-        awaiting_approval --> completed: operator approves reward
-        active --> failed: terminal task failure
-    }
-```
+[Open full-size SVG](docs/assets/diagrams/task-review-state-machine.svg)
 
 ---
 

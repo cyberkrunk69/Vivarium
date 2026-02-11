@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="860" viewBox="0 0 1320 860" role="img" aria-labelledby="title desc">
+  <title id="title">Task and Review State Machine with Mailbox Overlay</title>
+  <desc id="desc">Static state diagram showing queued, in progress, pending review, requeue, approved, failed, and completed states with mailbox quest overlay states.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 30px Inter,Segoe UI,Arial,sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 15px Inter,Segoe UI,Arial,sans-serif; fill: #475569; }
+      .group { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 14; }
+      .group-label { font: 700 18px Inter,Segoe UI,Arial,sans-serif; fill: #1e293b; }
+      .state { fill: #e0f2fe; stroke: #0284c7; stroke-width: 2; rx: 12; }
+      .state-alt { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; rx: 12; }
+      .state-end { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; rx: 12; }
+      .overlay { fill: #ede9fe; stroke: #7c3aed; stroke-width: 2; rx: 10; }
+      .text { font: 600 13px Inter,Segoe UI,Arial,sans-serif; fill: #0f172a; }
+      .small { font: 500 12px Inter,Segoe UI,Arial,sans-serif; fill: #334155; }
+      .edge { stroke: #475569; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .edge-dash { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1320" height="860" fill="#ffffff"/>
+  <text x="36" y="54" class="title">Task + Review State Machine (Static SVG)</text>
+  <text x="36" y="82" class="subtitle">Primary task lifecycle plus mailbox quest status overlay.</text>
+
+  <!-- Main state machine -->
+  <rect x="36" y="108" width="820" height="708" class="group"/>
+  <text x="56" y="138" class="group-label">Primary Task Lifecycle</text>
+
+  <circle cx="110" cy="210" r="18" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+  <text x="95" y="215" class="small">start</text>
+
+  <rect x="180" y="176" width="154" height="72" class="state"/>
+  <text x="238" y="206" class="text">queued</text>
+  <text x="207" y="224" class="small">task in queue.json</text>
+
+  <rect x="396" y="176" width="184" height="72" class="state"/>
+  <text x="446" y="206" class="text">in_progress</text>
+  <text x="418" y="224" class="small">worker lock acquired</text>
+
+  <rect x="640" y="176" width="184" height="72" class="state"/>
+  <text x="680" y="206" class="text">pending_review</text>
+  <text x="662" y="224" class="small">execution finished</text>
+
+  <rect x="640" y="314" width="184" height="72" class="state-alt"/>
+  <text x="705" y="344" class="text">approved</text>
+  <text x="666" y="362" class="small">passes review gate</text>
+
+  <rect x="396" y="314" width="184" height="72" class="state"/>
+  <text x="465" y="344" class="text">requeue</text>
+  <text x="420" y="362" class="small">revision / retry requested</text>
+
+  <rect x="180" y="314" width="154" height="72" class="state-end"/>
+  <text x="237" y="344" class="text">failed</text>
+  <text x="208" y="362" class="small">terminal rejection/error</text>
+
+  <rect x="640" y="452" width="184" height="72" class="state-alt"/>
+  <text x="695" y="482" class="text">completed</text>
+  <text x="662" y="500" class="small">queue outcome synced</text>
+
+  <circle cx="784" cy="616" r="18" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+  <text x="773" y="621" class="small">end</text>
+
+  <circle cx="252" cy="616" r="18" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+  <text x="241" y="621" class="small">end</text>
+
+  <!-- Main edges -->
+  <path d="M128 210 L180 210" class="edge"/>
+  <path d="M334 210 L396 210" class="edge"/>
+  <path d="M580 210 L640 210" class="edge"/>
+  <path d="M732 248 L732 314" class="edge"/>
+  <path d="M640 350 L580 350" class="edge"/>
+  <path d="M488 314 L488 248" class="edge"/>
+  <path d="M640 210 C610 210, 610 350, 580 350" class="edge"/>
+  <path d="M396 350 L334 350" class="edge"/>
+  <path d="M732 386 L732 452" class="edge"/>
+  <path d="M732 524 L732 598 L768 598" class="edge"/>
+  <path d="M257 386 L252 598" class="edge"/>
+
+  <!-- Transition labels -->
+  <text x="352" y="196" class="small">worker acquires lock</text>
+  <text x="590" y="198" class="small">execution complete</text>
+  <text x="742" y="286" class="small">passes review</text>
+  <text x="506" y="300" class="small">task returned</text>
+  <text x="586" y="334" class="small">revision requested</text>
+  <text x="308" y="334" class="small">hard reject</text>
+  <text x="740" y="432" class="small">approved outcome</text>
+
+  <!-- Overlay -->
+  <rect x="892" y="108" width="392" height="708" class="group"/>
+  <text x="912" y="138" class="group-label">Mailbox Quest Overlay</text>
+
+  <rect x="940" y="190" width="140" height="64" class="overlay"/>
+  <text x="989" y="220" class="text">active</text>
+  <text x="963" y="238" class="small">quest in motion</text>
+
+  <rect x="1120" y="190" width="140" height="64" class="overlay"/>
+  <text x="1167" y="220" class="text">paused</text>
+  <text x="1138" y="238" class="small">operator pause</text>
+
+  <rect x="940" y="326" width="188" height="64" class="overlay"/>
+  <text x="970" y="356" class="text">awaiting_approval</text>
+  <text x="974" y="374" class="small">execution succeeded</text>
+
+  <rect x="1160" y="326" width="100" height="64" class="overlay"/>
+  <text x="1176" y="356" class="text">failed</text>
+  <text x="1168" y="374" class="small">terminal</text>
+
+  <rect x="940" y="462" width="188" height="64" class="overlay"/>
+  <text x="998" y="492" class="text">completed</text>
+  <text x="960" y="510" class="small">approved + reward paid</text>
+
+  <!-- Overlay edges -->
+  <path d="M1080 222 L1120 222" class="edge"/>
+  <path d="M1120 234 L1080 234" class="edge-dash"/>
+  <path d="M1010 254 L1010 326" class="edge"/>
+  <path d="M1034 390 L1034 462" class="edge"/>
+  <path d="M1128 358 L1160 358" class="edge"/>
+
+  <text x="1088" y="214" class="small">pause</text>
+  <text x="1088" y="252" class="small">resume</text>
+  <text x="1018" y="300" class="small">exec success</text>
+  <text x="1044" y="438" class="small">operator approves</text>
+  <text x="1132" y="347" class="small">hard fail</text>
+
+  <!-- Coupling between machines -->
+  <path d="M824 210 C880 210, 880 358, 940 358" class="edge-dash"/>
+  <path d="M732 314 C860 314, 860 222, 940 222" class="edge-dash"/>
+  <path d="M334 350 C860 350, 860 358, 940 358" class="edge-dash"/>
+  <path d="M732 452 C860 452, 860 494, 940 494" class="edge-dash"/>
+  <path d="M334 350 C860 350, 860 358, 1160 358" class="edge-dash"/>
+
+  <text x="836" y="196" class="small">pending_review maps to mailbox awaiting_approval</text>
+  <text x="838" y="300" class="small">requeue/failed propagate to quest status</text>
+  <text x="838" y="438" class="small">completed syncs quest completion</text>
+</svg>
