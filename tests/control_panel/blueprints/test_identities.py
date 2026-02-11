@@ -2,12 +2,12 @@ import json
 
 
 def test_get_identities_empty(client, localhost_kwargs):
-    """GET /api/identities returns empty list when no identities"""
+    """GET /api/identities returns success and empty identities list when no identities"""
     response = client.get("/api/identities", **localhost_kwargs)
     assert response.status_code == 200
     data = json.loads(response.data)
-    # Blueprint returns list directly
-    assert data == []
+    assert data.get("success") is True
+    assert data.get("identities") == []
 
 
 def test_create_identity_validation(client, localhost_kwargs):

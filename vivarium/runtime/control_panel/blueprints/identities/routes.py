@@ -143,7 +143,7 @@ def get_identities():
             except Exception:
                 pass
 
-    return jsonify(identities)
+    return jsonify({"success": True, "identities": identities})
 
 
 @bp.route("/creative_seed", methods=["GET"])

@@ -30,6 +30,7 @@ def api_worker_status():
     _is_running, _start, _stop, _load, _save = _worker_helpers()
     status = _load()
     return jsonify({
+        "success": True,
         "running": status.get("running", False),
         "managed": status.get("running_source") == "managed",
         "pid": status.get("pid"),

@@ -76,7 +76,10 @@ def _save_runtime_speed(wait_seconds: float):
 @bp.route('/runtime_speed', methods=['GET'])
 def get_runtime_speed():
     """GET /api/runtime_speed - Return current speed multiplier and cycle info."""
-    return jsonify(_get_runtime_speed())
+    payload = _get_runtime_speed()
+    # Normalize to contract: success + speed (wait_seconds = inverse of speed)
+    speed = 1.0 / max(0.001, float(payload.get("wait_seconds", 2.0)))
+    return jsonify({"success": True, "speed": speed, **payload})
 
 
 @bp.route('/runtime_speed', methods=['POST'])

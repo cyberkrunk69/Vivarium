@@ -30,6 +30,27 @@ def _queue_helpers():
     )
 
 
+def _get_one_time_tasks_list() -> list:
+    """Fetch one-time task definitions for queue/state contract."""
+    try:
+        from vivarium.runtime.one_time_tasks import get_completions, get_one_time_tasks
+        WORKSPACE = current_app.config["WORKSPACE"]
+        tasks = get_one_time_tasks(WORKSPACE)
+        completions = get_completions(WORKSPACE)
+        return [
+            {
+                "id": t.get("id", ""),
+                "title": t.get("title", t.get("id", "")),
+                "prompt": t.get("prompt", ""),
+                "bonus_tokens": int(t.get("bonus_tokens", 0)),
+                "completions_count": len(completions.get(t.get("id", ""), [])),
+            }
+            for t in tasks
+        ]
+    except Exception:
+        return []
+
+
 # ═══════════════════════════════════════════════════════════════════
 # QUEUE – Add task from UI
 # ═══════════════════════════════════════════════════════════════════
@@ -168,8 +189,12 @@ def api_queue_state():
             "result_summary": last_event.get("result_summary"),
             "review_verdict": last_event.get("review_verdict"),
         })
+    queue_list = open_tasks[:50]
+    one_time_tasks = _get_one_time_tasks_list()
     return jsonify({
         "success": True,
+        "queue": queue_list,
+        "one_time_tasks": one_time_tasks,
         "open": open_tasks[:50],
         "pending_review": pending_review,
         "completed": completed[-25:],

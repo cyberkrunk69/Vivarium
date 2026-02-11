@@ -3325,7 +3325,7 @@ CONTROL_PANEL_HTML = '''
                 if (values) values.value = '';
                 if (activities) activities.value = '';
                 refreshCreativeSeed();
-                fetch('/api/identities').then(r => r.json()).then(updateIdentities);
+                fetch('/api/identities').then(r => r.json()).then((d) => updateIdentities(d.identities || []));
             });
         }
 
@@ -4817,7 +4817,7 @@ CONTROL_PANEL_HTML = '''
         // Initial load
         setupDayVibe();
         setInterval(setupDayVibe, 5000); // Keep up with short resident cycles.
-        fetch('/api/identities').then(r => r.json()).then(updateIdentities);
+        fetch('/api/identities').then(r => r.json()).then((d) => updateIdentities(d.identities || []));
         loadWorkerStatus();
         loadRequest();
         // Legacy messages/DM panels are hidden; mailbox is the active communication UI.

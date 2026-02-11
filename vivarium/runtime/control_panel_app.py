@@ -879,6 +879,12 @@ def _remove_open_queue_task(task_id: str) -> tuple[dict | None, dict]:
     return picked, queue
 
 
+def _apply_queue_outcome(task_id: str, final_status: str) -> None:
+    """Re-export for queue blueprint — delegates to worker_runtime."""
+    from vivarium.runtime.worker_runtime import _apply_queue_outcome as _impl
+    _impl(task_id, final_status)
+
+
 def _latest_execution_status(task_id: str) -> tuple[str, dict]:
     entries = _read_jsonl_tail(EXECUTION_LOG, max_lines=12000)
     latest = {}
