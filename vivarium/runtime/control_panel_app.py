@@ -45,7 +45,7 @@ from vivarium.runtime.vivarium_scope import (
     ensure_scope_layout,
     get_mutable_version_control,
 )
-from vivarium.utils import read_json, write_json, get_timestamp
+from vivarium.utils import read_json, write_json, get_timestamp, append_jsonl
 
 ensure_scope_layout()
 
@@ -74,8 +74,10 @@ WORKER_PROCESS_FILE = MUTABLE_SWARM_DIR / "worker_process.json"
 UI_SETTINGS_FILE = SECURITY_ROOT / "local_ui_settings.json"
 LEGACY_UI_SETTINGS_FILE = CODE_ROOT / "config" / "local_ui_settings.json"
 
-# Track last read position
+# Track last read position (lock guards against race with watcher thread + poll)
 last_log_position = 0
+last_execution_log_position = 0
+_log_watcher_lock = threading.Lock()
 
 # Centralized policy limits (UI/runtime tuning).
 RESIDENT_COUNT_MIN = 1
@@ -95,6 +97,7 @@ CREATIVE_SEED_PATTERN = re.compile(r"^[A-Z]{2}-\d{4}-[A-Z]{2}$")
 CREATIVE_SEED_USED_FILE = MUTABLE_SWARM_DIR / "creative_seed_used.json"
 CREATIVE_SEED_USED_MAX = 5000
 API_AUDIT_LOG_FILE = CODE_ROOT / "api_audit.log"
+# Resident "day" length: use resident_onboarding.get_resident_cycle_seconds() so it scales with UI runtime speed.
 MAILBOX_QUESTS_FILE = MUTABLE_SWARM_DIR / "mailbox_quests.json"
 MAILBOX_MESSAGE_BONUS_TOKENS = 8
 MAILBOX_REPLY_BONUS_TOKENS = 12
@@ -373,6 +376,8 @@ CONTROL_PANEL_HTML = '''
             padding: 1rem 2rem;
             background: var(--bg-card);
             border-bottom: 1px solid var(--border);
+            position: relative;
+            z-index: 110;
         }
 
         .title {
@@ -1013,6 +1018,17 @@ CONTROL_PANEL_HTML = '''
             color: var(--text);
         }
 
+        .slideout-toggle.identities-toggle {
+            top: 36%;
+            background: #182235;
+            color: var(--teal);
+        }
+
+        .slideout-toggle.identities-toggle:hover {
+            background: #1f2b41;
+            color: #9bf7ee;
+        }
+
         .slideout-panel {
             position: fixed;
             right: -400px;
@@ -1029,6 +1045,20 @@ CONTROL_PANEL_HTML = '''
 
         .slideout-panel.open {
             right: 0;
+        }
+
+        .slideout-panel.identities-panel {
+            right: -420px;
+            width: 420px;
+            z-index: 210;
+        }
+
+        .slideout-panel.identities-panel.open {
+            right: 0;
+        }
+
+        .slideout-overlay.identities-overlay {
+            z-index: 205;
         }
 
         .slideout-header {
@@ -1314,7 +1344,7 @@ CONTROL_PANEL_HTML = '''
         </div>
         <div class="spawner-status">
             <div class="dot" id="workerDot"></div>
-            <span id="workerStatus">Swarm: —</span>
+            <span id="workerStatus">Residents: —</span>
         </div>
         <div class="control-buttons">
             <label class="resident-count-control" title="How many residents run in parallel">
@@ -1326,8 +1356,8 @@ CONTROL_PANEL_HTML = '''
                 <span>Mailbox</span>
                 <span id="mailboxUnreadBadge" class="mailbox-badge">0</span>
             </button>
-            <button class="control-btn start" id="workerStartBtn" onclick="startWorker()">Start swarm</button>
-            <button class="control-btn stop" id="workerStopBtn" onclick="stopWorker()" style="display:none;">Stop swarm</button>
+            <button class="control-btn start" id="workerStartBtn" onclick="startWorker()" title="Start resident runtime (worker daemon)">Start residents</button>
+            <button class="control-btn stop" id="workerStopBtn" onclick="stopWorker()" style="display:none;" title="Pause resident runtime">Pause residents</button>
             <button class="control-btn pause" id="pauseBtn" onclick="togglePause()" disabled style="display:none;">DISABLED</button>
             <button class="control-btn stop" id="stopBtn" onclick="toggleStop()">HALT</button>
         </div>
@@ -1345,6 +1375,10 @@ CONTROL_PANEL_HTML = '''
             <div id="queueOpenList" class="queue-list"><div class="queue-empty">No open tasks</div></div>
         </div>
         <div class="queue-column">
+            <h4>Pending your approval</h4>
+            <div id="queuePendingReviewList" class="queue-list"><div class="queue-empty">None</div></div>
+        </div>
+        <div class="queue-column">
             <h4>Recent Completed</h4>
             <div id="queueCompletedList" class="queue-list"><div class="queue-empty">No completed tasks yet</div></div>
         </div>
@@ -1353,6 +1387,20 @@ CONTROL_PANEL_HTML = '''
             <div id="queueFailedList" class="queue-list"><div class="queue-empty">No failed tasks</div></div>
         </div>
     </div>
+
+    <details class="insights-collapsible" id="oneTimeTasksSection" open>
+        <summary class="insights-summary">One-time tasks (per identity) — create / manage</summary>
+        <div style="padding: 0.5rem 0;">
+            <p style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.5rem;">Each resident can complete each task once for a bonus. Residents see only tasks they have not completed. New tasks are locked to identities that exist on disk at creation (identity records in .swarm/identities). You can swap which identity is active; eligibility is per identity on disk, not who is currently inhabited.</p>
+            <div id="oneTimeTasksList" class="queue-list" style="margin-bottom: 0.75rem;"><div class="queue-empty">Loading…</div></div>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: flex-end;">
+                <input type="text" id="oneTimeTaskId" placeholder="Task (e.g. one_time_my_task)" style="width: 14rem; padding: 0.3rem; font-size: 0.8rem; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); border-radius: 5px;" />
+                <input type="number" id="oneTimeTaskBonus" placeholder="Bonus" min="0" step="1" value="25" style="width: 4rem; padding: 0.3rem; font-size: 0.8rem; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); border-radius: 5px;" title="Bonus tokens" />
+                <textarea id="oneTimeTaskPrompt" placeholder="Prompt for residents…" rows="2" style="width: 20rem; padding: 0.3rem; font-size: 0.8rem; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); border-radius: 5px; resize: vertical;"></textarea>
+                <button type="button" class="control-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="addOneTimeTaskFromUI()">Add one-time task</button>
+            </div>
+        </div>
+    </details>
 
     <details class="insights-collapsible">
         <summary class="insights-summary">Stats</summary>
@@ -1368,7 +1416,26 @@ CONTROL_PANEL_HTML = '''
         </div>
     </details>
 
-    <!-- Slide-out toggle button -->
+    <!-- Identities slide-out toggle (cards show token wallet per identity) -->
+    <div class="slideout-toggle identities-toggle" onclick="toggleIdentitiesSlideout()" title="Identities and token wallet balances">
+        Identities
+    </div>
+
+    <!-- Identities slide-out overlay -->
+    <div class="slideout-overlay identities-overlay" id="identitiesSlideoutOverlay" onclick="toggleIdentitiesSlideout()"></div>
+
+    <!-- Identities slide-out panel -->
+    <div class="slideout-panel identities-panel" id="identitiesSlideoutPanel">
+        <div class="slideout-header">
+            <h3>Identities <span id="identityDrawerCount" style="font-size:0.8rem; color: var(--text-dim);"></span></h3>
+            <button class="slideout-close" onclick="toggleIdentitiesSlideout()">&times;</button>
+        </div>
+        <div class="slideout-content" id="identitiesDrawerContainer">
+            <p style="color: var(--text-dim);">No identities yet</p>
+        </div>
+    </div>
+
+    <!-- Completed requests slide-out toggle button -->
     <div class="slideout-toggle" onclick="toggleSlideout()">
         Completed Requests
     </div>
@@ -1389,12 +1456,12 @@ CONTROL_PANEL_HTML = '''
 
     <div class="main">
         <div class="sidebar">
-            <!-- Identities Section - Always visible, scrollable -->
-            <h3 style="display: flex; align-items: center; justify-content: space-between;">
+            <!-- Legacy inline identities list (hidden; right drawer is canonical) -->
+            <h3 style="display: none; align-items: center; justify-content: space-between;">
                 <span>Identities</span>
                 <span id="identityCount" style="font-size: 0.7rem; color: var(--text-dim); font-weight: normal;"></span>
             </h3>
-            <div id="identities">
+            <div id="identities" style="display:none;">
                 <!-- Populated by JS -->
             </div>
 
@@ -1440,9 +1507,9 @@ CONTROL_PANEL_HTML = '''
                 </div>
             </details>
 
-            <!-- Collapsible: Budget & Scaling -->
-            <details class="sidebar-section">
-                <summary>Budget & Model</summary>
+            <!-- Collapsible: Budget, Model & Pace (speed control here) -->
+            <details class="sidebar-section" open>
+                <summary>Budget, Model & Pace</summary>
                 <div class="sidebar-section-content">
             <div class="identity-card">
                 <div class="identity-stat">
@@ -1663,8 +1730,8 @@ CONTROL_PANEL_HTML = '''
                 </div>
             </details>
 
-            <!-- Collapsible: Messages -->
-            <details class="sidebar-section">
+            <!-- Legacy: Messages (hidden; mailbox is canonical) -->
+            <details class="sidebar-section" style="display:none;">
                 <summary>
                     Messages
                     <span id="messageCount" style="font-size: 0.65rem; color: var(--teal);"></span>
@@ -1676,8 +1743,8 @@ CONTROL_PANEL_HTML = '''
                 </div>
             </details>
 
-            <!-- Collapsible: Direct Messages -->
-            <details class="sidebar-section">
+            <!-- Legacy: Direct Messages (hidden; mailbox is canonical) -->
+            <details class="sidebar-section" style="display:none;">
                 <summary>
                     Direct Messages
                     <span id="dmThreadCount" style="font-size: 0.65rem; color: var(--purple);"></span>
@@ -1804,6 +1871,7 @@ CONTROL_PANEL_HTML = '''
                     <button class="filter-btn" data-filter="SOCIAL">Social</button>
                     <button class="filter-btn" data-filter="JOURNAL">Journal</button>
                     <button class="filter-btn" data-filter="IDENTITY">Identity</button>
+                    <button type="button" class="filter-btn" onclick="openFullLogModal()" style="margin-left: auto;" title="Load full log (up to 5000 entries, optionally by resident day)">Full log</button>
                 </div>
             </div>
             <div class="log-container" id="logContainer">
@@ -1846,6 +1914,16 @@ CONTROL_PANEL_HTML = '''
         </div>
     </div>
 
+    <div id="fullLogModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 999; flex-direction: column; padding: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <label style="font-size: 0.8rem; color: var(--text-dim);"><input type="checkbox" id="fullLogGroupByDay" onchange="renderFullLogContent()"> Group by resident day</label>
+            <button type="button" class="control-btn" onclick="closeFullLogModal()">Close</button>
+        </div>
+        <div id="fullLogModalContent" style="flex: 1; overflow: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; font-size: 0.72rem; font-family: monospace;">
+            Loading…
+        </div>
+    </div>
+
     <div id="mailboxModal" class="mailbox-modal" onclick="handleMailboxBackdrop(event)">
         <div class="mailbox-phone">
             <div class="mailbox-head">
@@ -1876,6 +1954,11 @@ CONTROL_PANEL_HTML = '''
                         style="width: 100%; margin-bottom: 0.25rem; padding: 0.34rem; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); border-radius: 5px; font-size: 0.73rem;">
                     <textarea id="questPromptInput" placeholder="Quest objective for selected resident..."
                         style="width: 100%; height: 60px; margin-bottom: 0.3rem; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); padding: 0.4rem; border-radius: 6px; font-size: 0.75rem; resize: vertical;"></textarea>
+                    <div style="display:flex; gap:0.35rem; margin-bottom:0.15rem;">
+                        <label for="questBudgetInput" style="width:33%; font-size:0.65rem; color:var(--text-dim);">Budget ($)</label>
+                        <label for="questTipInput" style="width:33%; font-size:0.65rem; color:var(--text-dim);">Upfront tip</label>
+                        <label for="questRewardInput" style="width:34%; font-size:0.65rem; color:var(--text-dim);">Completion reward</label>
+                    </div>
                     <div style="display:flex; gap:0.35rem; margin-bottom:0.3rem;">
                         <input id="questBudgetInput" type="number" min="0.01" step="0.01" value="0.20"
                             title="Quest token budget ($)" style="width:33%; padding:0.32rem; background:var(--bg-dark); border:1px solid var(--border); color:var(--text); border-radius:5px; font-size:0.72rem;">
@@ -1894,7 +1977,7 @@ CONTROL_PANEL_HTML = '''
     </div>
 
     <script>
-        const socket = io();
+        const socket = (typeof io === 'function') ? io() : null;
         let entryCount = 0;
         let isStopped = false;
         let connectedAt = Date.now();
@@ -1911,42 +1994,45 @@ CONTROL_PANEL_HTML = '''
             document.getElementById('connectedTime').textContent = `${secs}s`;
         }, 1000);
 
-        // Socket events
-        socket.on('connect', () => {
-            console.log('Connected to control panel');
-            loadRecentLogs();
-            loadWorkerStatus();
-            loadStopStatus();
-            loadRuntimeSpeed();
-            loadGroqKeyStatus();
-            loadSwarmInsights();
-            loadMailboxData();
-            previewRollbackByDays();
-        });
+        // Socket events (optional; page still works without CDN socket.io)
+        if (socket) {
+            socket.on('connect', () => {
+                console.log('Connected to control panel');
+                loadRecentLogs();
+                loadWorkerStatus();
+                loadStopStatus();
+                loadRuntimeSpeed();
+                loadGroqKeyStatus();
+                loadSwarmInsights();
+                loadMailboxData();
+            });
 
-        socket.on('disconnect', () => {
-            console.log('Disconnected');
-            const dot = document.getElementById('workerDot');
-            if (dot) dot.classList.add('stopped');
-        });
+            socket.on('disconnect', () => {
+                console.log('Disconnected');
+                const dot = document.getElementById('workerDot');
+                if (dot) dot.classList.add('stopped');
+            });
 
-        socket.on('log_entry', (entry) => {
-            addLogEntry(entry);
-        });
+            socket.on('log_entry', (entry) => {
+                addLogEntry(entry);
+            });
 
-        socket.on('identities', (data) => {
-            updateIdentities(data);
-        });
+            socket.on('identities', (data) => {
+                updateIdentities(data);
+            });
 
-        socket.on('spawner_started', () => { refreshWorkerStatus(); });
-        socket.on('spawner_paused', () => { refreshWorkerStatus(); });
-        socket.on('spawner_resumed', () => { refreshWorkerStatus(); });
-        socket.on('spawner_killed', () => { refreshWorkerStatus(); });
+            socket.on('spawner_started', () => { refreshWorkerStatus(); });
+            socket.on('spawner_paused', () => { refreshWorkerStatus(); });
+            socket.on('spawner_resumed', () => { refreshWorkerStatus(); });
+            socket.on('spawner_killed', () => { refreshWorkerStatus(); });
 
-        socket.on('stop_status', (data) => {
-            isStopped = !!(data && data.stopped);
-            updateKillSwitchUI();
-        });
+            socket.on('stop_status', (data) => {
+                isStopped = !!(data && data.stopped);
+                updateKillSwitchUI();
+            });
+        } else {
+            console.warn('socket.io unavailable; using polling-only UI mode');
+        }
 
         function addLogEntry(entry) {
             const entryKey = [
@@ -1990,6 +2076,8 @@ CONTROL_PANEL_HTML = '''
 
             // Make file paths clickable in detail
             const linkedDetail = linkifyFilePaths(entry.detail || '');
+            const modelStr = entry.model || (entry.metadata && entry.metadata.model) ? (entry.model || entry.metadata.model || '') : '';
+            const modelSpan = modelStr ? `<span class="log-model" style="font-size:0.65rem; color:var(--yellow);" title="Model">${modelStr}</span>` : '';
 
             div.innerHTML = `
                 <span class="log-time">${timeStr}</span>
@@ -1997,6 +2085,7 @@ CONTROL_PANEL_HTML = '''
                 <span class="log-actor">${entry.actor || 'UNKNOWN'}</span>
                 <span class="log-type type-${entry.action_type}">${entry.action_type}</span>
                 <span class="log-action">${entry.action}</span>
+                ${modelSpan}
                 <span class="log-detail">${linkedDetail}</span>
             `;
 
@@ -2026,6 +2115,135 @@ CONTROL_PANEL_HTML = '''
                     updateLogEmptyState();
                 })
                 .catch(() => {});
+        }
+
+        let fullLogEntries = [];
+        let fullLogCycleSeconds = 10;
+        function openFullLogModal() {
+            const modal = document.getElementById('fullLogModal');
+            const content = document.getElementById('fullLogModalContent');
+            if (!modal || !content) return;
+            modal.style.display = 'flex';
+            content.textContent = 'Loading…';
+            Promise.all([
+                fetch('/api/runtime_speed').then(r => r.json()),
+                fetch('/api/logs/recent?limit=5000').then(r => r.json()),
+            ]).then(([speedData, logData]) => {
+                fullLogCycleSeconds = Number(speedData.cycle_seconds) || 10;
+                fullLogEntries = Array.isArray(logData.entries) ? logData.entries : [];
+                renderFullLogContent();
+            }).catch(() => { content.textContent = 'Failed to load log.'; });
+        }
+        function renderFullLogContent() {
+            const content = document.getElementById('fullLogModalContent');
+            const groupByDay = document.getElementById('fullLogGroupByDay') && document.getElementById('fullLogGroupByDay').checked;
+            if (!content) return;
+            const cycleSec = Math.max(1, fullLogCycleSeconds);
+            const escapeHtml = (s) => {
+                const d = document.createElement('div');
+                d.textContent = s == null ? '' : s;
+                return d.innerHTML;
+            };
+            const tsToCycle = (ts) => {
+                if (!ts) return 0;
+                const t = new Date(ts).getTime() / 1000;
+                return Math.floor(t / cycleSec);
+            };
+            const formatRow = (e) => {
+                const dt = e.timestamp ? new Date(e.timestamp) : null;
+                const timeStr = dt ? dt.toTimeString().split(' ')[0] : '--:--:--';
+                const dayStr = dt ? dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '---';
+                const detail = (e.detail || '').substring(0, 200);
+                const model = e.model || (e.metadata && e.metadata.model) ? escapeHtml(e.model || e.metadata.model || '') : '';
+                return `<div style="display:grid; grid-template-columns: 4rem 4rem 5rem 5rem 8rem 1fr; gap:0.25rem; padding:0.2rem 0; border-bottom:1px solid var(--border); font-size:0.7rem;">` +
+                    `<span style="color:var(--text-dim);">${escapeHtml(timeStr)}</span>` +
+                    `<span style="color:var(--text-dim);">${escapeHtml(dayStr)}</span>` +
+                    `<span style="color:var(--teal);">${escapeHtml(e.actor || '')}</span>` +
+                    `<span class="type-${e.action_type || ''}">${escapeHtml(e.action_type || '')}</span>` +
+                    (model ? `<span style="color:var(--yellow); font-size:0.65rem; overflow:hidden; text-overflow:ellipsis;">${model}</span>` : '<span></span>') +
+                    `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(e.action || '')} ${escapeHtml(detail)}</span>` +
+                    `</div>`;
+            };
+            if (groupByDay) {
+                const byDay = {};
+                fullLogEntries.forEach(e => {
+                    const c = tsToCycle(e.timestamp);
+                    if (!byDay[c]) byDay[c] = [];
+                    byDay[c].push(e);
+                });
+                const cycles = Object.keys(byDay).map(Number).sort((a, b) => a - b);
+                content.innerHTML = cycles.map(c => {
+                    const rows = byDay[c].map(formatRow).join('');
+                    return `<div style="margin-bottom:0.75rem;"><div style="font-weight:700; color:var(--teal); margin-bottom:0.25rem;">Resident day ${c}</div>${rows}</div>`;
+                }).join('');
+            } else {
+                content.innerHTML = fullLogEntries.length ? fullLogEntries.map(formatRow).join('') : '<div style="color:var(--text-dim);">No entries.</div>';
+            }
+        }
+        function closeFullLogModal() {
+            const modal = document.getElementById('fullLogModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        let profileActivityLogEntries = [];
+        let profileActivityLogCycles = [];
+        function loadProfileActivityLog(identityId) {
+            const content = document.getElementById('profileActivityLogContent');
+            const daySelect = document.getElementById('profileActivityLogDay');
+            const countEl = document.getElementById('profileActivityLogCount');
+            if (!content || !identityId) return;
+            content.innerHTML = 'Loading activity log…';
+            fetch('/api/identity/' + encodeURIComponent(identityId) + '/log?limit=5000')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success || !Array.isArray(data.entries)) {
+                        content.innerHTML = '<span style="color: var(--text-dim);">No log entries for this identity.</span>';
+                        return;
+                    }
+                    profileActivityLogEntries = data.entries;
+                    profileActivityLogCycles = data.cycles_with_data || [];
+                    if (daySelect) {
+                        daySelect.innerHTML = '<option value="">All days</option>' +
+                            profileActivityLogCycles.map(c => '<option value="' + c + '">Day ' + c + '</option>').join('');
+                    }
+                    filterProfileActivityLogByDay();
+                })
+                .catch(() => {
+                    if (content) content.innerHTML = '<span style="color: var(--red);">Failed to load log.</span>';
+                });
+        }
+        function filterProfileActivityLogByDay() {
+            const content = document.getElementById('profileActivityLogContent');
+            const daySelect = document.getElementById('profileActivityLogDay');
+            const countEl = document.getElementById('profileActivityLogCount');
+            if (!content) return;
+            const cycleFilter = daySelect && daySelect.value !== '' ? parseInt(daySelect.value, 10) : null;
+            const entries = cycleFilter != null
+                ? profileActivityLogEntries.filter(e => e.cycle_id === cycleFilter)
+                : profileActivityLogEntries;
+            const escapeHtml = (s) => {
+                const d = document.createElement('div');
+                d.textContent = s == null ? '' : s;
+                return d.innerHTML;
+            };
+            if (countEl) countEl.textContent = entries.length + ' entries';
+            if (!entries.length) {
+                content.innerHTML = '<span style="color: var(--text-dim);">No entries for this selection.</span>';
+                return;
+            }
+            content.innerHTML = entries.map(e => {
+                const dt = e.timestamp ? new Date(e.timestamp) : null;
+                const timeStr = dt ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
+                const typeColor = e.action_type === 'EXECUTION' ? 'var(--teal)' : e.action_type === 'SAFETY' ? 'var(--orange)' : 'var(--purple)';
+                const detail = (e.detail || '').substring(0, 300);
+                const modelPart = e.model ? ' <span style="color:var(--yellow); font-size:0.65rem;">[' + escapeHtml(e.model) + ']</span>' : '';
+                return '<div style="padding:0.35rem 0; border-bottom:1px solid var(--border);">' +
+                    '<span style="color:var(--text-dim);">' + escapeHtml(timeStr) + '</span> ' +
+                    '<span style="color:' + typeColor + '; font-weight:600;">' + escapeHtml(e.action_type || '') + '</span> ' +
+                    '<span style="color:var(--text);">' + escapeHtml(e.action || '') + '</span>' + modelPart +
+                    (detail ? '<div style="margin-top:0.2rem; color:var(--text-dim); font-size:0.68rem;">' + escapeHtml(detail) + '</div>' : '') +
+                    '</div>';
+            }).join('');
         }
 
         function updateLogEmptyState() {
@@ -2112,8 +2330,11 @@ CONTROL_PANEL_HTML = '''
 
         function updateIdentities(identities) {
             const container = document.getElementById('identities');
+            const drawerContainer = document.getElementById('identitiesDrawerContainer');
             const countEl = document.getElementById('identityCount');
+            const drawerCountEl = document.getElementById('identityDrawerCount');
             if (countEl) countEl.textContent = `(${identities.length})`;
+            if (drawerCountEl) drawerCountEl.textContent = `(${identities.length})`;
             populateIdentityCreatorOptions(identities);
             populateDmIdentityOptions(identities);
 
@@ -2124,7 +2345,7 @@ CONTROL_PANEL_HTML = '''
                 return (b.sessions || 0) - (a.sessions || 0);
             });
 
-            container.innerHTML = identities.map(id => `
+            const cardsHtml = identities.map(id => `
                 <div class="identity-card" style="cursor: pointer;" onclick="showProfile('${id.id}')">
                     ${id.profile_thumbnail_html ? `<div style="margin-bottom: 0.35rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem; overflow: hidden;">
                         <style scoped>${id.profile_thumbnail_css || ''}</style>
@@ -2140,8 +2361,8 @@ CONTROL_PANEL_HTML = '''
                     ${id.profile_display ? `<div style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.3rem; font-style: italic;">${id.profile_display.substring(0, 50)}${id.profile_display.length > 50 ? '...' : ''}</div>` : ''}
                     ${id.traits && id.traits.length ? `<div style="font-size: 0.7rem; color: var(--purple); margin-bottom: 0.3rem;">${id.traits.slice(0,3).join(' | ')}</div>` : ''}
                     <div class="identity-stat">
-                        <span>Tokens</span>
-                        <span class="token-count">${id.tokens}</span>
+                        <span>Wallet</span>
+                        <span class="token-count">${id.tokens != null ? id.tokens : 0}</span>
                     </div>
                     <div class="identity-stat">
                         <span>Sessions</span>
@@ -2153,6 +2374,10 @@ CONTROL_PANEL_HTML = '''
                     </div>
                 </div>
             `).join('');
+            if (container) container.innerHTML = cardsHtml;
+            if (drawerContainer) {
+                drawerContainer.innerHTML = cardsHtml || '<p style="color: var(--text-dim);">No identities yet</p>';
+            }
         }
 
         function populateIdentityCreatorOptions(identities) {
@@ -2185,7 +2410,6 @@ CONTROL_PANEL_HTML = '''
             toSelect.innerHTML = options.join('');
             if (prevFrom && identities.some((i) => i.id === prevFrom)) fromSelect.value = prevFrom;
             if (prevTo && identities.some((i) => i.id === prevTo)) toSelect.value = prevTo;
-            loadDmThreads();
         }
 
         function showProfile(identityId) {
@@ -2219,12 +2443,16 @@ CONTROL_PANEL_HTML = '''
                         content += `<p style="font-size: 1.1rem; margin-bottom: 1rem; border-left: 3px solid var(--teal); padding-left: 1rem;">"${core.identity_statement}"</p>`;
                     }
 
-                    // Stats bar (row 1)
-                    content += `<div style="display: flex; gap: 1rem; margin-bottom: 0.5rem; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
-                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--yellow);">${data.level || 1}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Level</div></div>
-                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--teal);">${data.sessions}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Days</div></div>
-                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: var(--green);">${data.tasks_completed}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Tasks</div></div>
-                        <div style="text-align: center; flex: 1;"><div style="font-size: 1.5rem; color: ${data.task_success_rate >= 80 ? 'var(--green)' : data.task_success_rate >= 50 ? 'var(--yellow)' : 'var(--red)'}">${data.task_success_rate}%</div><div style="font-size: 0.7rem; color: var(--text-dim);">Success</div></div>
+                    // Stats bar (row 1) — Level, Days, Tasks, Success, Wallet
+                    const freeTime = data.tokens != null ? data.tokens : 0;
+                    const journalTokens = data.journal_tokens != null ? data.journal_tokens : 0;
+                    const totalWallet = freeTime + journalTokens;
+                    content += `<div style="display: flex; gap: 1rem; margin-bottom: 0.5rem; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px; flex-wrap: wrap;">
+                        <div style="text-align: center; flex: 1; min-width: 3rem;"><div style="font-size: 1.5rem; color: var(--yellow);">${data.level || 1}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Level</div></div>
+                        <div style="text-align: center; flex: 1; min-width: 3rem;"><div style="font-size: 1.5rem; color: var(--teal);">${data.sessions}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Days</div></div>
+                        <div style="text-align: center; flex: 1; min-width: 3rem;"><div style="font-size: 1.5rem; color: var(--green);">${data.tasks_completed}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Tasks</div></div>
+                        <div style="text-align: center; flex: 1; min-width: 3rem;"><div style="font-size: 1.5rem; color: ${data.task_success_rate >= 80 ? 'var(--green)' : data.task_success_rate >= 50 ? 'var(--yellow)' : 'var(--red)'}">${data.task_success_rate}%</div><div style="font-size: 0.7rem; color: var(--text-dim);">Success</div></div>
+                        <div style="text-align: center; flex: 1; min-width: 3rem;"><div style="font-size: 1.5rem; color: var(--yellow);">${totalWallet}</div><div style="font-size: 0.7rem; color: var(--text-dim);">Wallet</div><div style="font-size: 0.65rem; color: var(--text-dim);">${freeTime} free + ${journalTokens} journal</div></div>
                     </div>`;
                     // Stats bar (row 2 - respec info)
                     content += `<div style="display: flex; gap: 1rem; margin-bottom: 1rem; padding: 0.5rem 0.75rem; background: var(--bg-dark); border-radius: 8px; font-size: 0.8rem;">
@@ -2261,10 +2489,10 @@ CONTROL_PANEL_HTML = '''
                     // Journals
                     if (data.journals && data.journals.length) {
                         content += `<details style="margin-top: 0.5rem;"><summary style="cursor: pointer; color: var(--teal); font-size: 0.9rem;">Journals (${data.journals.length})</summary>
-                            <div style="background: var(--bg-dark); padding: 0.75rem; border-radius: 8px; margin-top: 0.5rem; max-height: 200px; overflow-y: auto;">
+                            <div style="background: var(--bg-dark); padding: 0.75rem; border-radius: 8px; margin-top: 0.5rem; max-height: 520px; overflow-y: auto;">
                                 ${data.journals.map(j => `<div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
                                     <div style="font-size: 0.7rem; color: var(--purple);">${j.filename}</div>
-                                    <div style="font-size: 0.75rem; color: var(--text); white-space: pre-wrap;">${j.preview}</div>
+                                    <div style="font-size: 0.75rem; color: var(--text); white-space: pre-wrap;">${j.content || ''}</div>
                                 </div>`).join('')}
                             </div>
                         </details>`;
@@ -2283,6 +2511,23 @@ CONTROL_PANEL_HTML = '''
                             </div>
                         </details>`;
                     }
+
+                    // Activity log (My Space) — full filtered log with daily pagination
+                    content += `<details style="margin-top: 0.5rem;" id="profileActivityLogDetails" data-identity-id="${(data.identity_id || '').replace(/"/g, '&quot;')}" ontoggle="if(this.open && !this.dataset.loaded){ this.dataset.loaded='1'; loadProfileActivityLog(this.getAttribute('data-identity-id')); }">
+                        <summary style="cursor: pointer; color: var(--teal); font-size: 0.9rem;">Activity log (My Space)</summary>
+                        <div style="margin-top: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+                                <label style="font-size: 0.75rem; color: var(--text-dim);">Resident day:</label>
+                                <select id="profileActivityLogDay" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); border-radius: 4px;" onchange="filterProfileActivityLogByDay()">
+                                    <option value="">All days</option>
+                                </select>
+                                <span id="profileActivityLogCount" style="font-size: 0.7rem; color: var(--text-dim);"></span>
+                            </div>
+                            <div id="profileActivityLogContent" style="background: var(--bg-dark); padding: 0.75rem; border-radius: 8px; max-height: 400px; overflow-y: auto; font-size: 0.72rem;">
+                                Loading…
+                            </div>
+                        </div>
+                    </details>`;
 
                     // Expertise
                     if (data.expertise && Object.keys(data.expertise).length) {
@@ -2542,7 +2787,7 @@ CONTROL_PANEL_HTML = '''
                     if (taskIdEl) taskIdEl.value = '';
                     if (typeof refreshInsights === 'function') refreshInsights();
                     if (typeof loadQueueView === 'function') loadQueueView();
-                    alert('Task "' + (data.task_id || taskId || 'new task') + '" added. Start the swarm to process it.');
+                    alert('Task "' + (data.task_id || taskId || 'new task') + '" added. Start residents to process it.');
                 } else {
                     alert(data.error || 'Failed to add task');
                 }
@@ -2623,6 +2868,7 @@ CONTROL_PANEL_HTML = '''
                 .then(r => r.json())
                 .then(data => {
                     renderQueueList('queueOpenList', data.open || [], 'No open tasks', 'open');
+                    renderPendingReviewList(data.pending_review || []);
                     renderQueueList('queueCompletedList', data.completed || [], 'No completed tasks yet', 'history');
                     renderQueueList('queueFailedList', data.failed || [], 'No failed tasks', 'history');
                 })
@@ -2632,11 +2878,203 @@ CONTROL_PANEL_HTML = '''
                 });
         }
 
+        function loadOneTimeTasks() {
+            const el = document.getElementById('oneTimeTasksList');
+            if (!el) return;
+            fetch('/api/one_time_tasks')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && Array.isArray(data.tasks)) {
+                        renderOneTimeTasksList(data.tasks);
+                    } else {
+                        el.innerHTML = '<div class="queue-empty">No one-time tasks</div>';
+                    }
+                })
+                .catch(() => { el.innerHTML = '<div class="queue-empty">Failed to load</div>'; });
+        }
+        function renderOneTimeTasksList(tasks) {
+            const el = document.getElementById('oneTimeTasksList');
+            if (!el) return;
+            if (!tasks.length) {
+                el.innerHTML = '<div class="queue-empty">No one-time tasks. Add one below.</div>';
+                return;
+            }
+            el.innerHTML = tasks.map((t) => {
+                const id = (t.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+                const promptText = escapeHtml((t.prompt || t.title || t.id || ''));
+                const bonus = Math.max(0, parseInt(t.bonus_tokens, 10) || 0);
+                return '<div class="queue-item" style="flex-direction:column; align-items:stretch; gap:0.2rem;">' +
+                    '<div class="qprompt">' + promptText + '</div>' +
+                    '<div style="font-size:0.68rem; color:var(--text-dim); display:flex; flex-wrap:wrap; align-items:center; gap:0.35rem;">' +
+                    '<span>' + escapeHtml(t.id) + ' · ' + (t.completions_count || 0) + ' completed</span>' +
+                    '<span style="display:inline-flex; align-items:center; gap:0.2rem;">Reward: <input type="number" id="oneTimeBonus_' + id + '" min="0" step="1" value="' + bonus + '" style="width:3.5rem; padding:0.15rem 0.25rem; font-size:0.68rem; background:var(--bg-dark); border:1px solid var(--border); color:var(--text); border-radius:4px;" /> tokens</span>' +
+                    '<button type="button" class="qbtn" style="padding:0.15rem 0.35rem; font-size:0.68rem;" data-one-time-id="' + escapeHtml(t.id) + '" onclick="updateOneTimeTaskReward(this)">Update</button>' +
+                    '</div>' +
+                    '<div class="qactions"><button type="button" class="qbtn delete" data-one-time-id="' + escapeHtml(t.id) + '" onclick="deleteOneTimeTaskFromUI(this)">Remove</button></div></div>';
+            }).join('');
+        }
+        function addOneTimeTaskFromUI() {
+            const idEl = document.getElementById('oneTimeTaskId');
+            const promptEl = document.getElementById('oneTimeTaskPrompt');
+            const bonusEl = document.getElementById('oneTimeTaskBonus');
+            const id = (idEl && idEl.value || '').trim();
+            const prompt = (promptEl && promptEl.value || '').trim();
+            const bonus = Math.max(0, parseInt(bonusEl && bonusEl.value, 10) || 0);
+            if (!id) { alert('Task identifier is required'); return; }
+            fetch('/api/one_time_tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, prompt: prompt, bonus_tokens: bonus }),
+            })
+                .then(r => r.json())
+                .then((data) => {
+                    if (data.success) {
+                        if (idEl) idEl.value = ''; if (promptEl) promptEl.value = '';
+                        loadOneTimeTasks();
+                        alert('One-time task "' + id + '" added.');
+                    } else {
+                        alert(data.error || 'Failed to add task');
+                    }
+                })
+                .catch(() => alert('Request failed'));
+        }
+        function updateOneTimeTaskReward(btn) {
+            const taskId = (btn && btn.getAttribute && btn.getAttribute('data-one-time-id')) || '';
+            if (!taskId) return;
+            const idSafe = taskId.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const inputEl = document.getElementById('oneTimeBonus_' + idSafe);
+            const bonus = inputEl ? Math.max(0, parseInt(inputEl.value, 10) || 0) : 0;
+            fetch('/api/one_time_tasks/' + encodeURIComponent(taskId), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bonus_tokens: bonus }),
+            })
+                .then(r => r.json())
+                .then((data) => {
+                    if (data.success) { loadOneTimeTasks(); }
+                    else { alert(data.error || 'Update failed'); }
+                })
+                .catch(() => alert('Request failed'));
+        }
+        function deleteOneTimeTaskFromUI(btn) {
+            const taskId = (btn && btn.getAttribute && btn.getAttribute('data-one-time-id')) || '';
+            if (!taskId || !confirm('Remove one-time task "' + taskId + '"? Residents will no longer see it.')) return;
+            fetch('/api/one_time_tasks/' + encodeURIComponent(taskId), { method: 'DELETE' })
+                .then(function(r) {
+                    return r.json().then(function(data) {
+                        if (data.success) { loadOneTimeTasks(); } else { alert(data.error || 'Delete failed'); }
+                    }).catch(function() { alert(r.ok ? 'Delete failed' : 'Server error'); });
+                })
+                .catch(function() { alert('Request failed'); });
+        }
+
+        function renderPendingReviewList(items) {
+            const el = document.getElementById('queuePendingReviewList');
+            if (!el) return;
+            if (!items.length) {
+                el.innerHTML = '<div class="queue-empty">None</div>';
+                return;
+            }
+            el.innerHTML = items.map((t) => {
+                const taskId = String(t.id || '');
+                const shortPrompt = String(t.prompt || t.id || '').slice(0, 60);
+                const who = t.identity_id || 'resident';
+                const verdict = t.review_verdict || '—';
+                const tipId = 'pendingTip_' + taskId.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const feedbackId = 'pendingFeedback_' + taskId.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const taskIdAttr = escapeHtml(taskId);
+                return '<div class="queue-item" style="flex-direction:column; align-items:stretch; gap:0.35rem;">' +
+                    '<div class="qid">' + escapeHtml(t.id) + '</div>' +
+                    '<div class="qprompt">' + escapeHtml(shortPrompt) + '</div>' +
+                    '<div style="font-size:0.68rem; color:var(--text-dim);">' + escapeHtml(who) + ' · ' + escapeHtml(verdict) + '</div>' +
+                    '<div style="display:flex; gap:0.25rem; align-items:center;"><label style="font-size:0.68rem; color:var(--text-dim);">Tip (tokens):</label><input type="number" id="' + tipId + '" min="0" step="1" value="0" style="width:4rem; padding:0.2rem; font-size:0.7rem; background:var(--bg-dark); border:1px solid var(--border); color:var(--text); border-radius:4px;"></div>' +
+                    '<div><label style="font-size:0.68rem; color:var(--text-dim);">Feedback (optional):</label><textarea id="' + feedbackId + '" placeholder="Reinforce excellence or give guidance..." rows="2" style="width:100%; margin-top:0.15rem; padding:0.25rem; font-size:0.7rem; background:var(--bg-dark); border:1px solid var(--border); color:var(--text); border-radius:4px; resize:vertical;"></textarea></div>' +
+                    '<div class="qactions" style="flex-wrap:wrap; gap:0.25rem;">' +
+                    '<button class="chat-room-open-btn" style="padding:0.2rem 0.4rem; font-size:0.7rem; background:var(--green); color:#0f1318;" data-queue-task-id="' + taskIdAttr + '" data-tip-id="' + tipId + '" data-feedback-id="' + feedbackId + '" onclick="approveQueueTaskFromBtn(this)">Approve</button>' +
+                    '<button class="chat-room-open-btn" style="padding:0.2rem 0.4rem; font-size:0.7rem; background:var(--orange); color:#0f1318;" data-queue-task-id="' + taskIdAttr + '" onclick="requeueQueueTaskFromBtn(this)">Try again</button>' +
+                    '<button class="chat-room-open-btn" style="padding:0.2rem 0.4rem; font-size:0.7rem; background:var(--red); color:#fff;" data-queue-task-id="' + taskIdAttr + '" onclick="removeQueueTaskFromBtn(this)">Remove task</button>' +
+                    '</div></div>';
+            }).join('');
+        }
+
+        function approveQueueTaskFromBtn(btn) {
+            const taskId = btn.getAttribute('data-queue-task-id') || '';
+            const tipId = btn.getAttribute('data-tip-id') || '';
+            const feedbackId = btn.getAttribute('data-feedback-id') || '';
+            approveQueueTask(taskId, tipId, feedbackId);
+        }
+        function requeueQueueTaskFromBtn(btn) {
+            requeueQueueTask(btn.getAttribute('data-queue-task-id') || '');
+        }
+        function removeQueueTaskFromBtn(btn) {
+            removeQueueTask(btn.getAttribute('data-queue-task-id') || '');
+        }
+        function approveQueueTask(taskId, tipInputId, feedbackInputId) {
+            let tip = 0;
+            let feedback = '';
+            if (tipInputId) {
+                const tipEl = document.getElementById(tipInputId);
+                if (tipEl) tip = Math.max(0, parseInt(tipEl.value, 10) || 0);
+            }
+            if (feedbackInputId) {
+                const fbEl = document.getElementById(feedbackInputId);
+                if (fbEl) feedback = (fbEl.value || '').trim();
+            }
+            if (!confirm('Approve this task and grant the completion reward to the resident?' + (tip > 0 ? ' A tip of ' + tip + ' tokens will be added.' : ''))) return;
+            fetch('/api/queue/task/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: taskId, tip_tokens: tip, feedback: feedback }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        let msg = data.reward_applied ? 'Approved. ' + (data.tokens_awarded || 0) + ' tokens awarded.' : 'Approved.';
+                        if (data.tip_awarded) msg += ' Tip: ' + data.tip_awarded + ' tokens.';
+                        if (typeof alert === 'function') alert(msg);
+                        loadQueueView();
+                    } else {
+                        if (typeof alert === 'function') alert('Approve failed: ' + (data.error || 'Unknown'));
+                    }
+                })
+                .catch(() => { if (typeof alert === 'function') alert('Approve request failed'); });
+        }
+
+        function requeueQueueTask(taskId) {
+            if (!confirm('Send this task back to the queue for another attempt? The resident will not receive completion reward.')) return;
+            fetch('/api/queue/task/requeue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: taskId }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) { loadQueueView(); if (typeof alert === 'function') alert('Task requeued for try again.'); }
+                    else { if (typeof alert === 'function') alert('Requeue failed: ' + (data.error || 'Unknown')); }
+                })
+                .catch(() => { if (typeof alert === 'function') alert('Requeue request failed'); });
+        }
+
+        function removeQueueTask(taskId) {
+            if (!confirm('Remove this task from the queue? It will be marked as failed and the resident will not receive completion reward.')) return;
+            fetch('/api/queue/task/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: taskId }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) { loadQueueView(); if (typeof alert === 'function') alert('Task removed.'); }
+                    else { if (typeof alert === 'function') alert('Remove failed: ' + (data.error || 'Unknown')); }
+                })
+                .catch(() => { if (typeof alert === 'function') alert('Remove request failed'); });
+        }
+
         function showGoldenPathOnlyNotice() {
             alert(GOLDEN_PATH_NOTICE);
         }
 
-        function updateWorkerUI(running, runningCount = 0, targetCount = 1) {
+        function updateWorkerUI(running, runningCount = 0, targetCount = 1, runningSource = 'none') {
             const dot = document.getElementById('workerDot');
             const statusEl = document.getElementById('workerStatus');
             const startBtn = document.getElementById('workerStartBtn');
@@ -2646,13 +3084,14 @@ CONTROL_PANEL_HTML = '''
             if (running) {
                 dot.classList.add('running');
                 const count = Number.isFinite(Number(runningCount)) ? Number(runningCount) : 1;
-                statusEl.textContent = `Swarm: running (${count} resident${count === 1 ? '' : 's'})`;
+                const sourceLabel = runningSource === 'unmanaged' ? ' external' : '';
+                statusEl.textContent = `Residents: active (${count}${sourceLabel})`;
                 if (startBtn) startBtn.style.display = 'none';
                 if (stopBtn) stopBtn.style.display = '';
             } else {
                 dot.classList.add('stopped');
                 const target = Number.isFinite(Number(targetCount)) ? Number(targetCount) : 1;
-                statusEl.textContent = `Swarm: idle (${target} configured)`;
+                statusEl.textContent = `Worker stopped — Start to run ${target} resident${target !== 1 ? 's' : ''}`;
                 if (startBtn) startBtn.style.display = '';
                 if (stopBtn) stopBtn.style.display = 'none';
             }
@@ -2661,7 +3100,7 @@ CONTROL_PANEL_HTML = '''
         function refreshWorkerStatus() {
             fetch('/api/worker/status')
                 .then(r => r.json())
-                .then(data => { updateWorkerUI(!!data.running, data.running_count || 0, data.target_count || 1); })
+                .then(data => { updateWorkerUI(!!data.running, data.running_count || 0, data.target_count || 1, data.running_source || 'none'); })
                 .catch(() => updateWorkerUI(false, 0, 1));
         }
 
@@ -2676,16 +3115,17 @@ CONTROL_PANEL_HTML = '''
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
-                        updateWorkerUI(true, data.running_count || residentCount, data.target_count || residentCount);
+                        updateWorkerUI(true, data.running_count || residentCount, data.target_count || residentCount, data.running_source || 'managed');
+                        setTimeout(loadRecentLogs, 800);  // Refresh log soon after worker starts writing
                         if (data.message && data.message !== 'Worker already running') {
                             const started = data.running_count || residentCount;
-                            alert(`Swarm started with ${started} resident${started === 1 ? '' : 's'}.`);
+                            alert(`Residents started (${started} active).`);
                         }
                     } else {
-                        alert('Failed to start swarm: ' + (data.error || 'Unknown error'));
+                        alert('Failed to start residents: ' + (data.error || 'Unknown error'));
                     }
                 })
-                .catch(() => alert('Failed to start swarm'));
+                .catch(() => alert('Failed to start residents'));
         }
 
         function stopWorker() {
@@ -2694,7 +3134,7 @@ CONTROL_PANEL_HTML = '''
                 .then(data => {
                     updateWorkerUI(false);
                     if (data.message && data.message !== 'Worker not running') {
-                        alert('Swarm stopped.');
+                        alert('Residents paused.');
                     }
                 })
                 .catch(() => updateWorkerUI(false));
@@ -2703,7 +3143,7 @@ CONTROL_PANEL_HTML = '''
         function togglePause() { /* unused: worker has no pause */ }
 
         function emergencyStop() {
-            if (!confirm('Stop the swarm? Residents will stop processing the queue.')) return;
+            if (!confirm('Pause resident runtime? Queue execution will stop until restarted.')) return;
             stopWorker();
         }
 
@@ -3049,20 +3489,52 @@ CONTROL_PANEL_HTML = '''
         }
 
         // Save human request
+        function setRequestStatus(message, tone = 'info', holdMs = 3000) {
+            const status = document.getElementById('requestStatus');
+            if (!status) return;
+            const colorMap = {
+                success: 'var(--green)',
+                error: 'var(--red)',
+                info: 'var(--teal)',
+            };
+            status.textContent = message || '';
+            status.style.color = colorMap[tone] || 'var(--text-dim)';
+            if (holdMs > 0) {
+                setTimeout(() => {
+                    status.textContent = '';
+                    status.style.color = '';
+                }, holdMs);
+            }
+        }
+
         function saveRequest() {
             const request = document.getElementById('humanRequest').value;
+            setRequestStatus('Saving...', 'info', 0);
             fetch('/api/human_request', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({request: request})
             })
-            .then(r => r.json())
+            .then(async (r) => {
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok || data.success === false) {
+                    const detail = data.error || `request failed (${r.status})`;
+                    throw new Error(detail);
+                }
+                return data;
+            })
             .then(data => {
-                const status = document.getElementById('requestStatus');
-                status.textContent = data.task_id ? `Saved + queued (${data.task_id})` : 'Saved!';
+                setRequestStatus(
+                    data.task_id ? `Saved + queued (${data.task_id})` : 'Saved!',
+                    'success',
+                    3000
+                );
                 updateRequestIndicator(request.trim().length > 0);
                 if (typeof loadQueueView === 'function') loadQueueView();
-                setTimeout(() => status.textContent = '', 2000);
+            })
+            .catch((err) => {
+                const detail = (err && err.message) ? err.message : 'unknown error';
+                setRequestStatus(`Save failed: ${detail}`, 'error', 6000);
             });
         }
 
@@ -3663,7 +4135,7 @@ CONTROL_PANEL_HTML = '''
         }
 
         // Refresh messages periodically
-        setInterval(loadMessages, 5000);
+        // Legacy messages polling disabled (mailbox is canonical).
 
         // Day vibe setup
         function setupDayVibe() {
@@ -3706,14 +4178,37 @@ CONTROL_PANEL_HTML = '''
             const panel = document.getElementById('slideoutPanel');
             const overlay = document.getElementById('slideoutOverlay');
             const isOpen = panel.classList.contains('open');
+            const identitiesPanel = document.getElementById('identitiesSlideoutPanel');
+            const identitiesOverlay = document.getElementById('identitiesSlideoutOverlay');
 
             if (isOpen) {
                 panel.classList.remove('open');
                 overlay.classList.remove('open');
             } else {
+                if (identitiesPanel) identitiesPanel.classList.remove('open');
+                if (identitiesOverlay) identitiesOverlay.classList.remove('open');
                 panel.classList.add('open');
                 overlay.classList.add('open');
                 loadCompletedRequests();
+            }
+        }
+
+        function toggleIdentitiesSlideout() {
+            const panel = document.getElementById('identitiesSlideoutPanel');
+            const overlay = document.getElementById('identitiesSlideoutOverlay');
+            if (!panel || !overlay) return;
+            const isOpen = panel.classList.contains('open');
+            const requestsPanel = document.getElementById('slideoutPanel');
+            const requestsOverlay = document.getElementById('slideoutOverlay');
+
+            if (isOpen) {
+                panel.classList.remove('open');
+                overlay.classList.remove('open');
+            } else {
+                if (requestsPanel) requestsPanel.classList.remove('open');
+                if (requestsOverlay) requestsOverlay.classList.remove('open');
+                panel.classList.add('open');
+                overlay.classList.add('open');
             }
         }
 
@@ -4237,7 +4732,7 @@ CONTROL_PANEL_HTML = '''
             }
             container.innerHTML = cards.map(card => {
                 const tone = card.tone ? String(card.tone) : '';
-                const details = Array.isArray(card.details) ? card.details.join('\n') : '';
+                const details = Array.isArray(card.details) ? card.details.join('\\n') : '';
                 return `
                     <details class="insight-card">
                         <summary>
@@ -4277,8 +4772,7 @@ CONTROL_PANEL_HTML = '''
         fetch('/api/identities').then(r => r.json()).then(updateIdentities);
         loadWorkerStatus();
         loadRequest();
-        loadMessages();
-        loadDmThreads();
+        // Legacy messages/DM panels are hidden; mailbox is the active communication UI.
         loadBounties();
         loadChatRooms();
         loadArtifacts();
@@ -4289,6 +4783,7 @@ CONTROL_PANEL_HTML = '''
         loadGroqKeyStatus();
         loadSwarmInsights();
         loadQueueView();
+        loadOneTimeTasks();
         loadMailboxData();
         loadQuestProgress();
         updateLogEmptyState();
@@ -4296,7 +4791,9 @@ CONTROL_PANEL_HTML = '''
         // Refresh bounties, spawner status, and chat rooms periodically
         setInterval(loadBounties, 10000);
         setInterval(loadWorkerStatus, 5000);
-        setInterval(loadDmThreads, 10000);
+        setInterval(loadRecentLogs, 2000);  // Fallback so logs update if socket misses events
+        loadRecentLogs();  // Initial load so log isn't empty on first open
+        // Legacy DM polling disabled (mailbox replaces it).
         setInterval(loadChatRooms, 15000);  // Refresh chat rooms every 15 seconds
         setInterval(loadArtifacts, 15000);
         setInterval(loadStopStatus, 5000);
@@ -4304,6 +4801,7 @@ CONTROL_PANEL_HTML = '''
         setInterval(loadGroqKeyStatus, 30000);
         setInterval(loadSwarmInsights, 10000);
         setInterval(loadQueueView, 5000);
+        setInterval(loadOneTimeTasks, 15000);
         setInterval(loadMailboxData, 5000);
         setInterval(loadQuestProgress, 5000);
     </script>
@@ -4313,31 +4811,67 @@ CONTROL_PANEL_HTML = '''
 
 
 class LogWatcher(FileSystemEventHandler):
-    """Watch action log file for changes."""
+    """Watch action/execution logs and stream entries to UI."""
 
     def __init__(self, socketio_instance):
         self.socketio = socketio_instance
         self.last_position = 0
 
     def on_modified(self, event):
-        if event.src_path.endswith('action_log.jsonl'):
+        try:
+            name = Path(event.src_path).name
+        except Exception:
+            name = event.src_path or ""
+        if name == "action_log.jsonl" or name == "execution_log.jsonl":
             self.send_new_entries()
 
     def send_new_entries(self):
         global last_log_position
-        if not ACTION_LOG.exists():
-            return
-
-        with open(ACTION_LOG, 'r') as f:
-            f.seek(last_log_position)
-            new_lines = f.readlines()
-            last_log_position = f.tell()
-
-        for line in new_lines:
+        global last_execution_log_position
+        action_lines = []
+        exec_lines = []
+        with _log_watcher_lock:
+            if not ACTION_LOG.exists():
+                last_log_position = 0
+            else:
+                with open(ACTION_LOG, "r", encoding="utf-8") as f:
+                    f.seek(last_log_position)
+                    action_lines = f.readlines()
+                    last_log_position = f.tell()
+            if not EXECUTION_LOG.exists():
+                last_execution_log_position = 0
+            else:
+                with open(EXECUTION_LOG, "r", encoding="utf-8") as f:
+                    f.seek(last_execution_log_position)
+                    exec_lines = f.readlines()
+                    last_execution_log_position = f.tell()
+        for line in action_lines:
             try:
                 entry = json.loads(line.strip())
-                self.socketio.emit('log_entry', entry)
-            except:
+                self.socketio.emit("log_entry", entry)
+            except Exception:
+                pass
+        for line in exec_lines:
+            try:
+                raw = json.loads(line.strip())
+                meta = {"task_id": raw.get("task_id")}
+                if raw.get("model"):
+                    meta["model"] = raw.get("model")
+                mapped = {
+                    "timestamp": raw.get("timestamp"),
+                    "actor": raw.get("worker_id") or raw.get("identity_id") or "worker",
+                    "action_type": "EXECUTION",
+                    "action": raw.get("status") or "event",
+                    "detail": (
+                        f"{raw.get('task_id', 'task')} | "
+                        f"{raw.get('result_summary') or raw.get('errors') or ''}"
+                    ).strip(),
+                    "session_id": None,
+                    "metadata": meta,
+                    "model": raw.get("model"),
+                }
+                self.socketio.emit("log_entry", mapped)
+            except Exception:
                 pass
 
 
@@ -4348,9 +4882,11 @@ def calculate_identity_level(sessions: int) -> int:
     return max(1, int(math.sqrt(sessions)))
 
 
-def calculate_respec_cost(sessions: int) -> int:
-    """Calculate respec cost based on sessions (ARPG-style: cheap early, expensive later)."""
-    # Formula from swarm_enrichment.py: BASE (10) + (sessions * SCALE (3))
+def calculate_respec_cost(sessions: int, respec_count: int = 0) -> int:
+    """Calculate respec cost. First 3 changes are free; then BASE + (sessions * SCALE)."""
+    RESPEC_FREE_CHANGES = 3
+    if respec_count < RESPEC_FREE_CHANGES:
+        return 0
     RESPEC_BASE_COST = 10
     RESPEC_SCALE_PER_SESSION = 3
     return RESPEC_BASE_COST + (sessions * RESPEC_SCALE_PER_SESSION)
@@ -4380,6 +4916,7 @@ def get_identities():
                     profile = attrs.get('profile', {})
                     core = attrs.get('core', {})
                     sessions = data.get('sessions_participated', 0)
+                    respec_count = attrs.get('meta', {}).get('respec_count', 0)
 
                     identities.append({
                         'id': identity_id,
@@ -4393,7 +4930,7 @@ def get_identities():
                         'traits': core.get('personality_traits', []),
                         'values': core.get('core_values', []),
                         'level': calculate_identity_level(sessions),
-                        'respec_cost': calculate_respec_cost(sessions),
+                        'respec_cost': calculate_respec_cost(sessions, respec_count),
                     })
             except:
                 pass
@@ -4429,6 +4966,12 @@ def set_stop_status(stopped: bool):
 @app.route('/')
 def index():
     return render_template_string(CONTROL_PANEL_HTML)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    # Avoid noisy 404 errors during local development.
+    return ("", 204)
 
 
 @socketio.on('connect')
@@ -4573,7 +5116,7 @@ def api_identity_profile(identity_id):
                         content = jfile.read()
                         journals.append({
                             'filename': jf.name,
-                            'preview': content[:200] + '...' if len(content) > 200 else content,
+                            'content': content,
                             'modified': datetime.fromtimestamp(jf.stat().st_mtime).isoformat()
                         })
                 except:
@@ -4638,6 +5181,19 @@ def api_identity_profile(identity_id):
                 pass
 
         sessions = data.get('sessions_participated', 0)
+        respec_count = attrs.get('meta', {}).get('respec_count', 0)
+        # Token wallet balance (free_time + journal)
+        wallet_tokens = 0
+        wallet_journal = 0
+        if FREE_TIME_BALANCES.exists():
+            try:
+                with open(FREE_TIME_BALANCES) as bf:
+                    bal = json.load(bf)
+                id_bal = (bal or {}).get(identity_id, {})
+                wallet_tokens = int(id_bal.get('tokens', 0) or 0)
+                wallet_journal = int(id_bal.get('journal_tokens', 0) or 0)
+            except Exception:
+                pass
         return jsonify({
             'identity_id': identity_id,
             'name': data.get('name'),
@@ -4647,7 +5203,9 @@ def api_identity_profile(identity_id):
             'tasks_failed': data.get('tasks_failed', 0),
             'task_success_rate': round(task_success_rate, 1),
             'level': calculate_identity_level(sessions),
-            'respec_cost': calculate_respec_cost(sessions),
+            'respec_cost': calculate_respec_cost(sessions, respec_count),
+            'tokens': wallet_tokens,
+            'journal_tokens': wallet_journal,
             'profile': profile,
             'core_summary': {
                 'traits': core.get('personality_traits', []),
@@ -4671,6 +5229,91 @@ def api_identity_profile(identity_id):
 
     except Exception as e:
         return jsonify({'error': str(e)})
+
+
+@app.route('/api/identity/<identity_id>/log')
+def api_identity_log(identity_id):
+    """Full log for this identity only (thought process, actions). Optional daily pagination by resident cycle."""
+    identity_id = (identity_id or "").strip()
+    if not identity_id:
+        return jsonify({"success": False, "error": "identity_id required"}), 400
+    limit = request.args.get("limit", 3000, type=int)
+    safe_limit = max(1, min(10000, limit))
+    cycle_id_param = request.args.get("cycle_id", type=int)  # None = all days
+
+    cycle_seconds = resident_onboarding.get_resident_cycle_seconds()
+    action_entries = _read_jsonl_tail(ACTION_LOG, max_lines=safe_limit * 2)
+    execution_entries = _read_jsonl_tail(EXECUTION_LOG, max_lines=safe_limit * 2)
+
+    def actor_matches(entry: dict) -> bool:
+        actor = str(entry.get("actor") or entry.get("worker_id") or entry.get("identity_id") or "").strip()
+        return actor == identity_id
+
+    def ts_to_cycle(ts) -> int:
+        if not ts:
+            return 0
+        try:
+            t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            return int(t.timestamp() // cycle_seconds)
+        except Exception:
+            return 0
+
+    out = []
+    seen = set()
+    for raw in action_entries:
+        if not actor_matches(raw):
+            continue
+        ts = raw.get("timestamp")
+        cid = ts_to_cycle(ts)
+        if cycle_id_param is not None and cid != cycle_id_param:
+            continue
+        key = (ts, raw.get("action_type"), raw.get("action"), raw.get("detail"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "timestamp": ts,
+            "actor": raw.get("actor"),
+            "action_type": raw.get("action_type"),
+            "action": raw.get("action"),
+            "detail": raw.get("detail"),
+            "cycle_id": cid,
+            "model": (raw.get("metadata") or {}).get("model"),
+        })
+
+    for raw in execution_entries:
+        actor = raw.get("worker_id") or raw.get("identity_id") or "worker"
+        if actor != identity_id:
+            continue
+        ts = raw.get("timestamp")
+        cid = ts_to_cycle(ts)
+        if cycle_id_param is not None and cid != cycle_id_param:
+            continue
+        detail = f"{raw.get('task_id', 'task')} | {raw.get('result_summary') or raw.get('errors') or ''}".strip()
+        key = (ts, "EXECUTION", raw.get("status"), detail)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "timestamp": ts,
+            "actor": actor,
+            "action_type": "EXECUTION",
+            "action": raw.get("status") or "event",
+            "detail": detail,
+            "cycle_id": cid,
+            "model": raw.get("model"),
+        })
+
+    out.sort(key=lambda e: str(e.get("timestamp") or ""))
+    entries = out[-safe_limit:]
+    cycles_with_data = sorted(set(e["cycle_id"] for e in entries), reverse=True)[:50]
+    return jsonify({
+        "success": True,
+        "identity_id": identity_id,
+        "entries": entries,
+        "cycle_seconds": round(cycle_seconds, 1),
+        "cycles_with_data": cycles_with_data,
+    })
 
 
 @app.route('/api/stop_status')
@@ -4872,6 +5515,24 @@ def _worker_process_alive(pid: int) -> bool:
         return False
 
 
+def _spawn_one_off_worker_if_paused():
+    """When run is paused, spawn a one-off worker to process the just-enqueued message task."""
+    if get_worker_status().get("running"):
+        return
+    try:
+        cmd = [sys.executable, "-m", "vivarium.runtime.worker_runtime", "run", "5"]
+        subprocess.Popen(
+            cmd,
+            cwd=str(CODE_ROOT),
+            env={**os.environ, "RESIDENT_SHARD_COUNT": "1", "RESIDENT_SHARD_ID": "0", "VIVARIUM_WORKER_DAEMON": "0"},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass
+
+
 def _normalize_swarm_pids(data: dict) -> list[int]:
     """Support legacy single pid and current multi-pid formats."""
     if not isinstance(data, dict):
@@ -4892,47 +5553,98 @@ def _normalize_swarm_pids(data: dict) -> list[int]:
     return pids
 
 
+def _list_worker_runtime_pids(exclude: set[int] | None = None) -> list[int]:
+    """
+    Detect worker_runtime processes not launched via the control panel PID file.
+    """
+    excluded = set(exclude or set())
+    discovered: list[int] = []
+    try:
+        proc = subprocess.run(
+            ["ps", "-ax", "-o", "pid=,command="],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return []
+
+    for raw_line in proc.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        if pid in excluded:
+            continue
+        command = parts[1]
+        if "vivarium.runtime.worker_runtime" not in command:
+            continue
+        if " run" not in command and not command.endswith("run"):
+            continue
+        discovered.append(pid)
+
+    return sorted(set(discovered))
+
+
 def get_worker_status():
     """Return swarm worker pool status."""
     out = {
         "running": False,
         "pid": None,
         "pids": [],
+        "unmanaged_pids": [],
         "running_count": 0,
         "target_count": 1,
         "started_at": None,
+        "running_source": "none",
     }
-    if not WORKER_PROCESS_FILE.exists():
-        return out
-    try:
-        with open(WORKER_PROCESS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        all_pids = _normalize_swarm_pids(data)
-        alive = [pid for pid in all_pids if _worker_process_alive(pid)]
-        started_at = data.get("started_at")
+    managed_pids: list[int] = []
+    target_count = RESIDENT_COUNT_MIN
+    started_at = None
+    had_pid_file = WORKER_PROCESS_FILE.exists()
+    if had_pid_file:
         try:
-            target_count = _clamp_int(
-                data.get("target_count", len(all_pids) or RESIDENT_COUNT_MIN),
-                RESIDENT_COUNT_MIN,
-                RESIDENT_COUNT_MAX,
-            )
-        except (TypeError, ValueError):
-            target_count = max(RESIDENT_COUNT_MIN, len(all_pids) or RESIDENT_COUNT_MIN)
-        if alive:
-            out["running"] = True
-            out["pid"] = alive[0]
-            out["pids"] = alive
-            out["running_count"] = len(alive)
-            out["target_count"] = target_count
-            out["started_at"] = started_at
-            return out
-    except Exception:
-        pass
-    # Process dead or missing; clear stale file
-    try:
-        WORKER_PROCESS_FILE.unlink(missing_ok=True)
-    except Exception:
-        pass
+            with open(WORKER_PROCESS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            all_pids = _normalize_swarm_pids(data)
+            managed_pids = [pid for pid in all_pids if _worker_process_alive(pid)]
+            started_at = data.get("started_at")
+            try:
+                target_count = _clamp_int(
+                    data.get("target_count", len(all_pids) or RESIDENT_COUNT_MIN),
+                    RESIDENT_COUNT_MIN,
+                    RESIDENT_COUNT_MAX,
+                )
+            except (TypeError, ValueError):
+                target_count = max(RESIDENT_COUNT_MIN, len(all_pids) or RESIDENT_COUNT_MIN)
+        except Exception:
+            managed_pids = []
+
+    unmanaged = _list_worker_runtime_pids(set(managed_pids))
+    combined = managed_pids + unmanaged
+    if combined:
+        out["running"] = True
+        out["pid"] = combined[0]
+        out["pids"] = combined
+        out["unmanaged_pids"] = unmanaged
+        out["running_count"] = len(combined)
+        out["target_count"] = max(target_count, len(combined))
+        out["started_at"] = started_at
+        out["running_source"] = "mixed" if managed_pids and unmanaged else ("managed" if managed_pids else "unmanaged")
+        return out
+
+    # Process dead or missing; clear stale managed pid file.
+    if had_pid_file:
+        try:
+            WORKER_PROCESS_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
     return out
 
 
@@ -5031,12 +5743,13 @@ def api_worker_stop():
 
 
 def get_runtime_speed():
-    """Get current worker-loop wait seconds."""
+    """Get current worker-loop wait seconds and resident day length (scaled with speed)."""
     payload = {
         "wait_seconds": DEFAULT_RUNTIME_SPEED_SECONDS,
         "updated_at": None,
     }
     if not RUNTIME_SPEED_FILE.exists():
+        payload["cycle_seconds"] = round(resident_onboarding.get_resident_cycle_seconds(), 1)
         return payload
     try:
         with open(RUNTIME_SPEED_FILE, 'r', encoding='utf-8') as f:
@@ -5046,6 +5759,7 @@ def get_runtime_speed():
         payload["updated_at"] = data.get("updated_at")
     except Exception:
         pass
+    payload["cycle_seconds"] = round(resident_onboarding.get_resident_cycle_seconds(), 1)
     return payload
 
 
@@ -5528,8 +6242,13 @@ def save_human_request(request_text: str):
     return data
 
 
+# Higher reward band for human suggestions so residents prioritize them
+SUGGESTION_MIN_BUDGET = 0.18
+SUGGESTION_MAX_BUDGET = 0.40
+
+
 def enqueue_human_suggestion(request_text: str) -> str | None:
-    """Turn a human suggestion into an executable queue task."""
+    """Turn a human suggestion into an executable queue task (higher reward band)."""
     suggestion = (request_text or "").strip()
     if not suggestion:
         return None
@@ -5542,8 +6261,11 @@ def enqueue_human_suggestion(request_text: str) -> str | None:
     override_model = bool(ui_settings.get("override_model"))
     model = str(ui_settings.get("model") or "auto")
     task_model = model if override_model and model != "auto" else None
-    min_budget = float(ui_settings.get("task_min_budget", 0.05))
-    max_budget = float(ui_settings.get("task_max_budget", max(min_budget, 0.10)))
+    # Use higher min/max budget for suggestions so residents are more likely to pick them
+    min_budget = float(ui_settings.get("task_min_budget", SUGGESTION_MIN_BUDGET))
+    max_budget = float(ui_settings.get("task_max_budget", SUGGESTION_MAX_BUDGET))
+    min_budget = max(min_budget, SUGGESTION_MIN_BUDGET)
+    max_budget = max(max_budget, SUGGESTION_MAX_BUDGET)
     if max_budget < min_budget:
         max_budget = min_budget
     task = normalize_task({
@@ -5569,10 +6291,13 @@ def api_get_human_request():
 
 @app.route('/api/human_request', methods=['POST'])
 def api_save_human_request():
-    data = request.json
-    request_text = data.get('request', '')
-    result = save_human_request(request_text)
-    task_id = enqueue_human_suggestion(request_text)
+    data = request.get_json(force=True, silent=True) or {}
+    request_text = str(data.get('request', ''))
+    try:
+        result = save_human_request(request_text)
+        task_id = enqueue_human_suggestion(request_text)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
     return jsonify({'success': True, 'updated_at': result['updated_at'], 'task_id': task_id})
 
 
@@ -5679,6 +6404,7 @@ def save_human_response(message_id: str, response: str):
                 min_budget=0.03,
                 max_budget=0.20,
             )
+            _spawn_one_off_worker_if_paused()
         _append_human_outbox_message(
             {
                 "id": f"human_out_{int(time.time() * 1000)}",
@@ -5776,6 +6502,7 @@ def api_send_message_to_resident():
                 min_budget=0.03,
                 max_budget=0.20,
             )
+            _spawn_one_off_worker_if_paused()
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
 
@@ -7463,18 +8190,267 @@ def api_queue_delete():
 
 @app.route('/api/queue/state')
 def api_queue_state():
-    """Return queue tasks for UI visualization."""
+    """Return queue tasks for UI visualization, including tasks pending human approval."""
     queue = normalize_queue(read_json(QUEUE_FILE, default={}))
     open_tasks = queue.get('tasks', []) if isinstance(queue.get('tasks'), list) else []
     completed = queue.get('completed', []) if isinstance(queue.get('completed'), list) else []
     failed = queue.get('failed', []) if isinstance(queue.get('failed'), list) else []
-    # Show latest entries for compact UI.
+    # Tasks that are still "open" but have execution status pending_review (need human to click Approve).
+    pending_review = []
+    for task in open_tasks[:50]:
+        tid = task.get('id')
+        if not tid:
+            continue
+        status, last_event = _latest_execution_status(tid)
+        if status != 'pending_review':
+            continue
+        pending_review.append({
+            **task,
+            'identity_id': last_event.get('identity_id') or last_event.get('worker_id'),
+            'result_summary': last_event.get('result_summary'),
+            'review_verdict': last_event.get('review_verdict'),
+        })
     return jsonify({
         'success': True,
         'open': open_tasks[:50],
+        'pending_review': pending_review,
         'completed': completed[-25:],
         'failed': failed[-25:],
     })
+
+
+# ─── One-time tasks (per identity) ─────────────────────────────────────────
+
+@app.route('/api/one_time_tasks', methods=['GET'])
+def api_one_time_tasks_list():
+    """List one-time-per-identity task definitions."""
+    try:
+        from vivarium.runtime.one_time_tasks import get_one_time_tasks, get_completions
+        tasks = get_one_time_tasks(WORKSPACE)
+        completions = get_completions(WORKSPACE)
+        out = []
+        for t in tasks:
+            tid = t.get("id", "")
+            out.append({
+                "id": tid,
+                "title": t.get("title", tid),
+                "prompt": t.get("prompt", ""),
+                "bonus_tokens": int(t.get("bonus_tokens", 0)),
+                "completions_count": len(completions.get(tid, [])),
+            })
+        return jsonify({"success": True, "tasks": out})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/one_time_tasks', methods=['POST'])
+def api_one_time_tasks_create():
+    """Create or update a one-time-per-identity task."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        from vivarium.runtime.one_time_tasks import add_one_time_task
+        result = add_one_time_task(WORKSPACE, data)
+        if result.get("success"):
+            return jsonify(result)
+        return jsonify(result), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/one_time_tasks/<task_id>', methods=['PATCH'])
+def api_one_time_tasks_update(task_id):
+    """Update a one-time task (e.g. bonus_tokens)."""
+    try:
+        from vivarium.runtime.one_time_tasks import update_one_time_task
+        data = request.json or {}
+        result = update_one_time_task(WORKSPACE, task_id, data)
+        if result.get("success"):
+            return jsonify(result)
+        return jsonify(result), 400 if result.get("error") != "task not found" else 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/one_time_tasks/<task_id>', methods=['DELETE'])
+def api_one_time_tasks_delete(task_id):
+    """Remove a one-time-per-identity task by id."""
+    try:
+        from vivarium.runtime.one_time_tasks import delete_one_time_task
+        result = delete_one_time_task(WORKSPACE, task_id)
+        if result.get("success"):
+            return jsonify(result)
+        return jsonify(result), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def _apply_queue_outcome(task_id: str, final_status: str) -> None:
+    """Move task from open to completed/failed in queue (used when human approves)."""
+    queue = normalize_queue(read_json(QUEUE_FILE, default={}))
+    tasks = list(queue.get("tasks", []))
+    task_index = None
+    for idx, task in enumerate(tasks):
+        if task.get("id") == task_id:
+            task_index = idx
+            break
+    if task_index is None:
+        return
+    task = dict(tasks.pop(task_index))
+    if final_status in ("completed", "approved", "ready_for_merge"):
+        task["status"] = "completed"
+        queue.setdefault("completed", []).append(task)
+    elif final_status == "failed":
+        task["status"] = "failed"
+        queue.setdefault("failed", []).append(task)
+    else:
+        task["status"] = "pending" if final_status == "requeue" else final_status
+        tasks.insert(task_index, task)
+    queue["tasks"] = tasks
+    write_json(QUEUE_FILE, normalize_queue(queue))
+
+
+@app.route('/api/queue/task/approve', methods=['POST'])
+def api_queue_task_approve():
+    """Human approves a task that is pending_review; reward is granted, optional tip/feedback, task marked completed."""
+    data = request.get_json(force=True, silent=True) or {}
+    task_id = str(data.get("task_id") or "").strip()
+    if not task_id:
+        return jsonify({"success": False, "error": "task_id is required"}), 400
+    status, last_event = _latest_execution_status(task_id)
+    if status != "pending_review":
+        return jsonify({
+            "success": False,
+            "error": f"Task is not pending approval (status: {status})",
+        }), 409
+    identity_id = str(last_event.get("identity_id") or last_event.get("worker_id") or "").strip()
+    queue = normalize_queue(read_json(QUEUE_FILE, default={}))
+    task = next((t for t in queue.get("tasks", []) if t.get("id") == task_id), None)
+    if not task:
+        return jsonify({"success": False, "error": "Task not found in queue"}), 404
+    tip_tokens = max(0, int(data.get("tip_tokens") or 0))
+    feedback = str(data.get("feedback") or "").strip()[:1200]
+    # Append approved event to execution log so state is consistent
+    approved_record = {
+        "task_id": task_id,
+        "status": "approved",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "identity_id": identity_id,
+        "approved_by": "human_operator",
+        "tip_tokens": tip_tokens,
+        "feedback_sent": bool(feedback),
+    }
+    append_jsonl(EXECUTION_LOG, approved_record)
+    _apply_queue_outcome(task_id, "approved")
+    # Grant completion reward to the resident
+    from vivarium.runtime.worker_runtime import apply_phase5_reward_for_human_approval
+    reward_out = apply_phase5_reward_for_human_approval(
+        task_id=task_id,
+        identity_id=identity_id,
+        task=task,
+        last_event=last_event,
+        enrichment=_dm_enrichment(),
+    )
+    # One-time task bonus: if this task is a one-time task and identity hasn't completed it, grant and record
+    one_time_bonus_awarded = 0
+    try:
+        from vivarium.runtime.one_time_tasks import get_task_by_id, grant_and_record
+        if get_task_by_id(task_id, WORKSPACE):
+            one_time_result = grant_and_record(
+                WORKSPACE,
+                task_id,
+                identity_id,
+                _dm_enrichment(),
+            )
+            if one_time_result.get("granted"):
+                one_time_bonus_awarded = one_time_result.get("tokens", 0)
+    except Exception:
+        pass
+    tip_awarded = 0
+    if tip_tokens > 0 and identity_id:
+        try:
+            tip_result = _dm_enrichment().grant_free_time(
+                identity_id, tip_tokens, reason="human_tip_excellence"
+            )
+            granted = (tip_result or {}).get("granted", {})
+            tip_awarded = int(granted.get("free_time", 0)) + int(granted.get("journal", 0))
+        except Exception:
+            pass
+    if feedback and identity_id:
+        try:
+            human_name = get_human_username()
+            _dm_enrichment().post_direct_message(
+                sender_id="human_operator",
+                sender_name=human_name,
+                recipient_id=identity_id,
+                content=f"[Feedback on task {task_id}] {feedback}",
+                importance=4,
+            )
+        except Exception:
+            pass
+    return jsonify({
+        "success": True,
+        "task_id": task_id,
+        "reward_applied": reward_out.get("phase5_reward_applied"),
+        "tokens_awarded": reward_out.get("phase5_reward_tokens_awarded", 0),
+        "tip_awarded": tip_awarded,
+        "one_time_bonus_awarded": one_time_bonus_awarded,
+    })
+
+
+@app.route('/api/queue/task/requeue', methods=['POST'])
+def api_queue_task_requeue():
+    """Human sends task back for another attempt (try again); task stays in open queue."""
+    data = request.get_json(force=True, silent=True) or {}
+    task_id = str(data.get("task_id") or "").strip()
+    if not task_id:
+        return jsonify({"success": False, "error": "task_id is required"}), 400
+    status, last_event = _latest_execution_status(task_id)
+    if status != "pending_review":
+        return jsonify({
+            "success": False,
+            "error": f"Task is not pending approval (status: {status})",
+        }), 409
+    queue = normalize_queue(read_json(QUEUE_FILE, default={}))
+    if not any(t.get("id") == task_id for t in queue.get("tasks", [])):
+        return jsonify({"success": False, "error": "Task not found in queue"}), 404
+    requeue_record = {
+        "task_id": task_id,
+        "status": "requeue",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "requested_by": "human_operator",
+        "reason": "try_again",
+    }
+    append_jsonl(EXECUTION_LOG, requeue_record)
+    _apply_queue_outcome(task_id, "requeue")
+    return jsonify({"success": True, "task_id": task_id})
+
+
+@app.route('/api/queue/task/remove', methods=['POST'])
+def api_queue_task_remove():
+    """Human removes task from queue (mark as failed); resident does not get completion reward."""
+    data = request.get_json(force=True, silent=True) or {}
+    task_id = str(data.get("task_id") or "").strip()
+    if not task_id:
+        return jsonify({"success": False, "error": "task_id is required"}), 400
+    status, last_event = _latest_execution_status(task_id)
+    if status != "pending_review":
+        return jsonify({
+            "success": False,
+            "error": f"Task is not pending approval (status: {status})",
+        }), 409
+    queue = normalize_queue(read_json(QUEUE_FILE, default={}))
+    if not any(t.get("id") == task_id for t in queue.get("tasks", [])):
+        return jsonify({"success": False, "error": "Task not found in queue"}), 404
+    remove_record = {
+        "task_id": task_id,
+        "status": "failed",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "errors": "Removed by human operator",
+        "removed_by": "human_operator",
+    }
+    append_jsonl(EXECUTION_LOG, remove_record)
+    _apply_queue_outcome(task_id, "failed")
+    return jsonify({"success": True, "task_id": task_id})
 
 
 @app.route('/api/system/fresh_reset', methods=['POST'])
@@ -7508,7 +8484,7 @@ def api_system_fresh_reset():
         write_json(local_swarm_dir / "resident_days.json", {})
         write_json(local_swarm_dir / "identity_locks.json", {"cycle_id": 0, "locks": {}})
 
-        # Remove transient mutable files.
+        # Remove transient mutable files (including mailbox).
         transient_files = [
             MUTABLE_SWARM_DIR / "completed_requests.json",
             MUTABLE_SWARM_DIR / "daily_wind_down_allowance.json",
@@ -7520,6 +8496,11 @@ def api_system_fresh_reset():
             MUTABLE_SWARM_DIR / "artifact_fingerprints.json",
             MUTABLE_SWARM_DIR / "phase5_reward_ledger.json",
             MUTABLE_SWARM_DIR / "creative_seed_used.json",
+            MESSAGES_TO_HUMAN,
+            MESSAGES_FROM_HUMAN,
+            MESSAGES_FROM_HUMAN_OUTBOX,
+            WORKSPACE / ".swarm" / "one_time_tasks.json",
+            WORKSPACE / ".swarm" / "one_time_completions.json",
             ACTION_LOG,
             EXECUTION_LOG,
             API_AUDIT_LOG_FILE,
@@ -7732,11 +8713,34 @@ def api_get_chatroom_messages(room_id):
 
 @app.route('/api/logs/recent')
 def api_logs_recent():
-    """Return a recent tail of action-log entries for UI backfill."""
+    """Return a recent tail of action + execution entries for UI backfill."""
     limit = request.args.get('limit', 500, type=int)
     safe_limit = max(1, min(5000, int(limit)))
-    entries = _read_jsonl_tail(ACTION_LOG, max_lines=safe_limit)
-    return jsonify({'success': True, 'entries': entries[-safe_limit:]})
+    action_entries = _read_jsonl_tail(ACTION_LOG, max_lines=safe_limit)
+    execution_entries = _read_jsonl_tail(EXECUTION_LOG, max_lines=safe_limit)
+    mapped_execution = []
+    for raw in execution_entries:
+        meta = {"task_id": raw.get("task_id")}
+        if raw.get("model"):
+            meta["model"] = raw.get("model")
+        mapped_execution.append(
+            {
+                "timestamp": raw.get("timestamp"),
+                "actor": raw.get("worker_id") or raw.get("identity_id") or "worker",
+                "action_type": "EXECUTION",
+                "action": raw.get("status") or "event",
+                "detail": (
+                    f"{raw.get('task_id', 'task')} | "
+                    f"{raw.get('result_summary') or raw.get('errors') or ''}"
+                ).strip(),
+                "session_id": None,
+                "metadata": meta,
+                "model": raw.get("model"),
+            }
+        )
+    merged = list(action_entries) + mapped_execution
+    merged.sort(key=lambda e: str(e.get("timestamp") or ""))
+    return jsonify({'success': True, 'entries': merged[-safe_limit:]})
 
 
 def background_watcher():
@@ -7753,12 +8757,22 @@ def background_watcher():
     observer.schedule(watcher, str(ACTION_LOG.parent), recursive=False)
     observer.start()
 
+    # Periodic poll so logs update even when FS events are unreliable (e.g. macOS).
+    log_poll_interval = 0.33
     try:
         while True:
-            time.sleep(1)
-    except:
+            time.sleep(log_poll_interval)
+            try:
+                watcher.send_new_entries()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
         observer.stop()
-    observer.join()
+        observer.join()
+    except Exception:
+        pass
 
 
 def push_identities_periodically():

@@ -99,7 +99,7 @@ class ActionEntry:
         try:
             dt = datetime.fromisoformat(self.timestamp.replace('Z', '+00:00'))
             day_abbrev = dt.strftime("%a")  # Mon, Tue, etc.
-        except:
+        except (ValueError, TypeError):
             day_abbrev = "???"
 
         base_line = f"{day_abbrev} {time_short} | {self.actor:<12} | {self.action_type:<8} | {self.action:<14} | {self.detail}"
@@ -129,7 +129,17 @@ class ActionEntry:
         return f"{base_color}{base_line}{Colors.RESET}"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # Ensure metadata is JSON-serializable (e.g. no datetime/custom objects)
+        if d.get("metadata") is not None and isinstance(d["metadata"], dict):
+            clean = {}
+            for k, v in d["metadata"].items():
+                if isinstance(v, (str, int, float, bool, type(None))):
+                    clean[k] = v
+                else:
+                    clean[k] = str(v)
+            d["metadata"] = clean
+        return d
 
 
 class ActionLogger:
@@ -202,7 +212,8 @@ class ActionLogger:
         detail: str,
         actor: str = None,
         session_id: str = None,
-        metadata: dict = None
+        metadata: dict = None,
+        model: str = None,
     ):
         """
         Log an action.
@@ -214,21 +225,39 @@ class ActionLogger:
             actor: Who performed this (defaults to current context)
             session_id: Session ID (defaults to current context)
             metadata: Additional structured data (not displayed, but logged)
+            model: Model used for this action (e.g. LLM name); stored in metadata and in JSONL.
         """
-        entry = ActionEntry(
-            timestamp=datetime.now().isoformat(timespec='milliseconds'),
-            actor=actor or self._current_actor or "UNKNOWN",
-            action_type=action_type.value,
-            action=action,
-            detail=self._truncate(detail),
-            session_id=session_id or self._current_session,
-            metadata=metadata
-        )
-
         with self._lock:
+            # Snapshot context and build entry under lock for thread safety
+            actor_val = actor or self._current_actor or "UNKNOWN"
+            session_val = session_id or self._current_session
+            meta = dict(metadata) if metadata else {}
+            if model is not None and model != "":
+                meta["model"] = str(model)
+            entry = ActionEntry(
+                timestamp=datetime.now().isoformat(timespec="milliseconds"),
+                actor=actor_val,
+                action_type=action_type.value,
+                action=action,
+                detail=self._truncate(detail),
+                session_id=session_val,
+                metadata=meta if meta else None,
+            )
             # Write to JSONL for structured parsing
+            try:
+                line = json.dumps(entry.to_dict(), default=str) + "\n"
+            except (TypeError, ValueError):
+                line = json.dumps({
+                    "timestamp": entry.timestamp,
+                    "actor": entry.actor,
+                    "action_type": entry.action_type,
+                    "action": entry.action,
+                    "detail": entry.detail,
+                    "session_id": entry.session_id,
+                    "metadata": None,
+                }) + "\n"
             with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry.to_dict()) + "\n")
+                f.write(line)
 
             # Write to readable log for human monitoring
             with open(self.readable_log, "a", encoding="utf-8") as f:
@@ -261,20 +290,27 @@ class ActionLogger:
         self.log(ActionType.TOOL, "delete_file", path, actor)
 
     def api_call(self, model: str, tokens: int, cost: float, actor: str = None):
-        """Log an API call."""
-        self.log(ActionType.API, model[:20], f"{tokens} tokens | ${cost:.4f}", actor)
+        """Log an API call (model used, tokens, cost). Full model name is stored in metadata."""
+        model_display = (model or "")[:20]
+        self.log(
+            ActionType.API,
+            model_display,
+            f"{tokens} tokens | ${cost:.4f}",
+            actor,
+            metadata={"model": (model or "").strip()} if (model or "").strip() else None,
+        )
 
     def external_api_call(self, url: str, method: str = "GET", status: int = None, actor: str = None):
         """Log an external API call (non-Groq, non-model API)."""
         # Truncate URL to domain + path start for readability
         try:
             from urllib.parse import urlparse
-            parsed = urlparse(url)
-            domain = parsed.netloc
-            path = parsed.path[:30] + '...' if len(parsed.path) > 30 else parsed.path
+            parsed = urlparse(url or "")
+            domain = parsed.netloc or "?"
+            path = parsed.path[:30] + "..." if len(parsed.path) > 30 else parsed.path
             url_display = f"{domain}{path}"
-        except:
-            url_display = url[:50] + '...' if len(url) > 50 else url
+        except Exception:
+            url_display = (url or "")[:50] + "..." if len(url or "") > 50 else (url or "?")
 
         detail = f"{method} {url_display}"
         if status:

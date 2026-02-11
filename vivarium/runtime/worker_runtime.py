@@ -18,6 +18,7 @@ import uuid
 import hashlib
 import random
 import re
+import threading
 import httpx
 from ipaddress import ip_address
 from typing import Callable, Iterable
@@ -58,9 +59,10 @@ from vivarium.runtime.vivarium_scope import (
     resolve_mutable_path,
 )
 try:
-    from vivarium.runtime.resident_onboarding import spawn_resident, ResidentContext
+    from vivarium.runtime.resident_onboarding import spawn_resident, release_identity_lock, ResidentContext
 except ImportError:
     spawn_resident = None
+    release_identity_lock = None
     ResidentContext = None
 try:
     from vivarium.runtime.resident_facets import decompose_task as resident_decompose_task
@@ -179,6 +181,7 @@ MVP_ALLOWED_DOC_ROOTS: Tuple[Path, ...] = (
 )
 
 _EXECUTION_LOG_STATE: Dict[str, Any] = {"offset": 0, "size": 0, "tasks": {}}
+_EXECUTION_LOG_LOCK = threading.Lock()
 _SCAN_CURSOR: int = 0
 
 # Generate unique resident ID (keep worker_id for compatibility in logs)
@@ -365,6 +368,14 @@ def _build_enrichment_prompt_context(
                 sections.append("\n".join(recall_lines))
     except Exception as exc:
         _log("WARN", f"Failed to recall memory for {identity_id}: {exc}")
+
+    # Make sure residents know that excellence and coming in under budget can earn manual rewards from the human.
+    sections.append(
+        "REWARDS: If you exceed the human's expectations, do a great job, and come in under budget, "
+        "they will reward you manually based on quality (e.g. tip and feedback when they approve the task). "
+        "Sharing what the human liked (tips, feedback, preferences) in town hall or in your journal is encouraged and can earn recognition—optional but incentivized. "
+        "Gifting a fellow resident when they share useful info is good for your own gain too: it helps establish cooperation, and what is good for the whole is good for the singular."
+    )
 
     if not sections:
         return None
@@ -702,30 +713,31 @@ def read_queue() -> Dict[str, Any]:
 
 
 def read_execution_log() -> Dict[str, Any]:
-    """Read the execution log (JSONL) and return latest status per task."""
+    """Read the execution log (JSONL) and return latest status per task. Thread-safe."""
     if EXECUTION_LOG.exists():
         try:
             size = EXECUTION_LOG.stat().st_size
-            if size < _EXECUTION_LOG_STATE["size"]:
-                _EXECUTION_LOG_STATE["offset"] = 0
-                _EXECUTION_LOG_STATE["tasks"] = {}
-            with open(EXECUTION_LOG, "r", encoding="utf-8") as f:
-                f.seek(_EXECUTION_LOG_STATE["offset"])
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    task_id = event.get("task_id")
-                    if task_id:
-                        _EXECUTION_LOG_STATE["tasks"][task_id] = event
-                _EXECUTION_LOG_STATE["offset"] = f.tell()
-            _EXECUTION_LOG_STATE["size"] = size
-            if _EXECUTION_LOG_STATE["tasks"]:
-                return {"tasks": dict(_EXECUTION_LOG_STATE["tasks"])}
+            with _EXECUTION_LOG_LOCK:
+                if size < _EXECUTION_LOG_STATE["size"]:
+                    _EXECUTION_LOG_STATE["offset"] = 0
+                    _EXECUTION_LOG_STATE["tasks"] = {}
+                with open(EXECUTION_LOG, "r", encoding="utf-8") as f:
+                    f.seek(_EXECUTION_LOG_STATE["offset"])
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        task_id = event.get("task_id")
+                        if task_id:
+                            _EXECUTION_LOG_STATE["tasks"][task_id] = event
+                    _EXECUTION_LOG_STATE["offset"] = f.tell()
+                _EXECUTION_LOG_STATE["size"] = size
+                if _EXECUTION_LOG_STATE["tasks"]:
+                    return {"tasks": dict(_EXECUTION_LOG_STATE["tasks"])}
         except OSError:
             pass
 
@@ -762,6 +774,36 @@ def append_execution_event(task_id: str, status: str, **fields: Any) -> None:
         **fields,
     }
     append_jsonl(EXECUTION_LOG, record)
+
+
+def _notify_human_task_pending_approval(
+    task_id: str,
+    identity_id: str,
+    identity_name: str,
+    result_preview: str,
+    review_verdict: str,
+) -> None:
+    """Append a mailbox message so the human sees that a task is ready for approval (no token cost)."""
+    messages_file = WORKSPACE / ".swarm" / "messages_to_human.jsonl"
+    messages_file.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        f"Task “{task_id}” is ready for your approval. "
+        f"Verdict: {review_verdict}. "
+        f"Result: {result_preview}"
+    )
+    message = {
+        "id": f"msg_{identity_id or 'worker'}_{int(time.time() * 1000)}",
+        "from_id": identity_id or "worker",
+        "from_name": identity_name or "Resident",
+        "content": content,
+        "type": "task_pending_approval",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "task_id": task_id,
+    }
+    try:
+        append_jsonl(messages_file, message)
+    except OSError as exc:
+        _log("WARN", f"Could not notify human of pending task {task_id}: {exc}")
 
 
 def get_lock_path(task_id: str) -> Path:
@@ -1618,6 +1660,68 @@ def _maybe_apply_phase5_reward(
     }
 
 
+def apply_phase5_reward_for_human_approval(
+    task_id: str,
+    identity_id: str,
+    task: Dict[str, Any],
+    last_event: Dict[str, Any],
+    enrichment: Any,
+) -> Dict[str, Any]:
+    """
+    Grant phase5 completion reward when a human approves a task (called from control panel).
+    Returns same shape as _maybe_apply_phase5_reward for consistency.
+    """
+    if not identity_id:
+        return {"phase5_reward_applied": False, "phase5_reward_reason": "identity_unavailable"}
+    budget_used = _safe_float(last_event.get("budget_used"), -1.0)
+    review_confidence = _safe_float(last_event.get("review_confidence"), 0.5)
+    result_for_tokens = {"budget_used": budget_used}
+    tokens = _phase5_estimate_reward_tokens(task, result_for_tokens, review_confidence)
+    if tokens <= 0:
+        return {"phase5_reward_applied": False, "phase5_reward_reason": "not_under_budget"}
+    existing_grant = _get_phase5_reward_grant(task_id, identity_id)
+    if existing_grant:
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_tokens_requested": int(_safe_float(existing_grant.get("tokens_requested"), 0)),
+            "phase5_reward_tokens_awarded": int(_safe_float(existing_grant.get("tokens_awarded"), 0)),
+            "phase5_reward_identity": identity_id,
+            "phase5_reward_reason": "already_granted",
+        }
+    reward_reason = f"human_approved:{task_id}"
+    try:
+        reward_result = enrichment.grant_free_time(identity_id, tokens, reason=reward_reason)
+    except Exception as exc:
+        return {
+            "phase5_reward_applied": False,
+            "phase5_reward_reason": "grant_failed",
+            "phase5_reward_error": str(exc),
+        }
+    granted = reward_result.get("granted", {}) if isinstance(reward_result, dict) else {}
+    granted_total = max(0, int(_safe_float(granted.get("free_time"), 0)) + int(_safe_float(granted.get("journal"), 0)))
+    granted_at = get_timestamp()
+    _record_phase5_reward_grant({
+        "task_id": task_id,
+        "identity_id": identity_id,
+        "tokens_requested": tokens,
+        "tokens_awarded": granted_total,
+        "budget_used": budget_used,
+        "max_budget": _safe_float(task.get("max_budget"), 0.0),
+        "review_confidence": review_confidence,
+        "reason": reward_reason,
+        "granted_at": granted_at,
+    })
+    return {
+        "phase5_reward_applied": True,
+        "phase5_reward_tokens_requested": tokens,
+        "phase5_reward_tokens_awarded": granted_total,
+        "phase5_reward_identity": identity_id,
+        "phase5_reward_reason": reward_reason,
+        "phase5_reward_granted_at": granted_at,
+        "phase5_reward_ledger_recorded": True,
+    }
+
+
 def _run_post_execution_review(
     task: Dict[str, Any],
     result: Dict[str, Any],
@@ -1657,6 +1761,11 @@ def _run_post_execution_review(
         suggestions = ["Task verifier unavailable; accepted without critic review."]
 
     review_attempt = previous_review_attempt + (0 if approved else 1)
+    identity_id = ""
+    identity_name = "Resident"
+    if resident_ctx and getattr(resident_ctx, "identity", None):
+        identity_id = str(getattr(resident_ctx.identity, "identity_id", "")).strip()
+        identity_name = str(getattr(resident_ctx.identity, "name", "")).strip() or identity_id
     append_execution_event(
         task_id,
         "pending_review",
@@ -1665,6 +1774,8 @@ def _run_post_execution_review(
         review_issues=issues,
         review_suggestions=suggestions,
         review_attempt=review_attempt,
+        identity_id=identity_id or None,
+        identity_name=identity_name or None,
     )
 
     quality_gate = _record_quality_gate_review(task, resident_ctx, approved=approved)
@@ -1676,14 +1787,26 @@ def _run_post_execution_review(
         "review_attempt": review_attempt,
         **quality_gate,
     }
-    phase5_reward = _maybe_apply_phase5_reward(task, result, resident_ctx, confidence) if approved else {
+    # Never auto-approve: require human to click Approve in the control panel. Reward is granted on approval.
+    phase5_reward = {
         "phase5_reward_applied": False,
-        "phase5_reward_reason": "review_not_approved",
+        "phase5_reward_reason": "awaiting_human_approval",
     }
 
+    # Notify human via mailbox so they know to approve (resident or guild claiming completion messages human)
+    result_preview = (result.get("result_summary") or result.get("errors") or "Done")[:200]
+    _notify_human_task_pending_approval(
+        task_id=task_id,
+        identity_id=identity_id,
+        identity_name=identity_name,
+        result_preview=result_preview,
+        review_verdict=verdict_name,
+    )
+
+    # Always return pending_review so task stays in queue until human approves
     if approved:
         return {
-            "status": "approved",
+            "status": "pending_review",
             "result_summary": result.get("result_summary"),
             "errors": None,
             **review_summary,
@@ -2395,6 +2518,11 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
                 _log("ERROR", f"Unexpected error in resident loop: {type(e).__name__}: {e}")
                 raise
 
+        if resident_ctx and release_identity_lock:
+            try:
+                release_identity_lock(resident_ctx.identity.identity_id, resident_ctx.resident_id)
+            except Exception:
+                pass
         _log("INFO", f"Resident finished. Executed {iterations} tasks.")
     except Exception as e:
         _log("ERROR", f"Fatal error in worker_loop: {type(e).__name__}: {e}")

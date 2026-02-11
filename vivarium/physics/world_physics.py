@@ -32,6 +32,7 @@ class SwarmWorldPhysics:
         "in_progress",
         "completed",
         "failed",
+        "awaiting_community_review",
         "pending_review",
         "approved",
         "requeue",

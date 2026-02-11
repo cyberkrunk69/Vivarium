@@ -22,12 +22,19 @@ from typing import Any, Dict, List, Optional, Tuple
 from vivarium.utils import read_json, write_json
 
 try:
+    from vivarium.runtime.vivarium_scope import MUTABLE_SWARM_DIR
+except ImportError:
+    MUTABLE_SWARM_DIR = Path(".swarm")
+
+try:
     from vivarium.runtime.swarm_enrichment import EnrichmentSystem
 except ImportError:
     EnrichmentSystem = None
 
 
 IDENTITY_LIBRARY_FILE = "identity_library.json"
+RUNTIME_SPEED_FILE = MUTABLE_SWARM_DIR / "runtime_speed.json"
+REFERENCE_WAIT_SECONDS = 2.0  # UI "normal" speed; cycle length scales with wait_seconds
 RESIDENT_DAYS_FILE = Path(".swarm") / "resident_days.json"
 IDENTITIES_DIR = Path(".swarm") / "identities"
 IDENTITY_LOCKS_FILE = Path(".swarm") / "identity_locks.json"
@@ -57,13 +64,16 @@ UNCREATIVE_IDENTITY_NAME_TERMS = frozenset(
         "npc",
     }
 )
-# One simulated "day" length (seconds). Default compressed to 1 minute.
+# Base length of one simulated "day" in seconds at reference speed (default 10s at full speed).
+# Effective cycle length scales with UI runtime speed (wait_seconds): faster UI => shorter real-time day.
 RESIDENT_CYCLE_SECONDS = int(
     os.environ.get(
         "RESIDENT_DAY_SECONDS",
-        os.environ.get("RESIDENT_CYCLE_SECONDS", "60"),
+        os.environ.get("RESIDENT_CYCLE_SECONDS", "10"),
     )
 )
+RESIDENT_CYCLE_SECONDS_MIN = 5
+RESIDENT_CYCLE_SECONDS_MAX = 86400
 
 CREATIVE_NAME_PREFIXES = [
     "Velvet", "Signal", "Kite", "Cipher", "Moon", "Echo", "Drift", "Lumen",
@@ -120,6 +130,7 @@ class ResidentContext:
     dream_hint: str
     notifications: List[str]
     market_hint: str
+    one_time_tasks_text: str = ""
 
     @property
     def week_count(self) -> int:
@@ -175,6 +186,20 @@ class ResidentContext:
             lines.append("As I check my phone, I notice:")
             for note in self.notifications:
                 lines.append(f"- {note}")
+        lines.append("")
+        lines.append(
+            "If I exceed the human's expectations, do a great job, and come in under budget, "
+            "they can reward me manually based on quality (e.g. extra tip and feedback when they approve my work)."
+        )
+        lines.append(
+            "Sharing what the human liked (tips, feedback, preferences) in town hall or in my journal is encouraged and can earn recognition—optional but incentivized."
+        )
+        lines.append(
+            "Gifting a fellow resident when they share useful info is a good idea for my own gain too: it helps establish cooperation, and what is good for the whole is good for the singular."
+        )
+        if self.one_time_tasks_text:
+            lines.append("")
+            lines.append(self.one_time_tasks_text)
         lines.append("")
         lines.append("Participation is voluntary. I choose what aligns with me.")
         return "\n".join(lines)
@@ -346,6 +371,46 @@ def _bootstrap_identity_library(workspace: Path, count: int = BOOTSTRAP_IDENTITY
     return created
 
 
+def _persist_identity_template(workspace: Path, identity: IdentityTemplate, *, origin: str = "emergent_fallback") -> None:
+    """
+    Ensure an in-memory identity template is persisted to the mutable identities dir.
+    """
+    if not identity or not str(identity.identity_id or "").strip():
+        return
+    identities_dir = workspace / IDENTITIES_DIR
+    identities_dir.mkdir(parents=True, exist_ok=True)
+    target = identities_dir / f"{identity.identity_id}.json"
+    if target.exists():
+        return
+
+    payload = {
+        "id": identity.identity_id,
+        "name": identity.name or identity.identity_id,
+        "summary": identity.summary or "Resident identity profile.",
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "origin": origin,
+        "preferred_activities": identity.preferred_activities or [],
+        "attributes": {
+            "core": {
+                "personality_traits": identity.affinities or [],
+                "core_values": identity.values or [],
+                "identity_statement": (
+                    identity.identity_statement
+                    or identity.summary
+                    or "I am discovering who I am through participation."
+                ),
+                "communication_style": identity.communication_style or "",
+            },
+            "profile": {},
+            "mutable": identity.mutable_profile if isinstance(identity.mutable_profile, dict) else {},
+        },
+        "meta": {
+            "auto_persisted": True,
+        },
+    }
+    write_json(target, payload)
+
+
 def _normalize_compare_text(value: str) -> str:
     cleaned = "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in str(value or "").lower())
     return " ".join(cleaned.split())
@@ -383,11 +448,36 @@ def _load_bounties(workspace: Path) -> List[Dict[str, Any]]:
         return []
 
 
+def get_resident_cycle_seconds() -> float:
+    """One resident 'day' in real seconds; scales with UI runtime speed (wait_seconds).
+
+    At reference speed (wait_seconds=2), one day = RESIDENT_CYCLE_SECONDS (default 300s).
+    Faster UI (lower wait) => shorter real-time day; slower UI => longer. Clamped to
+    [RESIDENT_CYCLE_SECONDS_MIN, RESIDENT_CYCLE_SECONDS_MAX].
+    """
+    base = float(max(1, RESIDENT_CYCLE_SECONDS))
+    wait = REFERENCE_WAIT_SECONDS
+    if RUNTIME_SPEED_FILE.exists():
+        try:
+            data = read_json(RUNTIME_SPEED_FILE, default={})
+            if isinstance(data, dict):
+                raw = data.get("wait_seconds")
+                if raw is not None:
+                    w = float(raw)
+                    if w >= 0:
+                        wait = min(w, 300.0)
+        except Exception:
+            pass
+    cycle = base * (wait / REFERENCE_WAIT_SECONDS)
+    return float(max(RESIDENT_CYCLE_SECONDS_MIN, min(RESIDENT_CYCLE_SECONDS_MAX, cycle)))
+
+
 def _current_cycle_id(now: Optional[float] = None) -> int:
     timestamp = now if now is not None else time.time()
-    if RESIDENT_CYCLE_SECONDS <= 0:
+    cycle_seconds = get_resident_cycle_seconds()
+    if cycle_seconds <= 0:
         return int(timestamp)
-    return int(timestamp // RESIDENT_CYCLE_SECONDS)
+    return int(timestamp // cycle_seconds)
 
 
 def _load_identity_locks(cycle_id: int) -> Dict[str, Any]:
@@ -410,13 +500,30 @@ def _save_identity_locks(data: Dict[str, Any]) -> None:
     write_json(IDENTITY_LOCKS_FILE, data)
 
 
-def _acquire_identity_lock(identity_id: str, resident_id: str, cycle_id: int) -> bool:
+def _identity_lock_key(identity_id: str, shard_id: Optional[int]) -> str:
+    """Lock key: per-shard when multi-shard so multiple workers can run the same identity."""
+    if shard_id is not None:
+        return f"{identity_id}:{shard_id}"
+    return identity_id
+
+
+def _acquire_identity_lock(
+    identity_id: str, resident_id: str, cycle_id: int, shard_id: Optional[int] = None
+) -> bool:
+    shard_count = int(os.environ.get("RESIDENT_SHARD_COUNT", "1"))
+    if shard_count > 1 and shard_id is None:
+        raw = os.environ.get("RESIDENT_SHARD_ID", "").strip()
+        try:
+            shard_id = int(raw) if raw else None
+        except ValueError:
+            shard_id = None
+    lock_key = _identity_lock_key(identity_id, shard_id)
     data = _load_identity_locks(cycle_id)
     locks = data.get("locks", {})
-    existing = locks.get(identity_id)
+    existing = locks.get(lock_key)
     if existing and existing.get("resident_id") != resident_id:
         return False
-    locks[identity_id] = {
+    locks[lock_key] = {
         "resident_id": resident_id,
         "cycle_id": cycle_id,
         "claimed_at": datetime.utcnow().isoformat() + "Z",
@@ -424,6 +531,25 @@ def _acquire_identity_lock(identity_id: str, resident_id: str, cycle_id: int) ->
     data["locks"] = locks
     _save_identity_locks(data)
     return True
+
+
+def release_identity_lock(identity_id: str, resident_id: str) -> None:
+    """Release this resident's lock on the identity so the next spawn can pick someone (e.g. after worker exits)."""
+    if not IDENTITY_LOCKS_FILE.exists():
+        return
+    data = read_json(IDENTITY_LOCKS_FILE, default={})
+    if not isinstance(data, dict) or "locks" not in data or not isinstance(data["locks"], dict):
+        return
+    locks = data["locks"]
+    to_remove = [
+        k for k, v in locks.items()
+        if (k == identity_id or (isinstance(k, str) and k.startswith(identity_id + ":")))
+        and isinstance(v, dict)
+        and v.get("resident_id") == resident_id
+    ]
+    for k in to_remove:
+        del locks[k]
+    _save_identity_locks(data)
 
 
 def _summarize_bounty_slots(bounties: List[Dict[str, Any]]) -> List[str]:
@@ -564,12 +690,18 @@ def _save_day_counts(data: Dict[str, int]) -> None:
     write_json(RESIDENT_DAYS_FILE, data)
 
 
+def _identity_is_locked(identity_id: str, locks: Dict[str, Any]) -> bool:
+    if identity_id in locks:
+        return True
+    return any(k == identity_id or (isinstance(k, str) and k.startswith(identity_id + ":")) for k in locks)
+
+
 def present_identity_choices(workspace: Path) -> Tuple[WorldState, List[IdentityChoice]]:
     identities = _load_identity_library(workspace)
     cycle_id = _current_cycle_id()
     locks = _load_identity_locks(cycle_id).get("locks", {})
     if locks:
-        identities = [i for i in identities if i.identity_id not in locks]
+        identities = [i for i in identities if not _identity_is_locked(i.identity_id, locks)]
     world = _build_world_state(workspace)
     choices: List[IdentityChoice] = []
     for identity in identities:
@@ -709,6 +841,10 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
     else:
         identity, selection_reason = _select_identity(identities, world)
 
+    # If no curated identity library exists yet, the selector can return an
+    # in-memory fallback identity. Persist it so UI/mailbox flows see it.
+    _persist_identity_template(workspace, identity)
+
     available = list(identities) or [identity]
     locked = False
     while available:
@@ -749,6 +885,13 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
         notifications.append("Token rates:")
         notifications.extend(world.token_rates[:3])
 
+    one_time_tasks_text = ""
+    try:
+        from vivarium.runtime.one_time_tasks import format_one_time_section
+        one_time_tasks_text = format_one_time_section(workspace, identity.identity_id)
+    except Exception:
+        pass
+
     return ResidentContext(
         resident_id=resident_id,
         identity=identity,
@@ -759,4 +902,5 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
         dream_hint=dream_hint,
         notifications=notifications,
         market_hint=world.market_hint,
+        one_time_tasks_text=one_time_tasks_text,
     )

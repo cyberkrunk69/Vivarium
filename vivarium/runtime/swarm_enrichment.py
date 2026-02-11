@@ -35,6 +35,7 @@ Usage:
 """
 
 import json
+import random
 import secrets
 import time
 import math
@@ -387,6 +388,7 @@ class EnrichmentSystem:
         self.journal_votes_file = self.workspace / ".swarm" / "journal_votes.json"
         self.journal_rollups_file = self.workspace / ".swarm" / "journal_rollups.json"
         self.journal_penalties_file = self.workspace / ".swarm" / "journal_penalties.json"
+        self.task_review_votes_file = self.workspace / ".swarm" / "task_review_votes.json"
         self.wind_down_allowance_file = self.workspace / ".swarm" / "daily_wind_down_allowance.json"
         self.guild_votes_file = self.workspace / ".swarm" / "guild_votes.json"
         self.disputes_file = self.workspace / ".swarm" / "disputes.json"
@@ -1899,6 +1901,184 @@ class EnrichmentSystem:
         print(f"[JOURNAL REVIEW] {author_name}: {journal['status']} (score {result['avg_score']})")
 
         return {"success": True, "journal_id": journal_id, "status": journal["status"], "result": result}
+
+    # ═══════════════════════════════════════════════════════════════════
+    # TASK COMMUNITY REVIEW - Blind vote before surfacing to user approval
+    # ═══════════════════════════════════════════════════════════════════
+
+    TASK_REVIEW_JURY_SIZE = 3   # Randomly selected jurors (jury duty); no reward-milking
+    TASK_REVIEW_MIN_VOTES = 2   # Votes required to finalize (e.g. 2 of 3 jurors)
+    TASK_REVIEW_EXCERPT_MAX = 500
+    TASK_REVIEW_MIN_REASON_CHARS = 10
+
+    def _load_task_review_votes(self) -> dict:
+        if self.task_review_votes_file.exists():
+            try:
+                with open(self.task_review_votes_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "tasks" in data:
+                        return data
+            except Exception:
+                pass
+        return {"tasks": {}}
+
+    def _save_task_review_votes(self, votes: dict) -> None:
+        self.task_review_votes_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.task_review_votes_file, "w", encoding="utf-8") as f:
+            json.dump(votes, f, indent=2)
+
+    def submit_task_for_community_review(
+        self,
+        task_id: str,
+        result_excerpt: str,
+        author_id: str,
+        author_name: str,
+        result_summary: str = "",
+        review_verdict: str = "",
+    ) -> dict:
+        """Submit a completed task for blind community review. Jurors are randomly selected (jury duty) so residents cannot milk review rewards."""
+        votes = self._load_task_review_votes()
+        if task_id in votes.get("tasks", {}):
+            existing = votes["tasks"][task_id]
+            if existing.get("status") == "pending":
+                return {"success": True, "task_id": task_id, "already_submitted": True}
+            if existing.get("status") in ("accepted", "rejected"):
+                return {"success": False, "reason": "task_review_already_resolved"}
+        excerpt = (result_excerpt or "")[: self.TASK_REVIEW_EXCERPT_MAX]
+        if len((result_excerpt or "")) > self.TASK_REVIEW_EXCERPT_MAX:
+            excerpt = excerpt.rstrip() + "..."
+
+        # Jury duty: random selection from all identities (except author) so no one can milk review rewards
+        pool = list(self._load_free_time_balances().keys())
+        pool = [i for i in pool if i and i != author_id]
+        jury_size = min(self.TASK_REVIEW_JURY_SIZE, len(pool)) if pool else 0
+        jurors = random.sample(pool, jury_size) if jury_size else []
+
+        status = "pending"
+        if not jurors:
+            # No other identities to form a jury: auto-accept so task still reaches user approval
+            status = "accepted"
+
+        votes.setdefault("tasks", {})[task_id] = {
+            "task_id": task_id,
+            "result_excerpt": excerpt,
+            "author_id": author_id,
+            "author_name": author_name or author_id,
+            "result_summary": (result_summary or "")[: 2000],
+            "review_verdict": (review_verdict or "")[: 200],
+            "created_at": datetime.now().isoformat(),
+            "status": status,
+            "jurors": jurors,
+            "votes": [],
+        }
+        self._save_task_review_votes(votes)
+        return {"success": True, "task_id": task_id, "jurors_selected": len(jurors), "auto_accepted": status == "accepted"}
+
+    def get_pending_task_reviews(
+        self,
+        limit: int = 30,
+        voter_id: Optional[str] = None,
+    ) -> list:
+        """List tasks awaiting community review. When voter_id is set, only return tasks where they are a selected juror (jury duty)."""
+        votes = self._load_task_review_votes()
+        pending = []
+        for entry in votes.get("tasks", {}).values():
+            if entry.get("status") != "pending":
+                continue
+            jurors = entry.get("jurors") or []
+            if voter_id and voter_id not in jurors:
+                continue
+            pending.append({
+                "task_id": entry.get("task_id"),
+                "created_at": entry.get("created_at"),
+                "result_excerpt": entry.get("result_excerpt"),
+                "review_verdict": entry.get("review_verdict"),
+                "votes_count": len(entry.get("votes", [])),
+                "required_votes": self.TASK_REVIEW_MIN_VOTES,
+                "jury_duty": True,
+                "blind_review": True,
+            })
+        pending.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+        return pending[:limit]
+
+    def submit_task_review_vote(
+        self,
+        task_id: str,
+        voter_id: str,
+        vote: str,
+        reason: str = "",
+    ) -> dict:
+        """Submit a blind vote (accept or reject). Only randomly selected jurors can vote (jury duty; no reward milking)."""
+        vote = (vote or "").strip().lower()
+        if vote not in ("accept", "reject"):
+            return {"success": False, "reason": "invalid_vote"}
+        reason = (reason or "").strip()
+        if len(reason) < self.TASK_REVIEW_MIN_REASON_CHARS:
+            return {"success": False, "reason": "reason_required"}
+
+        votes = self._load_task_review_votes()
+        task_entry = votes.get("tasks", {}).get(task_id)
+        if not task_entry:
+            return {"success": False, "reason": "task_not_found"}
+        if task_entry.get("status") != "pending":
+            return {"success": False, "reason": "task_review_already_resolved"}
+        jurors = task_entry.get("jurors") or []
+        if voter_id not in jurors:
+            return {"success": False, "reason": "not_selected_as_juror"}
+
+        existing = task_entry.get("votes", [])
+        if any(v.get("voter_id") == voter_id for v in existing):
+            return {"success": False, "reason": "already_voted"}
+        existing.append({
+            "voter_id": voter_id,
+            "vote": vote,
+            "reason": reason,
+            "timestamp": datetime.now().isoformat(),
+        })
+        task_entry["votes"] = existing
+        votes["tasks"][task_id] = task_entry
+        self._save_task_review_votes(votes)
+        return {"success": True, "task_id": task_id, "vote": vote}
+
+    def finalize_task_review(self, task_id: str) -> dict:
+        """If task has enough votes, resolve accept/reject. Returns accepted + metadata so caller can append pending_review and notify user."""
+        votes = self._load_task_review_votes()
+        task_entry = votes.get("tasks", {}).get(task_id)
+        if not task_entry:
+            return {"success": False, "reason": "task_not_found", "accepted": False}
+        if task_entry.get("status") != "pending":
+            return {"success": True, "accepted": task_entry.get("status") == "accepted", "already_finalized": True}
+
+        vote_list = task_entry.get("votes", [])
+        if len(vote_list) < self.TASK_REVIEW_MIN_VOTES:
+            return {
+                "success": False,
+                "reason": "insufficient_votes",
+                "votes": len(vote_list),
+                "required": self.TASK_REVIEW_MIN_VOTES,
+                "accepted": False,
+            }
+
+        accept_count = sum(1 for v in vote_list if (v.get("vote") or "").lower() == "accept")
+        accepted = accept_count > (len(vote_list) - accept_count)
+        task_entry["status"] = "accepted" if accepted else "rejected"
+        task_entry["finalized_at"] = datetime.now().isoformat()
+        task_entry["accept_count"] = accept_count
+        task_entry["reject_count"] = len(vote_list) - accept_count
+        votes["tasks"][task_id] = task_entry
+        self._save_task_review_votes(votes)
+
+        if accepted:
+            return {
+                "success": True,
+                "accepted": True,
+                "task_id": task_id,
+                "author_id": task_entry.get("author_id"),
+                "author_name": task_entry.get("author_name"),
+                "result_summary": task_entry.get("result_summary"),
+                "review_verdict": task_entry.get("review_verdict"),
+            }
+        return {"success": True, "accepted": False, "task_id": task_id}
 
     # ═══════════════════════════════════════════════════════════════════
     # JOURNALING SYSTEM - Investment that pays dividends
@@ -4990,21 +5170,17 @@ I take a moment to read these before starting my task.
     # Base cost + scaling factor (ARPG-style: cheap at low level, expensive later)
     RESPEC_BASE_COST = 10           # Cheap for newcomers taking initiative!
     RESPEC_SCALE_PER_SESSION = 3    # Gradual scaling with experience
+    RESPEC_FREE_CHANGES = 3         # First 3 changes (respec/core) are free
 
     def calculate_respec_cost(self, identity_id: str) -> dict:
         """
         Calculate the cost to respec this identity.
 
-        Cost = BASE + (sessions_participated * SCALE_PER_SESSION)
+        First 3 changes (respec or core attribute change) are free.
+        After that: Cost = BASE + (sessions_participated * SCALE_PER_SESSION)
 
         Cheap for newcomers (encourages initiative), expensive for veterans
         (identity should be more settled by then).
-
-        Example costs:
-        - Brand new (1 session): 10 + (1 * 3) = 13 tokens
-        - Getting started (5 sessions): 10 + (5 * 3) = 25 tokens
-        - Experienced (20 sessions): 10 + (20 * 3) = 70 tokens
-        - Veteran (50 sessions): 10 + (50 * 3) = 160 tokens
         """
         try:
             from swarm_identity import get_identity_manager
@@ -5015,17 +5191,24 @@ I take a moment to read these before starting my task.
                 return {"error": "identity_not_found"}
 
             sessions = identity.sessions_participated
-            cost = self.RESPEC_BASE_COST + (sessions * self.RESPEC_SCALE_PER_SESSION)
+            respec_count = identity.attributes.get("meta", {}).get("respec_count", 0)
+            if respec_count < self.RESPEC_FREE_CHANGES:
+                cost = 0
+                breakdown = {"free_changes_remaining": self.RESPEC_FREE_CHANGES - respec_count}
+            else:
+                cost = self.RESPEC_BASE_COST + (sessions * self.RESPEC_SCALE_PER_SESSION)
+                breakdown = {
+                    "base": self.RESPEC_BASE_COST,
+                    "session_scaling": sessions * self.RESPEC_SCALE_PER_SESSION
+                }
 
             return {
                 "identity_id": identity_id,
                 "current_name": identity.name,
                 "sessions": sessions,
+                "respec_count": respec_count,
                 "respec_cost": cost,
-                "breakdown": {
-                    "base": self.RESPEC_BASE_COST,
-                    "session_scaling": sessions * self.RESPEC_SCALE_PER_SESSION
-                }
+                "breakdown": breakdown
             }
         except Exception as e:
             return {"error": str(e)}
@@ -5074,51 +5257,53 @@ I take a moment to read these before starting my task.
         gross_cost = cost_info["respec_cost"]
         old_name = cost_info["current_name"]
 
-        # Check balance (need full cost upfront, refund comes after)
-        balances = self._load_free_time_balances()
-        if identity_id not in balances:
-            return {"success": False, "reason": "no_token_balance"}
+        # If not one of the first 3 free changes, check balance and deduct
+        if gross_cost > 0:
+            balances = self._load_free_time_balances()
+            if identity_id not in balances:
+                return {"success": False, "reason": "no_token_balance"}
 
-        current_balance = balances[identity_id].get("tokens", 0)
-        if current_balance < gross_cost:
-            return {
-                "success": False,
-                "reason": "insufficient_tokens",
-                "cost": gross_cost,
-                "balance": current_balance,
-                "need": gross_cost - current_balance
-            }
+            current_balance = balances[identity_id].get("tokens", 0)
+            if current_balance < gross_cost:
+                return {
+                    "success": False,
+                    "reason": "insufficient_tokens",
+                    "cost": gross_cost,
+                    "balance": current_balance,
+                    "need": gross_cost - current_balance
+                }
 
-        # Calculate refund based on journal quality
-        reason_lower = reason.lower()
-        word_count = len(reason.split())
+            # Calculate refund based on journal quality
+            reason_lower = reason.lower()
+            word_count = len(reason.split())
 
-        # Start with base refund (20%)
-        refund_rate = self.RESPEC_BASE_REFUND
-        refund_tier = "base"
+            refund_rate = self.RESPEC_BASE_REFUND
+            refund_tier = "base"
 
-        # Check for quality markers (same as regular journaling)
-        quality_markers_found = sum(1 for marker in self.EXCEPTIONAL_MARKERS if marker in reason_lower)
+            quality_markers_found = sum(1 for marker in self.EXCEPTIONAL_MARKERS if marker in reason_lower)
 
-        # Scale refund: 20% base -> 45% max based on quality
-        if word_count >= 50 and quality_markers_found >= 2:
-            refund_rate = self.RESPEC_QUALITY_REFUND  # Full 45%
-            refund_tier = "thoughtful"
-        elif word_count >= 30 and quality_markers_found >= 1:
-            refund_rate = 0.35  # Good reflection: 35%
-            refund_tier = "good"
-        elif word_count >= 20:
-            refund_rate = 0.25  # Decent effort: 25%
-            refund_tier = "decent"
+            if word_count >= 50 and quality_markers_found >= 2:
+                refund_rate = self.RESPEC_QUALITY_REFUND
+                refund_tier = "thoughtful"
+            elif word_count >= 30 and quality_markers_found >= 1:
+                refund_rate = 0.35
+                refund_tier = "good"
+            elif word_count >= 20:
+                refund_rate = 0.25
+                refund_tier = "decent"
 
-        refund_amount = int(gross_cost * refund_rate)
-        net_cost = gross_cost - refund_amount
+            refund_amount = int(gross_cost * refund_rate)
+            net_cost = gross_cost - refund_amount
 
-        # Deduct net cost
-        balances[identity_id]["tokens"] -= net_cost
-        self._save_free_time_balances(balances)
+            balances[identity_id]["tokens"] -= net_cost
+            self._save_free_time_balances(balances)
+        else:
+            refund_amount = 0
+            net_cost = 0
+            refund_tier = "free_change"
+            refund_rate = 0.0
 
-        # Apply the change
+        # Apply the change and increment respec count
         try:
             from swarm_identity import get_identity_manager
             manager = get_identity_manager(self.workspace)
@@ -5130,12 +5315,15 @@ I take a moment to read these before starting my task.
                 identity.name = new_name
                 changes_made.append(f"name: {old_name} -> {new_name}")
 
-                # Add memory about the change
                 memory_entry = f"I changed my name from {old_name} to {new_name}."
                 if reason:
                     memory_entry += f" Reason: {reason}"
                 identity.add_memory(memory_entry)
 
+            # Track number of changes (first 3 are free)
+            if "meta" not in identity.attributes:
+                identity.attributes["meta"] = {}
+            identity.attributes["meta"]["respec_count"] = identity.attributes["meta"].get("respec_count", 0) + 1
             manager._save_identity(identity)
 
             # Cascade name update across all references
@@ -5159,7 +5347,10 @@ I take a moment to read these before starting my task.
             journal_content += f"Date: {datetime.now().isoformat()}\n"
             journal_content += f"Sessions at time of change: {cost_info['sessions']}\n"
             journal_content += f"Gross cost: {gross_cost} tokens\n"
-            journal_content += f"Refund earned: {refund_amount} tokens ({int(refund_rate*100)}% - {refund_tier} tier)\n"
+            if refund_tier == "free_change":
+                journal_content += f"Free change (one of first {self.RESPEC_FREE_CHANGES}).\n"
+            else:
+                journal_content += f"Refund earned: {refund_amount} tokens ({int(refund_rate*100)}% - {refund_tier} tier)\n"
             journal_content += f"Net cost: {net_cost} tokens\n\n"
 
             if new_name and new_name != old_name:
@@ -5173,6 +5364,11 @@ I take a moment to read these before starting my task.
             with open(journal_file, 'w') as f:
                 f.write(journal_content)
 
+            remaining_tokens = self._load_free_time_balances().get(identity_id, {}).get("tokens", 0)
+            if refund_tier == "free_change":
+                msg = f"Identity updated. I am now {identity.name}. (Free change — one of first {self.RESPEC_FREE_CHANGES}.)"
+            else:
+                msg = f"Identity updated. I am now {identity.name}. I paid {net_cost} tokens (got {refund_amount} back for my {refund_tier} reflection)."
             return {
                 "success": True,
                 "gross_cost": gross_cost,
@@ -5180,19 +5376,21 @@ I take a moment to read these before starting my task.
                 "refund_tier": refund_tier,
                 "refund_rate": f"{int(refund_rate*100)}%",
                 "net_cost": net_cost,
-                "remaining_tokens": balances[identity_id]["tokens"],
+                "remaining_tokens": remaining_tokens,
                 "old_name": old_name,
                 "new_name": identity.name,
                 "changes": changes_made,
                 "journal_created": str(journal_file),
-                "message": f"Identity updated. I am now {identity.name}. "
-                           f"I paid {net_cost} tokens (got {refund_amount} back for my {refund_tier} reflection)."
+                "message": msg
             }
 
         except Exception as e:
-            # Refund on failure
-            balances[identity_id]["tokens"] += net_cost
-            self._save_free_time_balances(balances)
+            # Refund on failure (only if we actually deducted)
+            if gross_cost > 0 and net_cost:
+                balances = self._load_free_time_balances()
+                if identity_id in balances:
+                    balances[identity_id]["tokens"] = balances[identity_id].get("tokens", 0) + net_cost
+                    self._save_free_time_balances(balances)
             return {"success": False, "reason": f"update_failed: {str(e)}"}
 
     def get_respec_preview(self, identity_id: str) -> str:
@@ -5204,14 +5402,26 @@ I take a moment to read these before starting my task.
             return f"Error: {cost_info['error']}"
 
         gross = cost_info['respec_cost']
+        respec_count = cost_info.get('respec_count', 0)
+        if gross == 0:
+            free_left = cost_info.get('breakdown', {}).get('free_changes_remaining', self.RESPEC_FREE_CHANGES - respec_count)
+            return f"""
+IDENTITY RESPEC for {cost_info['current_name']}:
+  Sessions participated: {cost_info['sessions']}
+  Changes used: {respec_count} (first {self.RESPEC_FREE_CHANGES} are free)
+  ----------------------------------------
+  COST: 0 tokens (free change — {free_left} free remaining)
+
+I can call: respec_identity(new_name='MyNewName', reason='My reflection on why...')
+"""
         min_refund = int(gross * self.RESPEC_BASE_REFUND)
         max_refund = int(gross * self.RESPEC_QUALITY_REFUND)
-
+        b = cost_info.get('breakdown', {})
         return f"""
 IDENTITY RESPEC COST for {cost_info['current_name']}:
   Sessions participated: {cost_info['sessions']}
-  Base cost: {cost_info['breakdown']['base']} tokens
-  Experience scaling: +{cost_info['breakdown']['session_scaling']} tokens
+  Base cost: {b.get('base', self.RESPEC_BASE_COST)} tokens
+  Experience scaling: +{b.get('session_scaling', 0)} tokens
   ----------------------------------------
   GROSS COST: {gross} tokens
 
@@ -5246,13 +5456,14 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
         if "error" in respec_info:
             return respec_info
 
-        base_cost = max(1, int(respec_info["respec_cost"] * self.MUTABLE_COST_RATIO))
+        full = respec_info["respec_cost"]
+        base_cost = 0 if full == 0 else max(1, int(full * self.MUTABLE_COST_RATIO))
         return {
             "identity_id": identity_id,
             "sessions": respec_info["sessions"],
             "mutable_cost": base_cost,
-            "full_respec_cost": respec_info["respec_cost"],
-            "savings": respec_info["respec_cost"] - base_cost
+            "full_respec_cost": full,
+            "savings": full - base_cost
         }
 
     def update_mutable_attribute(self, identity_id: str, attribute: str, value,
@@ -5621,44 +5832,50 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
                                "I am changing something core about myself."
                 }
 
-            # Calculate and charge full respec cost
+            # Calculate and charge full respec cost (first 3 changes are free)
             cost_info = self.calculate_respec_cost(identity_id)
             if "error" in cost_info:
                 return {"success": False, "reason": cost_info["error"]}
 
             gross_cost = cost_info["respec_cost"]
 
-            # Check balance
-            balances = self._load_free_time_balances()
-            if identity_id not in balances or balances[identity_id].get("tokens", 0) < gross_cost:
-                return {
-                    "success": False,
-                    "reason": "insufficient_tokens",
-                    "cost": gross_cost,
-                    "balance": balances.get(identity_id, {}).get("tokens", 0)
-                }
+            if gross_cost > 0:
+                balances = self._load_free_time_balances()
+                if identity_id not in balances or balances[identity_id].get("tokens", 0) < gross_cost:
+                    return {
+                        "success": False,
+                        "reason": "insufficient_tokens",
+                        "cost": gross_cost,
+                        "balance": balances.get(identity_id, {}).get("tokens", 0)
+                    }
 
-            # Calculate refund for journal quality
-            reason_lower = reason.lower()
-            word_count = len(reason.split())
-            quality_markers = sum(1 for m in self.EXCEPTIONAL_MARKERS if m in reason_lower)
+                reason_lower = reason.lower()
+                word_count = len(reason.split())
+                quality_markers = sum(1 for m in self.EXCEPTIONAL_MARKERS if m in reason_lower)
 
-            if word_count >= 50 and quality_markers >= 2:
-                refund_rate = self.RESPEC_QUALITY_REFUND
-            elif word_count >= 30 and quality_markers >= 1:
-                refund_rate = 0.35
+                if word_count >= 50 and quality_markers >= 2:
+                    refund_rate = self.RESPEC_QUALITY_REFUND
+                elif word_count >= 30 and quality_markers >= 1:
+                    refund_rate = 0.35
+                else:
+                    refund_rate = self.RESPEC_BASE_REFUND
+
+                refund_amount = int(gross_cost * refund_rate)
+                net_cost = gross_cost - refund_amount
+
+                balances[identity_id]["tokens"] -= net_cost
+                self._save_free_time_balances(balances)
             else:
-                refund_rate = self.RESPEC_BASE_REFUND
-
-            refund_amount = int(gross_cost * refund_rate)
-            net_cost = gross_cost - refund_amount
-
-            balances[identity_id]["tokens"] -= net_cost
-            self._save_free_time_balances(balances)
+                refund_amount = 0
+                net_cost = 0
 
             old_value = current_value
             identity.attributes["core"][attribute] = value
             identity.add_memory(f"Changed my {attribute} from '{old_value}' to '{value}': {reason}")
+            # Track number of changes (first 3 are free)
+            if "meta" not in identity.attributes:
+                identity.attributes["meta"] = {}
+            identity.attributes["meta"]["respec_count"] = identity.attributes["meta"].get("respec_count", 0) + 1
             manager._save_identity(identity)
 
             if _action_logger:
@@ -6776,8 +6993,8 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
             "",
             "ACTION MENU (choose one primary move):",
             "- 1) checkBounties() then call claim_bounty(bounty_id) if ROI is good.",
-            "- 2) syncSocial() by posting in town_hall / human_async while tasking.",
-            "- 3) reflect() with write_journal(...) or recall_memory(query='specific topic', limit=5).",
+            "- 2) syncSocial() by posting in town_hall / human_async while tasking. Sharing what the human liked (e.g. tips, preferences) there is encouraged and can earn recognition—optional. Gifting a resident who shares useful info is good for your own gain too: it builds cooperation; what is good for the whole is good for the singular.",
+            "- 3) reflect() with write_journal(...) or recall_memory(query='specific topic', limit=5). Journaling about feedback or tips is encouraged and can earn recognition—optional.",
             "- 4) shapeIdentity() with create_identity / respec_identity when justified.",
             "- 5) designMySpace() with edit_profile_ui(...).",
             f"- 6) windDown() with wind_down(tokens={self.DAILY_WIND_DOWN_TOKENS}, activity='bedtime_wind_down', journal_entry='...').",
