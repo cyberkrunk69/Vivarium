@@ -12,6 +12,7 @@ from vivarium.runtime import swarm_api as swarm
 from vivarium.runtime import worker_runtime as worker
 from vivarium.runtime import config as runtime_config
 from vivarium.runtime import swarm_enrichment
+from vivarium.runtime import resident_onboarding
 from vivarium.runtime.runtime_contract import normalize_queue, validate_queue_contract
 from vivarium.runtime.safety_gateway import SafetyGateway
 
@@ -106,6 +107,105 @@ def test_worker_idle_wait_uses_runtime_speed_file(monkeypatch, tmp_path):
 
     runtime_speed_file.write_text('{"wait_seconds": -1}', encoding="utf-8")
     assert worker._resolve_idle_wait_seconds(3) == pytest.approx(2.0, rel=0.001)
+
+
+def test_resident_cycle_seconds_is_hard_coded_when_wait_seconds_zero(monkeypatch, tmp_path):
+    runtime_speed_file = tmp_path / "runtime_speed.json"
+    runtime_speed_file.write_text('{"wait_seconds": 0}', encoding="utf-8")
+
+    monkeypatch.setattr(resident_onboarding, "RUNTIME_SPEED_FILE", runtime_speed_file)
+    monkeypatch.setattr(resident_onboarding, "RESIDENT_CYCLE_SECONDS", 10)
+    monkeypatch.setattr(resident_onboarding, "REFERENCE_WAIT_SECONDS", 2.0)
+    monkeypatch.setattr(resident_onboarding, "ZERO_PACE_CYCLE_SECONDS", 3.0)
+    monkeypatch.setattr(resident_onboarding, "RESIDENT_CYCLE_SECONDS_MIN", 5)
+    monkeypatch.setattr(resident_onboarding, "RESIDENT_CYCLE_SECONDS_MAX", 86400)
+
+    assert resident_onboarding.get_resident_cycle_seconds() == pytest.approx(3.0, rel=0.001)
+
+
+def test_select_identity_uses_tie_break_choice(monkeypatch):
+    identities = [
+        resident_onboarding.IdentityTemplate(
+            identity_id="id_a",
+            name="A",
+            summary="A",
+            preferred_activities=["build"],
+        ),
+        resident_onboarding.IdentityTemplate(
+            identity_id="id_b",
+            name="B",
+            summary="B",
+            preferred_activities=["review"],
+        ),
+    ]
+    world = resident_onboarding.WorldState(
+        bounties=[],
+        open_tasks=1,
+        slot_summary=[],
+        token_rates=[],
+        market_hint="tasks available",
+    )
+    monkeypatch.setattr(resident_onboarding.random, "choice", lambda items: items[-1])
+
+    chosen, _reason = resident_onboarding._select_identity(identities, world)
+    assert chosen.identity_id == "id_b"
+
+
+def test_wakeup_context_omits_full_identity_json_dump():
+    identity = resident_onboarding.IdentityTemplate(
+        identity_id="id_ctx",
+        name="Ctx",
+        summary="Context summary",
+        identity_statement="I am evolving.",
+        communication_style="direct",
+        mutable_profile={"current_mood": "focused", "current_focus": "exploration"},
+    )
+    ctx = resident_onboarding.ResidentContext(
+        resident_id="resident_ctx",
+        identity=identity,
+        day_count=1,
+        cycle_id=1,
+        wallet={"free_time": 0, "journal": 0},
+        pre_identity_summary="none",
+        dream_hint="one open task",
+        notifications=[],
+        market_hint="tasks available",
+        one_time_tasks_text="",
+        open_tasks=1,
+    )
+
+    text = ctx.build_wakeup_context()
+    assert "MY FULL IDENTITY OBJECT (SELF-VISIBLE):" not in text
+
+
+def test_identity_lock_blocks_duplicate_identity_across_shards_by_default(monkeypatch, tmp_path):
+    lock_file = tmp_path / "identity_locks.json"
+    monkeypatch.setattr(resident_onboarding, "IDENTITY_LOCKS_FILE", lock_file)
+    monkeypatch.setattr(resident_onboarding, "LEGACY_IDENTITY_LOCKS_FILE", tmp_path / "legacy_identity_locks.json")
+    monkeypatch.setattr(resident_onboarding, "ALLOW_IDENTITY_MULTISHARD_DEFAULT", False)
+    monkeypatch.setenv("RESIDENT_SHARD_COUNT", "2")
+    monkeypatch.setenv("VIVARIUM_ALLOW_IDENTITY_MULTISHARD", "0")
+
+    first = resident_onboarding._acquire_identity_lock("id_dup", "resident_a", cycle_id=1, shard_id=0)
+    second = resident_onboarding._acquire_identity_lock("id_dup", "resident_b", cycle_id=1, shard_id=1)
+
+    assert first is True
+    assert second is False
+
+
+def test_identity_lock_can_allow_multishard_with_explicit_opt_in(monkeypatch, tmp_path):
+    lock_file = tmp_path / "identity_locks.json"
+    monkeypatch.setattr(resident_onboarding, "IDENTITY_LOCKS_FILE", lock_file)
+    monkeypatch.setattr(resident_onboarding, "LEGACY_IDENTITY_LOCKS_FILE", tmp_path / "legacy_identity_locks.json")
+    monkeypatch.setattr(resident_onboarding, "ALLOW_IDENTITY_MULTISHARD_DEFAULT", False)
+    monkeypatch.setenv("RESIDENT_SHARD_COUNT", "2")
+    monkeypatch.setenv("VIVARIUM_ALLOW_IDENTITY_MULTISHARD", "1")
+
+    first = resident_onboarding._acquire_identity_lock("id_dup", "resident_a", cycle_id=1, shard_id=0)
+    second = resident_onboarding._acquire_identity_lock("id_dup", "resident_b", cycle_id=1, shard_id=1)
+
+    assert first is True
+    assert second is True
 
 
 def test_runtime_config_loads_groq_key_from_security_file(monkeypatch, tmp_path):
@@ -221,6 +321,34 @@ def test_swarm_enrichment_journal_privacy_and_blind_review(tmp_path):
 
     assert enrichment.get_journal_history("identity_author", requester_id="identity_voter_1") == []
     assert enrichment.get_journal_history("identity_author", requester_id="identity_author")
+
+
+def test_wind_down_allowance_grants_once_per_resident_cycle(monkeypatch, tmp_path):
+    enrichment = swarm_enrichment.EnrichmentSystem(workspace=tmp_path)
+    monkeypatch.setattr(resident_onboarding, "get_resident_cycle_seconds", lambda: 10.0)
+
+    now = {"value": 1000.0}
+
+    def _fake_time():
+        return now["value"]
+
+    monkeypatch.setattr(swarm_enrichment.time, "time", _fake_time)
+
+    cold_wallet = enrichment.get_all_balances("identity_alpha")
+    assert cold_wallet["free_time"] == 0
+
+    first = enrichment.wind_down("identity_alpha", tokens=0)
+    assert first["wind_down_allowance"]["granted"] is True
+    assert first["remaining"] == 150
+
+    second = enrichment.wind_down("identity_alpha", tokens=0)
+    assert second["wind_down_allowance"]["granted"] is False
+    assert second["remaining"] == 150
+
+    now["value"] += 11.0
+    third = enrichment.wind_down("identity_alpha", tokens=0)
+    assert third["wind_down_allowance"]["granted"] is True
+    assert third["remaining"] == 300
 
 
 def test_cycle_endpoint_requires_internal_execution_token(monkeypatch):

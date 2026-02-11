@@ -282,7 +282,7 @@ class MutableWorldVersionControl:
             )
             return CheckpointResult(commit_sha=None, changed=False, message=add_out)
 
-        commit_message = f"auto-checkpoint:{task_id} {summary[:80]}".strip()
+        commit_message = f"auto-checkpoint:{task_id} {summary[:500]}".strip()
         commit_ok, commit_out = self._run_git("commit", "-m", commit_message)
         if not commit_ok:
             # Can happen if changes collapse to nothing after normalization/hooks.

@@ -6,6 +6,27 @@ from pathlib import Path
 from urllib.parse import urlparse
 from vivarium.runtime.vivarium_scope import SECURITY_ROOT
 
+
+def _safe_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _safe_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 # Swarm API base URL - can be overridden via SWARM_API_URL environment variable
 SWARM_API_URL = os.environ.get("SWARM_API_URL", "http://127.0.0.1:8420")
 
@@ -23,7 +44,8 @@ GROQ_MODEL_WHITELIST = {
 }
 
 # Default model (must be in whitelist)
-DEFAULT_GROQ_MODEL = os.environ.get("DEFAULT_GROQ_MODEL", "llama-3.1-8b-instant")
+# Use 70B by default so auto/unset model paths don't silently downshift to 8B.
+DEFAULT_GROQ_MODEL = os.environ.get("DEFAULT_GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # Default minimum budget for each agent task
 DEFAULT_MIN_BUDGET = 0.05
@@ -39,6 +61,20 @@ API_TIMEOUT_SECONDS = 120
 
 # Worker subprocess timeout (seconds)
 WORKER_TIMEOUT_SECONDS = int(os.environ.get("WORKER_TIMEOUT_SECONDS", "900"))
+
+# Runtime policy knobs (reduce hardcoded magic numbers in runtime modules).
+MAX_TEXT_DETAIL_CHARS = _safe_int_env("VIVARIUM_MAX_TEXT_DETAIL_CHARS", 16000)
+HUMAN_MESSAGE_DEDUP_SCAN_LIMIT = _safe_int_env("VIVARIUM_HUMAN_MESSAGE_DEDUP_SCAN_LIMIT", 500)
+PLANNING_RESPONSE_SCAN_CHARS = _safe_int_env("VIVARIUM_PLANNING_RESPONSE_SCAN_CHARS", 500)
+TASK_REVIEW_EXCERPT_MAX_CHARS = _safe_int_env("VIVARIUM_TASK_REVIEW_EXCERPT_MAX_CHARS", 500)
+DISCUSSION_MESSAGE_MAX_CHARS = _safe_int_env("VIVARIUM_DISCUSSION_MESSAGE_MAX_CHARS", 1200)
+DISCUSSION_PREVIEW_MAX_CHARS = _safe_int_env("VIVARIUM_DISCUSSION_PREVIEW_MAX_CHARS", 80)
+DISCUSSION_PREVIEW_CLIPPED_CHARS = _safe_int_env("VIVARIUM_DISCUSSION_PREVIEW_CLIPPED_CHARS", 77)
+REQUIRE_HUMAN_APPROVAL_DEFAULT = (
+    os.environ.get("VIVARIUM_REQUIRE_HUMAN_APPROVAL", "0").strip().lower()
+    not in {"0", "false", "no"}
+)
+AUTO_APPROVE_MIN_CONFIDENCE = _safe_float_env("VIVARIUM_AUTO_APPROVE_MIN_CONFIDENCE", 0.9)
 
 
 def get_groq_api_key() -> str | None:

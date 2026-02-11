@@ -40,13 +40,17 @@ def _configure_control_panel_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(cp.runtime_config, "GROQ_API_KEY_FILE", cp.GROQ_API_KEY_FILE)
     cp.runtime_config.set_groq_api_key(None)
 
-    # Sync paths to app.config so blueprints (e.g. identities, runtime_speed) use test paths
+    # Sync paths to app.config so blueprints (e.g. identities, stop_toggle, groq_key, chatrooms) use test paths
     cp.app.config["WORKSPACE"] = tmp_path
     cp.app.config["ACTION_LOG"] = tmp_path / "action_log.jsonl"
     cp.app.config["EXECUTION_LOG"] = tmp_path / "execution_log.jsonl"
     cp.app.config["IDENTITIES_DIR"] = swarm_dir / "identities"
     cp.app.config["FREE_TIME_BALANCES"] = swarm_dir / "free_time_balances.json"
     cp.app.config["RUNTIME_SPEED_FILE"] = swarm_dir / "runtime_speed.json"
+    cp.app.config["KILL_SWITCH"] = swarm_dir / "kill_switch.json"
+    cp.app.config["GROQ_API_KEY_FILE"] = tmp_path / "security" / "groq_api_key.txt"
+    cp.app.config["DISCUSSIONS_DIR"] = swarm_dir / "discussions"
+    cp.app.config["QUEUE_FILE"] = tmp_path / "queue.json"
 
     cp.app.config["TESTING"] = True
     return cp.app.test_client()
@@ -111,7 +115,8 @@ def test_bounty_submission_records_members_and_claimed_by(monkeypatch, tmp_path)
     assert submitted["success"] is True
     assert submitted["submission"]["members"] == ["identity_alice"]
 
-    bounty_state = cp.load_bounties()[0]
+    with cp.app.app_context():
+        bounty_state = cp.load_bounties()[0]
     assert bounty_state["status"] == "claimed"
     assert bounty_state["claimed_by"]["type"] == "individual"
     assert bounty_state["claimed_by"]["id"] == "identity_alice"
@@ -171,7 +176,8 @@ def test_bounty_complete_multi_team_distributes_rewards(monkeypatch, tmp_path):
     identities = {identity for identity, _, _ in enrichment.calls}
     assert identities == {"identity_one", "identity_two"}
 
-    bounty_state = cp.load_bounties()[0]
+    with cp.app.app_context():
+        bounty_state = cp.load_bounties()[0]
     assert bounty_state["status"] == "completed"
 
 

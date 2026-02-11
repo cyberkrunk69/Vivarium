@@ -8,6 +8,7 @@ of self.
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -56,6 +57,8 @@ DEFAULT_FACETS = [
     FacetSuggestion("review", "Validate outputs and catch regressions."),
     FacetSuggestion("document", "Summarize outcomes and record lessons."),
 ]
+DECOMPOSE_DEFAULT_MAX_SUBTASKS = max(1, int(os.environ.get("VIVARIUM_DECOMPOSE_DEFAULT_MAX_SUBTASKS", "5")))
+DEFAULT_FACET_FALLBACK_COUNT = max(1, min(len(DEFAULT_FACETS), int(os.environ.get("VIVARIUM_DEFAULT_FACET_FALLBACK_COUNT", "3"))))
 
 
 def suggest_facets(task: str) -> List[FacetSuggestion]:
@@ -69,7 +72,7 @@ def suggest_facets(task: str) -> List[FacetSuggestion]:
         facets.append(DEFAULT_FACETS[2])
     if any(word in task_lower for word in ["doc", "document", "summarize", "write"]):
         facets.append(DEFAULT_FACETS[3])
-    return facets or DEFAULT_FACETS[:2]
+    return facets or DEFAULT_FACETS[:DEFAULT_FACET_FALLBACK_COUNT]
 
 
 def split_resident(resident_id: str, identity_id: str, focuses: List[str]) -> List[ResidentShard]:
@@ -98,11 +101,11 @@ def decompose_task(
     task: str,
     resident_id: str,
     identity_id: str,
-    max_subtasks: int = 3,
+    max_subtasks: int = DECOMPOSE_DEFAULT_MAX_SUBTASKS,
 ) -> ResidentPlan:
     fragments = _split_task_sentences(task, max_subtasks)
     facets = suggest_facets(task)
-    shard_focuses = [f.name for f in facets[: len(fragments)]]
+    shard_focuses = [facets[idx % len(facets)].name for idx in range(len(fragments))]
     shards = split_resident(resident_id, identity_id, shard_focuses)
 
     subtasks: List[ResidentSubtask] = []

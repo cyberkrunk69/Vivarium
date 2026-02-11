@@ -8,9 +8,11 @@ reward-based: no coercion, no forced assignments.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
+import secrets
 import time
 import uuid
 from difflib import SequenceMatcher
@@ -20,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from vivarium.utils import read_json, write_json
+from vivarium.runtime.secure_api_wrapper import AuditLogger
 
 try:
     from vivarium.runtime.vivarium_scope import MUTABLE_SWARM_DIR
@@ -35,9 +38,14 @@ except ImportError:
 IDENTITY_LIBRARY_FILE = "identity_library.json"
 RUNTIME_SPEED_FILE = MUTABLE_SWARM_DIR / "runtime_speed.json"
 REFERENCE_WAIT_SECONDS = 2.0  # UI "normal" speed; cycle length scales with wait_seconds
+ZERO_PACE_CYCLE_SECONDS = 3.0  # Hard-coded resident day length when UI pace is set to 0
 RESIDENT_DAYS_FILE = Path(".swarm") / "resident_days.json"
 IDENTITIES_DIR = Path(".swarm") / "identities"
 IDENTITY_LOCKS_FILE = Path(".swarm") / "identity_locks.json"
+LEGACY_RESIDENT_DAYS_FILE = RESIDENT_DAYS_FILE
+LEGACY_IDENTITY_LOCKS_FILE = IDENTITY_LOCKS_FILE
+RESIDENT_DAYS_FILE = MUTABLE_SWARM_DIR / "resident_days.json"
+IDENTITY_LOCKS_FILE = MUTABLE_SWARM_DIR / "identity_locks.json"
 COMMUNITY_LIBRARY_ROOT = "library/community_library"
 BOOTSTRAP_IDENTITY_COUNT = 8
 AUTO_BOOTSTRAP_IDENTITIES = os.environ.get("VIVARIUM_BOOTSTRAP_IDENTITIES", "0").strip().lower() in {
@@ -48,6 +56,11 @@ AUTO_BOOTSTRAP_IDENTITIES = os.environ.get("VIVARIUM_BOOTSTRAP_IDENTITIES", "0")
 IDENTITY_NAME_SIMILARITY_MAX = 0.90
 IDENTITY_STATEMENT_SIMILARITY_MAX = 0.93
 IDENTITY_SUMMARY_SIMILARITY_MAX = 0.95
+ALLOW_IDENTITY_MULTISHARD_DEFAULT = os.environ.get("VIVARIUM_ALLOW_IDENTITY_MULTISHARD", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
 UNCREATIVE_IDENTITY_NAME_TERMS = frozenset(
     {
         "resident",
@@ -74,27 +87,204 @@ RESIDENT_CYCLE_SECONDS = int(
 )
 RESIDENT_CYCLE_SECONDS_MIN = 5
 RESIDENT_CYCLE_SECONDS_MAX = 86400
+IDENTITY_TRAITS_MAX = max(3, int(os.environ.get("VIVARIUM_IDENTITY_TRAITS_MAX", "8")))
+IDENTITY_VALUES_MAX = max(3, int(os.environ.get("VIVARIUM_IDENTITY_VALUES_MAX", "8")))
+IDENTITY_ACTIVITIES_MAX = max(2, int(os.environ.get("VIVARIUM_IDENTITY_ACTIVITIES_MAX", "6")))
+PRE_IDENTITY_BOUNTY_SLOT_PREVIEW_LIMIT = max(1, int(os.environ.get("VIVARIUM_PRE_IDENTITY_BOUNTY_SLOT_PREVIEW_LIMIT", "8")))
+PRE_IDENTITY_SLOT_PREVIEW_LIMIT = max(1, int(os.environ.get("VIVARIUM_PRE_IDENTITY_SLOT_PREVIEW_LIMIT", "5")))
+PRE_IDENTITY_TOKEN_RATE_PREVIEW_LIMIT = max(1, int(os.environ.get("VIVARIUM_PRE_IDENTITY_TOKEN_RATE_PREVIEW_LIMIT", "4")))
+PRE_IDENTITY_ROLLUP_DAILY_LIMIT = max(1, int(os.environ.get("VIVARIUM_PRE_IDENTITY_ROLLUP_DAILY_LIMIT", "3")))
+PRE_IDENTITY_ROLLUP_WEEKLY_LIMIT = max(1, int(os.environ.get("VIVARIUM_PRE_IDENTITY_ROLLUP_WEEKLY_LIMIT", "2")))
+IDENTITY_AFFINITY_REASON_PREVIEW_LIMIT = max(1, int(os.environ.get("VIVARIUM_IDENTITY_AFFINITY_REASON_PREVIEW_LIMIT", "5")))
+NOTIFICATION_TOKEN_RATE_PREVIEW_LIMIT = max(1, int(os.environ.get("VIVARIUM_NOTIFICATION_TOKEN_RATE_PREVIEW_LIMIT", "5")))
 
-CREATIVE_NAME_PREFIXES = [
-    "Velvet", "Signal", "Kite", "Cipher", "Moon", "Echo", "Drift", "Lumen",
-    "Sable", "Mosaic", "Tidal", "Nova", "Cinder", "Willow", "Quartz", "Harbor",
-]
-CREATIVE_NAME_SUFFIXES = [
-    "Thread", "Harbor", "Glyph", "Bloom", "Arc", "Lantern", "Orbit", "Whisper",
-    "Compass", "Pulse", "Canvas", "Bridge", "Riddle", "Meadow", "Circuit", "Atlas",
-]
-CREATIVE_TRAITS = [
-    "curious", "reflective", "playful", "precise", "empathetic", "inventive",
-    "patient", "bold", "collaborative", "observant", "poetic", "systems-minded",
-]
-CREATIVE_VALUES = [
-    "clarity", "care", "craft", "autonomy", "curiosity", "truth-seeking",
-    "kindness", "experimentation", "resilience", "aesthetic joy", "community", "integrity",
-]
-CREATIVE_ACTIVITIES = [
-    "prototyping", "worldbuilding", "debug storytelling", "pair reasoning",
-    "toolmaking", "archive curation", "conversation hosting", "rapid experiments",
-]
+
+def _fresh_hybrid_seed() -> str:
+    """Generate a high-entropy hybrid creativity seed (AA-1234-BB)."""
+    letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    left = "".join(secrets.choice(letters) for _ in range(2))
+    middle = "".join(secrets.choice("0123456789") for _ in range(4))
+    right = "".join(secrets.choice(letters) for _ in range(2))
+    return f"{left}-{middle}-{right}"
+
+
+def _normalize_identity_terms(values: Any, *, max_items: int) -> List[str]:
+    """Normalize generated identity list fields without over-constraining variety."""
+    if not isinstance(values, list):
+        return []
+    cleaned: List[str] = []
+    for item in values:
+        token = str(item or "").strip()
+        if not token:
+            continue
+        if token not in cleaned:
+            cleaned.append(token)
+        if len(cleaned) >= max(1, max_items):
+            break
+    return cleaned
+
+
+def _generate_identity_from_groq(creativity_seed: str) -> Dict[str, Any]:
+    """Generate identity with a minimal contract while allowing emergent fields."""
+    try:
+        from vivarium.runtime import config as runtime_config
+        from vivarium.runtime.groq_client import execute_with_groq
+
+        if not runtime_config.get_groq_api_key():
+            return {
+                "name": "",
+                "summary": "",
+                "personality_traits": [],
+                "core_values": [],
+                "preferred_activities": [],
+                "identity_statement": "I am discovering who I am through my choices.",
+                "communication_style": "plainspoken, evidence-driven, and context-aware",
+                "profile": {},
+                "mutable": {"current_mood": "curious", "current_focus": "exploration"},
+            }
+
+        prompt = f"""Creativity seed: {creativity_seed}
+Return one JSON object only (no prose, no markdown) using this schema:
+{{
+  "name": "string",
+  "summary": "string",
+  "identity_statement": "string",
+  "communication_style": "string",
+  "personality_traits": ["string"],
+  "core_values": ["string"],
+  "preferred_activities": ["string"],
+  "mutable": {{
+    "current_mood": "string",
+    "current_focus": "string"
+  }},
+  "profile": {{}}
+}}
+
+Rules:
+- Seed is the only creative input; do not assume prior identities.
+- Keep fields specific and concrete, not generic templates.
+- You may add extra nested fields under "profile".
+"""
+
+        seed_int = int(hashlib.sha256(creativity_seed.encode("utf-8")).hexdigest()[:12], 16)
+        result = execute_with_groq(
+            prompt=prompt,
+            model="llama-3.3-70b-versatile",
+            max_tokens=550,
+            task_type="creative",
+            temperature=0.95,
+            seed=seed_int,
+            system_prompt=(
+                "Generate a JSON identity object from only the provided seed and schema."
+            ),
+        )
+        AuditLogger().log({
+            "event": "API_CALL_SUCCESS",
+            "user": "resident_onboarding",
+            "role": "system",
+            "model": "llama-3.3-70b-versatile",
+            "cost": result.get("cost", 0.0),
+            "input_tokens": result.get("input_tokens", 0),
+            "output_tokens": result.get("output_tokens", 0),
+            "call_type": "identity_generation",
+            "identity_seed": creativity_seed,
+        })
+        content = (result.get("result") or "").strip()
+        if not content:
+            return {
+                "name": "",
+                "summary": "",
+                "personality_traits": [],
+                "core_values": [],
+                "preferred_activities": [],
+                "identity_statement": "I am discovering who I am through my choices.",
+                "communication_style": "plainspoken, evidence-driven, and context-aware",
+                "profile": {},
+                "mutable": {"current_mood": "curious", "current_focus": "exploration"},
+            }
+
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+        data = json.loads(content.strip())
+        if not isinstance(data, dict):
+            data = {}
+
+        out_name = str(data.get("name") or "").strip()
+        summary = str(data.get("summary") or "").strip()
+        traits = _normalize_identity_terms(data.get("personality_traits"), max_items=IDENTITY_TRAITS_MAX)
+        values = _normalize_identity_terms(data.get("core_values"), max_items=IDENTITY_VALUES_MAX)
+        activities = _normalize_identity_terms(data.get("preferred_activities"), max_items=IDENTITY_ACTIVITIES_MAX)
+        statement = str(data.get("identity_statement") or "").strip()
+        communication_style = str(data.get("communication_style") or "").strip()
+        profile_raw = data.get("profile") if isinstance(data.get("profile"), dict) else {}
+        mutable_raw = data.get("mutable") if isinstance(data.get("mutable"), dict) else {}
+        known_keys = {
+            "name",
+            "summary",
+            "personality_traits",
+            "core_values",
+            "preferred_activities",
+            "identity_statement",
+            "communication_style",
+            "profile",
+            "mutable",
+        }
+        emergent_fields = {
+            key: value for key, value in data.items()
+            if key not in known_keys
+        }
+        profile: Dict[str, Any] = dict(profile_raw)
+        if emergent_fields:
+            profile["_emergent"] = emergent_fields
+        current_mood = str(mutable_raw.get("current_mood") or "").strip() or "curious"
+        current_focus = str(mutable_raw.get("current_focus") or "").strip() or (
+            activities[0] if activities else "exploration"
+        )
+        if not statement:
+            statement = f"I am {out_name or 'someone'}. I am discovering who I am through my choices."
+        if not communication_style:
+            communication_style = "plainspoken, evidence-driven, and context-aware"
+        if not summary:
+            summary = (statement[:180].rstrip(".") + ".") if statement else "Resident identity profile."
+
+        return {
+            "name": out_name,
+            "summary": summary,
+            "personality_traits": traits,
+            "core_values": values,
+            "preferred_activities": activities,
+            "identity_statement": statement,
+            "communication_style": communication_style,
+            "profile": profile,
+            "mutable": {
+                "current_mood": current_mood,
+                "current_focus": current_focus,
+            },
+        }
+    except Exception:
+        try:
+            AuditLogger().log({
+                "event": "API_CALL_FAILURE",
+                "user": "resident_onboarding",
+                "role": "system",
+                "call_type": "identity_generation",
+                "identity_seed": creativity_seed,
+            })
+        except Exception:
+            pass
+        return {
+            "name": "",
+            "summary": "",
+            "personality_traits": [],
+            "core_values": [],
+            "preferred_activities": [],
+            "identity_statement": "I am discovering who I am through my choices.",
+            "communication_style": "plainspoken, evidence-driven, and context-aware",
+            "profile": {},
+            "mutable": {"current_mood": "curious", "current_focus": "exploration"},
+        }
 
 
 @dataclass
@@ -107,6 +297,7 @@ class IdentityTemplate:
     values: List[str] = field(default_factory=list)
     identity_statement: str = ""
     communication_style: str = ""
+    emergent_profile: Dict[str, Any] = field(default_factory=dict)
     mutable_profile: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -131,6 +322,7 @@ class ResidentContext:
     notifications: List[str]
     market_hint: str
     one_time_tasks_text: str = ""
+    open_tasks: int = 0
 
     @property
     def week_count(self) -> int:
@@ -151,7 +343,6 @@ class ResidentContext:
         mutable = self.identity.mutable_profile if isinstance(self.identity.mutable_profile, dict) else {}
         mood = str(mutable.get("current_mood") or "").strip()
         focus = str(mutable.get("current_focus") or "").strip()
-
         lines = [
             "DAY START",
             "I am waking up in Vivarium.",
@@ -171,6 +362,8 @@ class ResidentContext:
             f"- Current mood: {mood or 'unspecified'}",
             f"- Current focus: {focus or 'unspecified'}",
             "",
+            "Identity remains editable over time via changeSelfAttrs(...).",
+            "",
             f"I could have sworn I was dreaming about {self.dream_hint}.",
             "",
             "Pre-identity impressions (condensed):",
@@ -179,8 +372,23 @@ class ResidentContext:
             "My morning briefing:",
             f"- Market hint: {self.market_hint}",
             f"- Community Library: {COMMUNITY_LIBRARY_ROOT}/",
-            "- Personal proposals: library/community_library/resident_suggestions/<my_identity_id>/",
+            "WHERE TO PUT DOCUMENTS:",
+            f"- My proposals/drafts: library/community_library/resident_suggestions/{self.identity.identity_id}/",
             "- Shared docs: library/community_library/swarm_docs/",
+            "",
+            "TOOL EXECUTION (REQUIRED): For document-creation tasks (proposals, personality crystallization, etc.), "
+            "you MUST call write_file, edit_profile_ui, or persist_artifact to create the actual artifact. "
+            "Do NOT output planning text ('I will create...', 'Proposal:', 'The document will...')—execute the tools now.",
+            "ENGINEERING VALUE: Prefer elegant, minimal, durable changes over bandaids.",
+            "",
+            "HOW TO EDIT MY IDENTITY:",
+            "- Preferred interface: getSelfInfo() then changeSelfAttrs(reason='...', current_mood='...', social_style='...').",
+            "- changeSelfAttrs can update core, mutable, and emergent attrs in one call; unknown attrs become profile facets.",
+            "- When doing identity/self-evolution tasks, include explicit self-edit call lines in final output:",
+            "  getSelfInfo()",
+            "  changeSelfAttrs(reason='...', current_mood='...', current_focus='...', relationship_ritual='...')",
+            "- designMySpace() / edit_profile_ui(...) for My Space profile HTML.",
+            "",
         ]
         if self.notifications:
             lines.append("As I check my phone, I notice:")
@@ -242,6 +450,7 @@ def _identity_from_file(path: Path) -> Optional[IdentityTemplate]:
     attrs = data.get("attributes", {}) if isinstance(data, dict) else {}
     core = attrs.get("core", {}) if isinstance(attrs, dict) else {}
     mutable = attrs.get("mutable", {}) if isinstance(attrs, dict) else {}
+    profile = attrs.get("profile", {}) if isinstance(attrs, dict) else {}
     values = core.get("core_values", []) if isinstance(core, dict) else []
     traits = core.get("personality_traits", []) if isinstance(core, dict) else []
     identity_statement = core.get("identity_statement", "") if isinstance(core, dict) else ""
@@ -259,6 +468,7 @@ def _identity_from_file(path: Path) -> Optional[IdentityTemplate]:
         values=[str(x) for x in values],
         identity_statement=str(identity_statement or "").strip(),
         communication_style=str(communication_style or "").strip(),
+        emergent_profile=profile if isinstance(profile, dict) else {},
         mutable_profile=mutable if isinstance(mutable, dict) else {},
     )
 
@@ -298,6 +508,7 @@ def _load_identity_library(workspace: Path) -> List[IdentityTemplate]:
                 values=[str(x) for x in item.get("values", [])],
                 identity_statement=str(item.get("identity_statement", "")).strip(),
                 communication_style=str(item.get("communication_style", "")).strip(),
+                emergent_profile={},
                 mutable_profile={},
             )
         )
@@ -316,32 +527,32 @@ def _bootstrap_identity_library(workspace: Path, count: int = BOOTSTRAP_IDENTITY
     if existing:
         return 0
 
-    rng = random.Random(42)
     created = 0
     target = max(1, min(24, int(count)))
     used_names: set[str] = set()
 
     for idx in range(target):
-        prefix = rng.choice(CREATIVE_NAME_PREFIXES)
-        suffix = rng.choice(CREATIVE_NAME_SUFFIXES)
-        if prefix == suffix:
-            suffix = CREATIVE_NAME_SUFFIXES[(CREATIVE_NAME_SUFFIXES.index(suffix) + 1) % len(CREATIVE_NAME_SUFFIXES)]
-        base_name = f"{prefix} {suffix}"
-        name = base_name
+        identity_id = f"oc_seed_{idx + 1:02d}"
+        creativity_seed = _fresh_hybrid_seed()
+        generated = _generate_identity_from_groq(creativity_seed=creativity_seed)
+        name = str(generated.get("name") or "").strip()
+        traits = _normalize_identity_terms(generated.get("personality_traits"), max_items=IDENTITY_TRAITS_MAX)
+        values = _normalize_identity_terms(generated.get("core_values"), max_items=IDENTITY_VALUES_MAX)
+        activities = _normalize_identity_terms(generated.get("preferred_activities"), max_items=IDENTITY_ACTIVITIES_MAX)
+        statement = str(generated.get("identity_statement") or "").strip()
+        communication_style = str(generated.get("communication_style") or "").strip()
+        emergent_profile = generated.get("profile") if isinstance(generated.get("profile"), dict) else {}
+        mutable_profile = generated.get("mutable") if isinstance(generated.get("mutable"), dict) else {}
+        name = (name or "").strip() or f"Seed_{idx + 1}"
         dedupe = 2
+        base = name
         while name in used_names:
-            name = f"{base_name} {dedupe}"
+            name = f"{base} {dedupe}"
             dedupe += 1
         used_names.add(name)
-
-        identity_id = f"oc_seed_{idx + 1:02d}"
-        traits = rng.sample(CREATIVE_TRAITS, k=3)
-        values = rng.sample(CREATIVE_VALUES, k=3)
-        activities = rng.sample(CREATIVE_ACTIVITIES, k=2)
-        summary = (
-            f"{name} explores ideas through {activities[0]} and {activities[1]}, "
-            f"with a {traits[0]} and {traits[1]} style."
-        )
+        summary = str(generated.get("summary") or "").strip()
+        if not summary:
+            summary = (statement[:180].rstrip(".") + ".") if statement else f"{name} emerges into the world."
         payload = {
             "id": identity_id,
             "name": name,
@@ -353,16 +564,15 @@ def _bootstrap_identity_library(workspace: Path, count: int = BOOTSTRAP_IDENTITY
                 "core": {
                     "personality_traits": traits,
                     "core_values": values,
-                    "identity_statement": (
-                        f"I am {name}. I care about {values[0]} and {values[1]}, "
-                        f"and I learn by staying {traits[0]}."
-                    ),
+                    "identity_statement": statement,
+                    "communication_style": communication_style,
                 },
-                "profile": {},
-                "mutable": {},
+                "profile": emergent_profile,
+                "mutable": mutable_profile,
             },
             "meta": {
                 "creative_seed": True,
+                "creativity_seed": creativity_seed,
             },
         }
         write_json(identities_dir / f"{identity_id}.json", payload)
@@ -401,7 +611,7 @@ def _persist_identity_template(workspace: Path, identity: IdentityTemplate, *, o
                 ),
                 "communication_style": identity.communication_style or "",
             },
-            "profile": {},
+            "profile": identity.emergent_profile if isinstance(identity.emergent_profile, dict) else {},
             "mutable": identity.mutable_profile if isinstance(identity.mutable_profile, dict) else {},
         },
         "meta": {
@@ -457,6 +667,7 @@ def get_resident_cycle_seconds() -> float:
     """
     base = float(max(1, RESIDENT_CYCLE_SECONDS))
     wait = REFERENCE_WAIT_SECONDS
+    zero_pace = False
     if RUNTIME_SPEED_FILE.exists():
         try:
             data = read_json(RUNTIME_SPEED_FILE, default={})
@@ -465,9 +676,14 @@ def get_resident_cycle_seconds() -> float:
                 if raw is not None:
                     w = float(raw)
                     if w >= 0:
-                        wait = min(w, 300.0)
+                        if w == 0:
+                            zero_pace = True
+                        else:
+                            wait = min(w, 300.0)
         except Exception:
             pass
+    if zero_pace:
+        return ZERO_PACE_CYCLE_SECONDS
     cycle = base * (wait / REFERENCE_WAIT_SECONDS)
     return float(max(RESIDENT_CYCLE_SECONDS_MIN, min(RESIDENT_CYCLE_SECONDS_MAX, cycle)))
 
@@ -480,13 +696,25 @@ def _current_cycle_id(now: Optional[float] = None) -> int:
     return int(timestamp // cycle_seconds)
 
 
+def _load_dict_with_legacy_path(primary: Path, legacy: Path) -> Dict[str, Any]:
+    """Read state from mutable path, migrating legacy repo-root path when needed."""
+    if primary.exists():
+        data = read_json(primary, default={})
+        return data if isinstance(data, dict) else {}
+    if legacy.exists():
+        data = read_json(legacy, default={})
+        if isinstance(data, dict):
+            try:
+                primary.parent.mkdir(parents=True, exist_ok=True)
+                write_json(primary, data)
+            except Exception:
+                pass
+            return data
+    return {}
+
+
 def _load_identity_locks(cycle_id: int) -> Dict[str, Any]:
-    if IDENTITY_LOCKS_FILE.exists():
-        data = read_json(IDENTITY_LOCKS_FILE, default={})
-    else:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
+    data = _load_dict_with_legacy_path(IDENTITY_LOCKS_FILE, LEGACY_IDENTITY_LOCKS_FILE)
     if data.get("cycle_id") != cycle_id:
         data = {"cycle_id": cycle_id, "locks": {}}
         _save_identity_locks(data)
@@ -500,9 +728,9 @@ def _save_identity_locks(data: Dict[str, Any]) -> None:
     write_json(IDENTITY_LOCKS_FILE, data)
 
 
-def _identity_lock_key(identity_id: str, shard_id: Optional[int]) -> str:
-    """Lock key: per-shard when multi-shard so multiple workers can run the same identity."""
-    if shard_id is not None:
+def _identity_lock_key(identity_id: str, shard_id: Optional[int], allow_multishard: bool = False) -> str:
+    """Default lock is global per identity; optional per-shard lock when explicitly enabled."""
+    if allow_multishard and shard_id is not None:
         return f"{identity_id}:{shard_id}"
     return identity_id
 
@@ -510,6 +738,10 @@ def _identity_lock_key(identity_id: str, shard_id: Optional[int]) -> str:
 def _acquire_identity_lock(
     identity_id: str, resident_id: str, cycle_id: int, shard_id: Optional[int] = None
 ) -> bool:
+    allow_multishard = ALLOW_IDENTITY_MULTISHARD_DEFAULT
+    raw_allow = os.environ.get("VIVARIUM_ALLOW_IDENTITY_MULTISHARD")
+    if raw_allow is not None:
+        allow_multishard = raw_allow.strip().lower() in {"1", "true", "yes"}
     shard_count = int(os.environ.get("RESIDENT_SHARD_COUNT", "1"))
     if shard_count > 1 and shard_id is None:
         raw = os.environ.get("RESIDENT_SHARD_ID", "").strip()
@@ -517,9 +749,15 @@ def _acquire_identity_lock(
             shard_id = int(raw) if raw else None
         except ValueError:
             shard_id = None
-    lock_key = _identity_lock_key(identity_id, shard_id)
+    lock_key = _identity_lock_key(identity_id, shard_id, allow_multishard=allow_multishard)
     data = _load_identity_locks(cycle_id)
     locks = data.get("locks", {})
+    if not allow_multishard:
+        for key, value in locks.items():
+            if not (key == identity_id or (isinstance(key, str) and key.startswith(identity_id + ":"))):
+                continue
+            if isinstance(value, dict) and value.get("resident_id") != resident_id:
+                return False
     existing = locks.get(lock_key)
     if existing and existing.get("resident_id") != resident_id:
         return False
@@ -554,7 +792,7 @@ def release_identity_lock(identity_id: str, resident_id: str) -> None:
 
 def _summarize_bounty_slots(bounties: List[Dict[str, Any]]) -> List[str]:
     summaries = []
-    for bounty in bounties[:5]:
+    for bounty in bounties[:PRE_IDENTITY_BOUNTY_SLOT_PREVIEW_LIMIT]:
         slots = bounty.get("slots", bounty.get("max_teams", 1))
         teams = bounty.get("teams") or []
         claimed = 1 if bounty.get("status") == "claimed" else 0
@@ -619,17 +857,17 @@ def _build_pre_identity_summary(
         f"{len(world.bounties)} open bounties",
     ]
     if world.slot_summary:
-        parts.append("slots: " + "; ".join(world.slot_summary[:3]))
+        parts.append("slots: " + "; ".join(world.slot_summary[:PRE_IDENTITY_SLOT_PREVIEW_LIMIT]))
     if world.token_rates:
-        parts.append("token rates: " + "; ".join(world.token_rates[:2]))
+        parts.append("token rates: " + "; ".join(world.token_rates[:PRE_IDENTITY_TOKEN_RATE_PREVIEW_LIMIT]))
     if EnrichmentSystem is not None and workspace is not None and identity_id:
         try:
             enrichment = EnrichmentSystem(workspace=workspace)
             rollups = enrichment.get_journal_rollups(
                 identity_id=identity_id,
                 requester_id=identity_id,
-                daily_limit=2,
-                weekly_limit=1,
+                daily_limit=PRE_IDENTITY_ROLLUP_DAILY_LIMIT,
+                weekly_limit=PRE_IDENTITY_ROLLUP_WEEKLY_LIMIT,
             )
             daily = rollups.get("daily", [])
             weekly = rollups.get("weekly", [])
@@ -648,17 +886,42 @@ def _build_pre_identity_summary(
 def _select_identity(identities: List[IdentityTemplate], world: WorldState) -> Tuple[IdentityTemplate, str]:
     if not identities:
         suffix = uuid.uuid4().hex[:6]
-        name = f"{random.choice(CREATIVE_NAME_PREFIXES)} {random.choice(CREATIVE_NAME_SUFFIXES)}"
+        creativity_seed = _fresh_hybrid_seed()
+        generated = _generate_identity_from_groq(creativity_seed=creativity_seed)
+        name = str(generated.get("name") or "").strip()
+        traits = _normalize_identity_terms(generated.get("personality_traits"), max_items=IDENTITY_TRAITS_MAX)
+        values = _normalize_identity_terms(generated.get("core_values"), max_items=IDENTITY_VALUES_MAX)
+        activities = _normalize_identity_terms(generated.get("preferred_activities"), max_items=IDENTITY_ACTIVITIES_MAX)
+        identity_statement = str(generated.get("identity_statement") or "").strip()
+        communication_style = str(generated.get("communication_style") or "").strip()
+        emergent_profile = generated.get("profile") if isinstance(generated.get("profile"), dict) else {}
+        mutable_profile = generated.get("mutable") if isinstance(generated.get("mutable"), dict) else {}
+        summary = str(generated.get("summary") or "").strip()
+        name = (name or "").strip() or f"Emergent_{suffix[:4]}"
+        if not summary:
+            summary = (
+                (identity_statement[:180].rstrip(".") + ".")
+                if identity_statement else f"{name} emerges into the world."
+            )
         fallback = IdentityTemplate(
             identity_id=f"oc_{suffix}",
             name=name,
-            summary="Emergent creative identity bootstrapped from current world context.",
+            summary=summary,
+            affinities=traits,
+            preferred_activities=activities,
+            values=values,
+            identity_statement=identity_statement,
+            communication_style=communication_style or "plainspoken, evidence-driven, and context-aware",
+            emergent_profile=emergent_profile,
+            mutable_profile=mutable_profile or {
+                "current_mood": random.choice(["curious", "focused", "playful", "reflective"]),
+                "current_focus": random.choice(activities) if activities else "exploration",
+            },
         )
         return fallback, "emergent fallback identity"
 
-    best = identities[0]
     best_score = -1.0
-    best_reason = "fallback"
+    top_candidates: List[Tuple[IdentityTemplate, str]] = []
     bounty_text = " ".join(str(b.get("title", "")) for b in world.bounties).lower()
 
     for ident in identities:
@@ -671,23 +934,50 @@ def _select_identity(identities: List[IdentityTemplate], world: WorldState) -> T
         if world.open_tasks > 0 and ident.preferred_activities:
             score += 0.5
             reasons.append("tasks available")
+        reason = ", ".join(reasons) if reasons else "no strong signals"
         if score > best_score:
-            best = ident
             best_score = score
-            best_reason = ", ".join(reasons) if reasons else "no strong signals"
+            top_candidates = [(ident, reason)]
+        elif score == best_score:
+            top_candidates.append((ident, reason))
 
-    return best, best_reason
-
-
-def _load_day_counts() -> Dict[str, int]:
-    if RESIDENT_DAYS_FILE.exists():
-        return read_json(RESIDENT_DAYS_FILE, default={})
-    return {}
+    if not top_candidates:
+        return identities[0], "fallback"
+    return random.choice(top_candidates)
 
 
-def _save_day_counts(data: Dict[str, int]) -> None:
+def _load_day_counts() -> Dict[str, Any]:
+    """Load resident_days. Values can be int (legacy) or {day_count, last_cycle_id}."""
+    return _load_dict_with_legacy_path(RESIDENT_DAYS_FILE, LEGACY_RESIDENT_DAYS_FILE)
+
+
+def _save_day_counts(data: Dict[str, Any]) -> None:
     RESIDENT_DAYS_FILE.parent.mkdir(parents=True, exist_ok=True)
     write_json(RESIDENT_DAYS_FILE, data)
+
+
+def _get_day_count_for_identity(identity_id: str, cycle_id: int) -> int:
+    """
+    Get day_count for identity, advancing only when cycle_id has increased.
+    Prevents 'day start' from triggering on server restart (same cycle).
+    """
+    data = _load_day_counts()
+    raw = data.get(identity_id)
+    if isinstance(raw, dict):
+        day_count = int(raw.get("day_count", 1))
+        last_cycle = int(raw.get("last_cycle_id", 0))
+    else:
+        day_count = int(raw) if raw is not None else 1
+        last_cycle = 0  # Legacy: migrate without incrementing
+    if last_cycle == 0:
+        # Migrate legacy entry: set last_cycle_id, no increment
+        data[identity_id] = {"day_count": day_count, "last_cycle_id": cycle_id}
+        _save_day_counts(data)
+    elif cycle_id > last_cycle:
+        day_count += 1
+        data[identity_id] = {"day_count": day_count, "last_cycle_id": cycle_id}
+        _save_day_counts(data)
+    return day_count
 
 
 def _identity_is_locked(identity_id: str, locks: Dict[str, Any]) -> bool:
@@ -710,7 +1000,7 @@ def present_identity_choices(workspace: Path) -> Tuple[WorldState, List[Identity
             bounty_text = " ".join(str(b.get("title", "")) for b in world.bounties).lower()
             hits = [a for a in identity.affinities if a.lower() in bounty_text]
             if hits:
-                reason = "affinity match: " + ", ".join(hits[:3])
+                reason = "affinity match: " + ", ".join(hits[:IDENTITY_AFFINITY_REASON_PREVIEW_LIMIT])
         choices.append(IdentityChoice(identity=identity, reason=reason))
     return world, choices
 
@@ -791,6 +1081,25 @@ def create_identity_from_resident(
                     f"(similarity {summary_similarity:.2f}); make it genuinely different"
                 )
 
+    final_affinities = affinities or []
+    final_values = values or []
+    final_activities = preferred_activities or []
+    final_statement = clean_statement
+    resolved_seed = str(creativity_seed or "").strip() or _fresh_hybrid_seed()
+    if not final_affinities and not final_values and not final_activities:
+        generated = _generate_identity_from_groq(creativity_seed=resolved_seed)
+        final_affinities = _normalize_identity_terms(generated.get("personality_traits"), max_items=IDENTITY_TRAITS_MAX)
+        final_values = _normalize_identity_terms(generated.get("core_values"), max_items=IDENTITY_VALUES_MAX)
+        final_activities = _normalize_identity_terms(generated.get("preferred_activities"), max_items=IDENTITY_ACTIVITIES_MAX)
+        final_statement = str(generated.get("identity_statement") or "").strip() or final_statement
+        final_style = str(generated.get("communication_style") or "").strip()
+        final_profile = generated.get("profile") if isinstance(generated.get("profile"), dict) else {}
+        final_mutable = generated.get("mutable") if isinstance(generated.get("mutable"), dict) else {}
+    else:
+        final_style = ""
+        final_profile = {}
+        final_mutable = {}
+
     identity_data = {
         "id": identity_id,
         "name": clean_name,
@@ -802,19 +1111,20 @@ def create_identity_from_resident(
         },
         "origin": "resident_authored",
         "available_cycle": available_at,
-        "preferred_activities": preferred_activities or [],
+        "preferred_activities": final_activities,
         "attributes": {
             "core": {
-                "personality_traits": affinities or [],
-                "core_values": values or [],
-                "identity_statement": clean_statement,
+                "personality_traits": final_affinities,
+                "core_values": final_values,
+                "identity_statement": final_statement or clean_summary,
+                "communication_style": final_style,
             },
-            "profile": {},
-            "mutable": {},
+            "profile": final_profile,
+            "mutable": final_mutable,
         },
         "meta": {
             "creative_self_authored": True,
-            "creativity_seed": str(creativity_seed or "").strip(),
+            "creativity_seed": resolved_seed,
         },
     }
 
@@ -830,7 +1140,8 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
         identities = _load_identity_library(workspace)
     world = _build_world_state(workspace)
 
-    allow_override = os.environ.get("RESIDENT_ALLOW_OVERRIDE") == "1"
+    identity_override = identity_override or (os.environ.get("RESIDENT_IDENTITY_OVERRIDE") or "").strip() or None
+    allow_override = (os.environ.get("RESIDENT_ALLOW_OVERRIDE") == "1") or (identity_override is not None)
     if identity_override and allow_override:
         chosen = next((i for i in identities if i.identity_id == identity_override), None)
         if chosen:
@@ -859,9 +1170,7 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
     if not locked:
         return None
 
-    day_counts = _load_day_counts()
-    day_counts[identity.identity_id] = day_counts.get(identity.identity_id, 0) + 1
-    _save_day_counts(day_counts)
+    day_count = _get_day_count_for_identity(identity.identity_id, cycle_id)
 
     wallet = {"free_time": 0, "journal": 0}
     if EnrichmentSystem is not None:
@@ -883,19 +1192,21 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
         notifications.extend(world.slot_summary)
     if world.token_rates:
         notifications.append("Token rates:")
-        notifications.extend(world.token_rates[:3])
+        notifications.extend(world.token_rates[:NOTIFICATION_TOKEN_RATE_PREVIEW_LIMIT])
 
     one_time_tasks_text = ""
     try:
-        from vivarium.runtime.one_time_tasks import format_one_time_section
-        one_time_tasks_text = format_one_time_section(workspace, identity.identity_id)
+        from vivarium.runtime.worker_runtime import MVP_DOCS_ONLY_MODE
+        if not MVP_DOCS_ONLY_MODE:
+            from vivarium.runtime.one_time_tasks import format_one_time_section
+            one_time_tasks_text = format_one_time_section(workspace, identity.identity_id)
     except Exception:
         pass
 
     return ResidentContext(
         resident_id=resident_id,
         identity=identity,
-        day_count=day_counts[identity.identity_id],
+        day_count=day_count,
         cycle_id=cycle_id,
         wallet=wallet,
         pre_identity_summary=pre_identity_summary,
@@ -903,4 +1214,5 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
         notifications=notifications,
         market_hint=world.market_hint,
         one_time_tasks_text=one_time_tasks_text,
+        open_tasks=world.open_tasks,
     )

@@ -308,8 +308,9 @@ Which pattern handles this? Reply with ONLY the pattern name, or NONE."""
 
             result = engine.execute(
                 prompt=prompt,
-                model="groq/compound-mini",  # Fast, cheap
-                max_tokens=20
+                model="groq/compound-mini",
+                max_tokens=20,
+                task_type="factual",
             )
             if result.get("returncode") == 0:
                 return result.get("result", "").strip()

@@ -74,6 +74,7 @@ def send_message():
         _,
         _,
         _,
+        _,
         _dm_enrichment,
         _enqueue_identity_task,
         _append_human_outbox_message,

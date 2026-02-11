@@ -147,7 +147,7 @@ class SafetyGateway:
     def pre_execute_safety_check(self, task: str) -> Tuple[bool, Dict]:
         report = {
             "timestamp": datetime.now().isoformat(),
-            "task": task[:200],
+            "task": task,
             "checks": {},
             "passed": True,
             "blocked_reason": None

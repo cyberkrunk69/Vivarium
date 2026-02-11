@@ -86,3 +86,6 @@ htmlcov/
 
 # Local UI defaults (persisted across sessions, machine-local)
 /config/local_ui_settings.json
+
+# Local runtime workspace artifacts
+/.swarm/

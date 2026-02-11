@@ -27,6 +27,7 @@ from vivarium.runtime.config import (
     validate_model_id,
     validate_config,
 )
+from vivarium.runtime.inference_engine import estimate_complexity
 from vivarium.runtime.runtime_contract import normalize_queue, normalize_task
 from vivarium.runtime.safety_gateway import SafetyGateway
 from vivarium.runtime.secure_api_wrapper import SecureAPIWrapper, create_admin_context
@@ -204,7 +205,7 @@ class CycleRequest(BaseModel):
     mode: Optional[str] = None
     model: Optional[str] = None
     max_tokens: int = Field(default=2048, ge=1, le=65536)
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     timeout: int = Field(default=30, ge=1, le=3600)
     min_budget: Optional[float] = None
     max_budget: Optional[float] = None
@@ -524,8 +525,21 @@ async def _run_groq_task(
         raise HTTPException(status_code=400, detail="llm mode requires prompt")
     validate_config(require_groq_key=True)
 
-    model = req.model or DEFAULT_GROQ_MODEL
-    validate_model_id(model)
+    requested_model = str(req.model or "").strip()
+    if requested_model and requested_model != "auto":
+        model = requested_model
+        validate_model_id(model)
+    else:
+        # Auto mode: default to 70B, downshift to 8B for clearly simple tasks.
+        try:
+            auto_easy_threshold = int(os.environ.get("VIVARIUM_AUTO_MODEL_MAX_COMPLEXITY_FOR_8B", "8"))
+        except ValueError:
+            auto_easy_threshold = 8
+        complexity_score = estimate_complexity(req.prompt or "")
+        auto_large_model = os.environ.get("VIVARIUM_AUTO_MODEL_COMPLEX", "llama-3.3-70b-versatile").strip()
+        auto_easy_model = os.environ.get("VIVARIUM_AUTO_MODEL_SIMPLE", "llama-3.1-8b-instant").strip()
+        model = auto_easy_model if complexity_score <= auto_easy_threshold else auto_large_model
+        validate_model_id(model)
 
     estimated_cost = SECURE_API_WRAPPER._estimate_cost(req.prompt, model)
     if req.max_budget is not None and estimated_cost > req.max_budget:
@@ -544,14 +558,19 @@ async def _run_groq_task(
             ),
         )
 
+    call_kwargs = {
+        "prompt": req.prompt,
+        "model": model,
+        "max_tokens": req.max_tokens,
+        "timeout": 60,
+        "task_type": "creative",
+        "audit_call_type": "task_execution",
+        "audit_task_id": req.task_id,
+    }
+    if req.temperature is not None:
+        call_kwargs["temperature"] = req.temperature
     try:
-        result = SECURE_API_WRAPPER.call_llm(
-            prompt=req.prompt,
-            model=model,
-            max_tokens=req.max_tokens,
-            temperature=req.temperature,
-            timeout=60,
-        )
+        result = SECURE_API_WRAPPER.call_llm(**call_kwargs)
     except PermissionError as exc:
         detail = str(exc)
         status_code = 429 if "Rate limit" in detail else 403
@@ -791,7 +810,7 @@ Return ONLY valid JSON array, no other text."""
             prompt=prompt,
             model=DEFAULT_GROQ_MODEL,
             max_tokens=1024,
-            temperature=0.4,
+            task_type="brainstorming",
             timeout=60,
         )
     except PermissionError as exc:

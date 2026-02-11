@@ -144,12 +144,9 @@ class IntentGatekeeper:
 
         # Fallback: use first sentence or summarize
         if sentences:
-            first = sentences[0]
-            if len(first) < 200:
-                return first
-            return first[:200] + "..."
+            return sentences[0]
 
-        return full_text[:200] if full_text else "Unknown goal"
+        return full_text if full_text else "Unknown goal"
 
     def _extract_constraints(self, sentences: List[str]) -> List[str]:
         """Extract constraint statements."""
