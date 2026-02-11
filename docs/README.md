@@ -11,4 +11,5 @@ focused on runtime entrypoints and build/config files.
 - [`CROSS_REPO_TIMELINE.md`](./CROSS_REPO_TIMELINE.md)
 - [`README_TECHNICAL.md`](./README_TECHNICAL.md)
 - [`INSTALL_GUIDE.md`](./INSTALL_GUIDE.md)
+- [`assets/diagrams/README.md`](./assets/diagrams/README.md)
 

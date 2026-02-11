@@ -1,6 +1,15 @@
 release:
-\t@bump2version patch
-\t@git push && git push --tags
+	@bump2version patch
+	@git push && git push --tags
+
 .PHONY: bump-version
 bump-version:
-\tpython scripts/bump_version.py $(PART)
+	python scripts/bump_version.py $(PART)
+
+.PHONY: diagrams-export
+diagrams-export:
+	./scripts/export_diagrams.sh
+
+.PHONY: diagrams-validate
+diagrams-validate:
+	./scripts/validate_diagrams.py
