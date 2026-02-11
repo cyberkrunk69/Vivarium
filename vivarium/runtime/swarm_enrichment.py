@@ -35,8 +35,10 @@ Usage:
 """
 
 import json
+import os
 import random
 import secrets
+import threading
 import time
 import math
 import re
@@ -45,7 +47,13 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from statistics import mean, stdev
-from vivarium.runtime.vivarium_scope import SECURITY_ROOT
+from vivarium.runtime.vivarium_scope import SECURITY_ROOT, MUTABLE_ROOT
+from vivarium.runtime.config import (
+    DISCUSSION_MESSAGE_MAX_CHARS,
+    DISCUSSION_PREVIEW_MAX_CHARS,
+    DISCUSSION_PREVIEW_CLIPPED_CHARS,
+    TASK_REVIEW_EXCERPT_MAX_CHARS,
+)
 
 # Import action logger for audit trail
 try:
@@ -53,6 +61,20 @@ try:
     _action_logger = get_action_logger()
 except ImportError:
     _action_logger = None
+
+# Process-local lock for daily wind-down allowance when fcntl unavailable (e.g. Windows)
+_wind_down_allowance_lock = threading.Lock()
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    """Parse integer environment setting with safe lower bound."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return max(minimum, int(default))
+    try:
+        return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        return max(minimum, int(default))
 
 
 @dataclass
@@ -368,7 +390,20 @@ class EnrichmentSystem:
     """Manages hobbies, creative works, and social rewards."""
 
     def __init__(self, workspace: Path):
+        global _action_logger
         self.workspace = Path(workspace)
+        # Keep test/local enrichment instances from polluting the shared runtime audit log.
+        try:
+            workspace_resolved = self.workspace.resolve()
+            mutable_resolved = MUTABLE_ROOT.resolve()
+            if workspace_resolved == mutable_resolved:
+                _action_logger = get_action_logger()
+            else:
+                local_log = workspace_resolved / ".swarm" / "action_log.jsonl"
+                _action_logger = get_action_logger(str(local_log))
+        except Exception:
+            _action_logger = None
+
         self.library_dir = self.workspace / "library" / "creative_works"
         self.library_dir.mkdir(parents=True, exist_ok=True)
         self.community_library_dir = self.workspace / "library" / "community_library"
@@ -437,8 +472,8 @@ class EnrichmentSystem:
     MEMORY_SUMMARY_MAX_CHARS = 220
     MEMORY_SUMMARY_RECENT_ENTRY_COUNT = 4
     MEMORY_SUMMARY_RECENT_SNIPPET_CHARS = 80
-    MEMORY_SUMMARY_TOP_TERMS = 4
-    MEMORY_SUMMARY_SNIPPETS = 2
+    MEMORY_SUMMARY_TOP_TERMS = _env_int("VIVARIUM_MEMORY_SUMMARY_TOP_TERMS", 4)
+    MEMORY_SUMMARY_SNIPPETS = _env_int("VIVARIUM_MEMORY_SUMMARY_SNIPPETS", 2)
     MEMORY_TERM_MIN_LENGTH = 5
     MEMORY_ROLLUP_DAILY_RETAIN = 45
     MEMORY_ROLLUP_WEEKLY_RETAIN = 16
@@ -451,9 +486,18 @@ class EnrichmentSystem:
     MEMORY_RECALL_WEEKLY_WINDOW = 4
     MEMORY_RECALL_RECENT_ENTRIES = 20
     MEMORY_RECALL_ENTRY_PREVIEW_CHARS = 220
-    CONTEXT_RECENT_JOURNAL_LIMIT = 4
-    CONTEXT_ROLLUP_DAILY_LIMIT = 3
-    CONTEXT_ROLLUP_WEEKLY_LIMIT = 2
+    CONTEXT_RECENT_JOURNAL_LIMIT = _env_int("VIVARIUM_CONTEXT_RECENT_JOURNAL_LIMIT", 4)
+    CONTEXT_ROLLUP_DAILY_LIMIT = _env_int("VIVARIUM_CONTEXT_ROLLUP_DAILY_LIMIT", 3)
+    CONTEXT_ROLLUP_WEEKLY_LIMIT = _env_int("VIVARIUM_CONTEXT_ROLLUP_WEEKLY_LIMIT", 2)
+    CONTEXT_TERM_SOURCE_RECENT_JOURNALS = _env_int("VIVARIUM_CONTEXT_TERM_SOURCE_RECENT_JOURNALS", 4)
+    CONTEXT_TOP_TERMS = _env_int("VIVARIUM_CONTEXT_TOP_TERMS", 6)
+    CONTEXT_GUILD_LEADERBOARD_LIMIT = _env_int("VIVARIUM_CONTEXT_GUILD_LEADERBOARD_LIMIT", 5)
+    CONTEXT_RECENT_WORK_LIMIT = _env_int("VIVARIUM_CONTEXT_RECENT_WORK_LIMIT", 5)
+    CONTEXT_INVITE_PREVIEW_LIMIT = _env_int("VIVARIUM_CONTEXT_INVITE_PREVIEW_LIMIT", 5)
+    CONTEXT_BADGE_PREVIEW_LIMIT = _env_int("VIVARIUM_CONTEXT_BADGE_PREVIEW_LIMIT", 5)
+    CONTEXT_LIBRARY_TITLE_PREVIEW_CHARS = _env_int("VIVARIUM_CONTEXT_LIBRARY_TITLE_PREVIEW_CHARS", 42)
+    CONTEXT_MEMORY_RECALL_SUGGESTED_LIMIT = _env_int("VIVARIUM_CONTEXT_MEMORY_RECALL_SUGGESTED_LIMIT", 8)
+    PROFILE_CORE_SUMMARY_LIMIT = _env_int("VIVARIUM_PROFILE_CORE_SUMMARY_LIMIT", 5)
 
     MEMORY_STOP_WORDS = frozenset(
         {
@@ -558,7 +602,7 @@ class EnrichmentSystem:
         room_file = self._discussion_room_file(normalized_room)
         room_file.parent.mkdir(parents=True, exist_ok=True)
 
-        clipped = text[:1200]
+        clipped = text[:DISCUSSION_MESSAGE_MAX_CHARS]
         safe_importance = max(1, min(5, int(importance))) if isinstance(importance, int) else 3
         message = {
             "id": f"chat_{normalized_room}_{int(time.time() * 1000)}_{str(identity_id)[-6:]}",
@@ -577,8 +621,8 @@ class EnrichmentSystem:
 
         if _action_logger:
             preview = clipped.replace("\n", " ").strip()
-            if len(preview) > 80:
-                preview = preview[:77] + "..."
+            if len(preview) > DISCUSSION_PREVIEW_MAX_CHARS:
+                preview = preview[:DISCUSSION_PREVIEW_CLIPPED_CHARS] + "..."
             _action_logger.log(
                 ActionType.SOCIAL,
                 f"chat_{normalized_room}",
@@ -635,8 +679,8 @@ class EnrichmentSystem:
 
         if _action_logger:
             preview = str(content or "").replace("\n", " ").strip()
-            if len(preview) > 80:
-                preview = preview[:77] + "..."
+            if len(preview) > DISCUSSION_PREVIEW_MAX_CHARS:
+                preview = preview[:DISCUSSION_PREVIEW_CLIPPED_CHARS] + "..."
             _action_logger.log(
                 ActionType.SOCIAL,
                 "direct_message",
@@ -1145,7 +1189,6 @@ class EnrichmentSystem:
 
     def get_all_balances(self, identity_id: str) -> dict:
         """Get all token balances for an identity."""
-        self._grant_daily_wind_down_allowance(identity_id)
         balances = self._load_free_time_balances()
         identity_data = balances.get(identity_id, {})
         return {
@@ -1171,54 +1214,84 @@ class EnrichmentSystem:
             json.dump(data, f, indent=2)
 
     def _grant_daily_wind_down_allowance(self, identity_id: str) -> dict:
-        """Grant free daily wind-down tokens once per UTC day."""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        ledger = self._load_wind_down_allowance()
+        """Grant free daily wind-down tokens once per resident cycle day. Idempotent via file lock."""
         key = str(identity_id or "").strip()
         if not key:
             return {"granted": False, "reason": "invalid_identity"}
-        if str(ledger.get(key) or "") == today:
-            return {"granted": False, "reason": "already_granted", "day": today}
 
-        balances = self._load_free_time_balances()
-        if key not in balances:
-            balances[key] = {
-                "tokens": 0,
-                "journal_tokens": 0,
-                "free_time_cap": self.BASE_FREE_TIME_CAP,
-                "history": [],
-                "spending_history": [],
-            }
-        free_cap = int(balances[key].get("free_time_cap", self.BASE_FREE_TIME_CAP) or self.BASE_FREE_TIME_CAP)
-        old_tokens = int(balances[key].get("tokens", 0) or 0)
-        desired_new = old_tokens + self.DAILY_WIND_DOWN_TOKENS
-        if desired_new > free_cap:
-            balances[key]["free_time_cap"] = desired_new
-            free_cap = desired_new
-        balances[key]["tokens"] = min(desired_new, free_cap)
-        balances[key].setdefault("history", []).append(
-            {
-                "granted_total": self.DAILY_WIND_DOWN_TOKENS,
-                "free_time_granted": self.DAILY_WIND_DOWN_TOKENS,
-                "journal_granted": 0,
-                "reason": "daily_wind_down_allowance",
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
-        balances[key]["history"] = balances[key]["history"][-60:]
-        self._save_free_time_balances(balances)
-        ledger[key] = today
-        self._save_wind_down_allowance(ledger)
+        def _current_cycle_id() -> int:
+            try:
+                from vivarium.runtime import resident_onboarding as _resident_onboarding
 
-        if _action_logger:
-            _action_logger.log(
-                ActionType.IDENTITY,
-                "daily_wind_down_allowance",
-                f"+{self.DAILY_WIND_DOWN_TOKENS} free-time tokens",
-                actor=key,
+                cycle_seconds = float(_resident_onboarding.get_resident_cycle_seconds())
+                if cycle_seconds <= 0:
+                    return int(time.time())
+                return int(time.time() // cycle_seconds)
+            except Exception:
+                # Fallback should still be monotonic-ish and deterministic enough for idempotency.
+                return int(time.time() // 10)
+
+        def _do_grant() -> dict:
+            cycle_id = _current_cycle_id()
+            ledger = self._load_wind_down_allowance()
+            if int(ledger.get(key) or -1) == cycle_id:
+                return {"granted": False, "reason": "already_granted", "cycle_id": cycle_id}
+
+            balances = self._load_free_time_balances()
+            if key not in balances:
+                balances[key] = {
+                    "tokens": 0,
+                    "journal_tokens": 0,
+                    "free_time_cap": self.BASE_FREE_TIME_CAP,
+                    "history": [],
+                    "spending_history": [],
+                }
+            free_cap = int(balances[key].get("free_time_cap", self.BASE_FREE_TIME_CAP) or self.BASE_FREE_TIME_CAP)
+            old_tokens = int(balances[key].get("tokens", 0) or 0)
+            desired_new = old_tokens + self.DAILY_WIND_DOWN_TOKENS
+            if desired_new > free_cap:
+                balances[key]["free_time_cap"] = desired_new
+                free_cap = desired_new
+            balances[key]["tokens"] = min(desired_new, free_cap)
+            balances[key].setdefault("history", []).append(
+                {
+                    "granted_total": self.DAILY_WIND_DOWN_TOKENS,
+                    "free_time_granted": self.DAILY_WIND_DOWN_TOKENS,
+                    "journal_granted": 0,
+                    "reason": "daily_wind_down_allowance",
+                    "timestamp": datetime.now().isoformat(),
+                }
             )
+            balances[key]["history"] = balances[key]["history"][-60:]
+            self._save_free_time_balances(balances)
+            ledger[key] = cycle_id
+            self._save_wind_down_allowance(ledger)
 
-        return {"granted": True, "day": today, "tokens": self.DAILY_WIND_DOWN_TOKENS}
+            if _action_logger:
+                _action_logger.log(
+                    ActionType.IDENTITY,
+                    "daily_wind_down_allowance",
+                    f"+{self.DAILY_WIND_DOWN_TOKENS} free-time tokens",
+                    actor=key,
+                )
+
+            return {"granted": True, "cycle_id": cycle_id, "tokens": self.DAILY_WIND_DOWN_TOKENS}
+
+        lock_path = self.wind_down_allowance_file.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import fcntl
+            with open(lock_path, "w") as lf:
+                fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+                try:
+                    return _do_grant()
+                finally:
+                    fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            # fcntl unavailable (e.g. Windows) or failed: use process-local lock to prevent
+            # duplicate grants from concurrent threads in same process.
+            with _wind_down_allowance_lock:
+                return _do_grant()
 
     def wind_down(
         self,
@@ -1908,7 +1981,7 @@ class EnrichmentSystem:
 
     TASK_REVIEW_JURY_SIZE = 3   # Randomly selected jurors (jury duty); no reward-milking
     TASK_REVIEW_MIN_VOTES = 2   # Votes required to finalize (e.g. 2 of 3 jurors)
-    TASK_REVIEW_EXCERPT_MAX = 500
+    TASK_REVIEW_EXCERPT_MAX = TASK_REVIEW_EXCERPT_MAX_CHARS
     TASK_REVIEW_MIN_REASON_CHARS = 10
 
     def _load_task_review_votes(self) -> dict:
@@ -1944,9 +2017,7 @@ class EnrichmentSystem:
                 return {"success": True, "task_id": task_id, "already_submitted": True}
             if existing.get("status") in ("accepted", "rejected"):
                 return {"success": False, "reason": "task_review_already_resolved"}
-        excerpt = (result_excerpt or "")[: self.TASK_REVIEW_EXCERPT_MAX]
-        if len((result_excerpt or "")) > self.TASK_REVIEW_EXCERPT_MAX:
-            excerpt = excerpt.rstrip() + "..."
+        excerpt = (result_excerpt or "")
 
         # Jury duty: random selection from all identities (except author) so no one can milk review rewards
         pool = list(self._load_free_time_balances().keys())
@@ -1964,8 +2035,8 @@ class EnrichmentSystem:
             "result_excerpt": excerpt,
             "author_id": author_id,
             "author_name": author_name or author_id,
-            "result_summary": (result_summary or "")[: 2000],
-            "review_verdict": (review_verdict or "")[: 200],
+            "result_summary": (result_summary or ""),
+            "review_verdict": (review_verdict or ""),
             "created_at": datetime.now().isoformat(),
             "status": status,
             "jurors": jurors,
@@ -5449,6 +5520,7 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
     MUTABLE_COST_RATIO = 0.15           # 15% of full respec cost
     MUTABLE_JOURNAL_REFUND = 0.10       # 10% refund for any journal
     MUTABLE_QUALITY_REFUND = 0.25       # 25% refund for quality journal
+    PROFILE_FACET_BASE_COST = 2         # Cheap long-term facet evolution
 
     def calculate_mutable_cost(self, identity_id: str) -> dict:
         """Calculate cost to update a mutable attribute."""
@@ -5600,6 +5672,118 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
         except Exception as e:
             # Refund on failure
             balances[identity_id]["tokens"] += net_cost
+            self._save_free_time_balances(balances)
+            return {"success": False, "reason": f"update_failed: {str(e)}"}
+
+    def update_profile_facet(
+        self,
+        identity_id: str,
+        key: str,
+        value: Any,
+        reason: str = None,
+    ) -> dict:
+        """
+        Persist a long-term emergent facet under identity.attributes.profile.
+
+        Intended for gradual personality drift beyond strict core/mutable fields.
+        """
+        facet_key = str(key or "").strip()
+        if not facet_key:
+            return {"success": False, "reason": "key_required"}
+        if len(facet_key) > 64:
+            return {"success": False, "reason": "key_too_long"}
+        if not re.match(r"^[A-Za-z0-9_.-]+$", facet_key):
+            return {
+                "success": False,
+                "reason": "invalid_key",
+                "message": "Facet key can only include letters, numbers, _, -, and .",
+            }
+
+        value_text = str(value)
+        if len(value_text) > 1200:
+            return {"success": False, "reason": "value_too_long", "max_chars": 1200}
+
+        # Cost uses mutable baseline, but never below profile facet floor.
+        cost_info = self.calculate_mutable_cost(identity_id)
+        if "error" in cost_info:
+            return {"success": False, "reason": cost_info["error"]}
+        gross_cost = max(self.PROFILE_FACET_BASE_COST, int(cost_info.get("mutable_cost", 0)))
+
+        balances = self._load_free_time_balances()
+        if identity_id not in balances:
+            return {"success": False, "reason": "no_token_balance"}
+        current_balance = int(balances[identity_id].get("tokens", 0))
+        if current_balance < gross_cost:
+            return {
+                "success": False,
+                "reason": "insufficient_tokens",
+                "cost": gross_cost,
+                "balance": current_balance,
+            }
+
+        refund_amount = 0
+        refund_tier = "none"
+        if reason and len(str(reason).strip()) >= 10:
+            reason_lower = str(reason).lower()
+            word_count = len(str(reason).split())
+            quality_markers = sum(1 for m in self.EXCEPTIONAL_MARKERS if m in reason_lower)
+            if word_count >= 20 and quality_markers >= 1:
+                refund_amount = int(gross_cost * self.MUTABLE_QUALITY_REFUND)
+                refund_tier = "quality"
+            else:
+                refund_amount = int(gross_cost * self.MUTABLE_JOURNAL_REFUND)
+                refund_tier = "basic"
+
+        net_cost = gross_cost - refund_amount
+        balances[identity_id]["tokens"] = current_balance - net_cost
+        self._save_free_time_balances(balances)
+
+        try:
+            from swarm_identity import get_identity_manager
+            manager = get_identity_manager(self.workspace)
+            identity = manager._load_identity(identity_id)
+            if not identity:
+                balances[identity_id]["tokens"] = current_balance
+                self._save_free_time_balances(balances)
+                return {"success": False, "reason": "identity_not_found"}
+
+            if "profile" not in identity.attributes or not isinstance(identity.attributes.get("profile"), dict):
+                identity.attributes["profile"] = {}
+            profile = identity.attributes["profile"]
+            old_value = profile.get(facet_key)
+            profile[facet_key] = value
+            profile["last_emergent_update"] = datetime.now().isoformat()
+            profile["emergent_update_count"] = int(profile.get("emergent_update_count", 0)) + 1
+
+            if reason:
+                identity.add_memory(f"Evolved profile facet '{facet_key}': {reason}")
+            else:
+                identity.add_memory(f"Evolved profile facet '{facet_key}' from {old_value} to {value}")
+
+            manager._save_identity(identity)
+
+            if _action_logger:
+                _action_logger.log(
+                    ActionType.IDENTITY,
+                    "profile_facet_update",
+                    f"-{net_cost} tokens: profile.{facet_key} updated",
+                    actor=identity_id,
+                )
+
+            return {
+                "success": True,
+                "facet": facet_key,
+                "old_value": old_value,
+                "new_value": value,
+                "gross_cost": gross_cost,
+                "refund": refund_amount,
+                "refund_tier": refund_tier,
+                "net_cost": net_cost,
+                "remaining_tokens": balances[identity_id]["tokens"],
+                "message": f"Updated profile facet '{facet_key}' with emergent persistence.",
+            }
+        except Exception as e:
+            balances[identity_id]["tokens"] = current_balance
             self._save_free_time_balances(balances)
             return {"success": False, "reason": f"update_failed: {str(e)}"}
 
@@ -6196,6 +6380,158 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
             thumbnail_css=thumbnail_css,
         )
 
+    def get_self_info(self, identity_id: str) -> dict:
+        """
+        Unified self-inspection alias for identity state and change economics.
+        """
+        profile_payload = self.get_profile(identity_id)
+        if profile_payload.get("error"):
+            return {"success": False, "reason": profile_payload.get("error")}
+        mutable_cost = self.calculate_mutable_cost(identity_id)
+        respec_cost = self.calculate_respec_cost(identity_id)
+        return {
+            "success": True,
+            "identity": profile_payload,
+            "mutable_cost": mutable_cost,
+            "respec_cost": respec_cost,
+        }
+
+    def change_self_attrs(
+        self,
+        identity_id: str,
+        updates: dict,
+        reason: str = None,
+        allow_new_attrs: bool = True,
+        allow_contract_bypass: bool = False,
+    ) -> dict:
+        """
+        Unified self-mutation alias.
+
+        Routes known fields to core/mutable tools and unknown fields to profile facets.
+        """
+        if not isinstance(updates, dict) or not updates:
+            return {"success": False, "reason": "updates_required"}
+
+        mutable_keys = {
+            "likes",
+            "dislikes",
+            "current_interests",
+            "working_style",
+            "aesthetic_preferences",
+            "quirks",
+            "current_mood",
+            "current_focus",
+        }
+        core_list_keys = {"personality_traits", "core_values"}
+        core_single_keys = {"communication_style", "identity_statement"}
+
+        applied: list[str] = []
+        failures: list[dict] = []
+        routed: dict[str, str] = {}
+
+        for raw_key, value in updates.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+
+            if key == "name":
+                routed[key] = "respec_identity"
+                result = self.respec_identity(identity_id, new_name=str(value or "").strip(), reason=reason or "change_self_attrs")
+                if result.get("success"):
+                    applied.append(key)
+                else:
+                    failures.append({"key": key, "route": "respec_identity", "reason": result.get("reason", "unknown")})
+                continue
+
+            if key in mutable_keys:
+                routed[key] = "update_mutable_attribute"
+                result = self.update_mutable_attribute(identity_id, key, value, reason=reason)
+                if result.get("success"):
+                    applied.append(key)
+                else:
+                    result_reason = str(result.get("reason", "unknown"))
+                    # Contract bypass for required low-friction evolution fields.
+                    if (
+                        allow_contract_bypass
+                        and result_reason == "insufficient_tokens"
+                        and key in {"current_mood", "current_focus"}
+                    ):
+                        try:
+                            from swarm_identity import get_identity_manager
+                            manager = get_identity_manager(self.workspace)
+                            identity = manager._load_identity(identity_id)
+                            if identity and isinstance(identity.attributes, dict):
+                                identity.attributes.setdefault("mutable", {})
+                                identity.attributes["mutable"][key] = value
+                                identity.add_memory(
+                                    f"Contract-applied {key} via changeSelfAttrs"
+                                )
+                                manager._save_identity(identity)
+                                if _action_logger:
+                                    _action_logger.log(
+                                        ActionType.IDENTITY,
+                                        "contract_mutable_update",
+                                        f"NO_COST: {key} updated via changeSelfAttrs contract",
+                                        actor=identity_id,
+                                    )
+                                applied.append(key)
+                                continue
+                        except Exception as exc:
+                            failures.append(
+                                {
+                                    "key": key,
+                                    "route": "contract_bypass",
+                                    "reason": f"update_failed:{exc}",
+                                }
+                            )
+                            continue
+                    failures.append({"key": key, "route": "update_mutable_attribute", "reason": result_reason})
+                continue
+
+            if key in core_single_keys:
+                routed[key] = "set_core_single"
+                result = self.set_core_single(identity_id, key, value, reason=reason)
+                if result.get("success"):
+                    applied.append(key)
+                else:
+                    failures.append({"key": key, "route": "set_core_single", "reason": result.get("reason", "unknown")})
+                continue
+
+            if key in core_list_keys:
+                routed[key] = "add_to_core"
+                values = value if isinstance(value, list) else [value]
+                per_key_success = False
+                for item in values:
+                    item_text = str(item or "").strip()
+                    if not item_text:
+                        continue
+                    add_result = self.add_to_core(identity_id, key, item_text, reason=reason)
+                    if add_result.get("success"):
+                        per_key_success = True
+                    else:
+                        failures.append({"key": key, "route": "add_to_core", "reason": add_result.get("reason", "unknown"), "value": item_text})
+                if per_key_success:
+                    applied.append(key)
+                continue
+
+            if allow_new_attrs:
+                routed[key] = "update_profile_facet"
+                result = self.update_profile_facet(identity_id, key=key, value=value, reason=reason)
+                if result.get("success"):
+                    applied.append(key)
+                else:
+                    failures.append({"key": key, "route": "update_profile_facet", "reason": result.get("reason", "unknown")})
+            else:
+                failures.append({"key": key, "route": "none", "reason": "unknown_attribute"})
+
+        return {
+            "success": len(applied) > 0,
+            "applied": applied,
+            "failed": failures,
+            "routed": routed,
+            "reason": None if applied else "no_updates_applied",
+        }
+
     def get_profile(self, identity_id: str) -> dict:
         """Get an identity's profile for display."""
         try:
@@ -6216,8 +6552,8 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
                 "tasks_completed": identity.tasks_completed,
                 "profile": profile,
                 "core_summary": {
-                    "traits": core.get("personality_traits", [])[:3],
-                    "values": core.get("core_values", [])[:3],
+                    "traits": core.get("personality_traits", [])[: self.PROFILE_CORE_SUMMARY_LIMIT],
+                    "values": core.get("core_values", [])[: self.PROFILE_CORE_SUMMARY_LIMIT],
                     "identity_statement": core.get("identity_statement")
                 }
             }
@@ -6913,7 +7249,7 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
 
         pending_invites = self.get_pending_invites(identity_id)
         badges = self.get_badges(identity_id) or []
-        recent_badges = badges[-3:]
+        recent_badges = badges[-self.CONTEXT_BADGE_PREVIEW_LIMIT:]
         responses = self.check_human_responses(identity_id)
         pending_messages = self._get_pending_messages_to_human(identity_id)
         human_name = self._human_username()
@@ -6939,14 +7275,14 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
             term_sources.append(str(item.get("summary") or ""))
         for item in rollups.get("weekly", []):
             term_sources.append(str(item.get("summary") or ""))
-        for entry in recent_journals[-2:]:
+        for entry in recent_journals[-self.CONTEXT_TERM_SOURCE_RECENT_JOURNALS:]:
             term_sources.append(str(entry.get("content") or ""))
         for source in term_sources:
             for raw in re.findall(rf"[a-zA-Z]{{{self.MEMORY_TERM_MIN_LENGTH},}}", source.lower()):
                 if raw in self.MEMORY_STOP_WORDS:
                     continue
                 token_counts[raw] = token_counts.get(raw, 0) + 1
-        top_terms = [k for k, _ in sorted(token_counts.items(), key=lambda kv: kv[1], reverse=True)[:4]]
+        top_terms = [k for k, _ in sorted(token_counts.items(), key=lambda kv: kv[1], reverse=True)[: self.CONTEXT_TOP_TERMS]]
 
         # Bounty / guild metrics (compact menu-ready snapshots).
         open_bounties = self.get_open_bounties()
@@ -6961,12 +7297,12 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
         max_bounty_reward = max(bounty_rewards) if bounty_rewards else 0.0
         my_guild = self.get_my_guild(identity_id)
         all_guilds = self.get_guilds()
-        leaderboard = self.get_guild_leaderboard(limit=3)
+        leaderboard = self.get_guild_leaderboard(limit=self.CONTEXT_GUILD_LEADERBOARD_LIMIT)
         pending_guild_requests = self.get_pending_guild_requests(identity_id) if my_guild else []
 
         # Library metrics.
         works = list(catalog.get("works", []))
-        works_recent = sorted(works, key=lambda x: x.get("created_at", ""), reverse=True)[:3]
+        works_recent = sorted(works, key=lambda x: x.get("created_at", ""), reverse=True)[: self.CONTEXT_RECENT_WORK_LIMIT]
         series_count = len(catalog.get("series", {}) or {})
 
         # Respec metrics.
@@ -6975,7 +7311,7 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
         sessions = int(respec_info.get("sessions", 0)) if "error" not in respec_info else 0
 
         creativity_seed = self._fresh_creativity_seed()
-        invite_preview = ", ".join(str(inv.from_name) for inv in pending_invites[:3]) if pending_invites else "none"
+        invite_preview = ", ".join(str(inv.from_name) for inv in pending_invites[: self.CONTEXT_INVITE_PREVIEW_LIMIT]) if pending_invites else "none"
         badge_preview = ", ".join(str(b.get("category", "")) for b in recent_badges if b.get("category")) or "none"
         leaderboard_preview = ", ".join(str(g.get("name", "")) for g in leaderboard if g.get("name")) or "none"
 
@@ -6988,14 +7324,14 @@ I can call: respec_identity(new_name='MyNewName', reason='My reflection on why..
             f"- checkMailbox() -> pending_to_human={len(pending_messages)}, replies_received={len(responses)}, send_cost={self.MESSAGE_HUMAN_COST}, human_name={human_name}",
             f"- checkBounties() -> open={len(open_bounties)}, my_active={len(my_bounties)}, avg_reward={average_bounty_reward:.1f}, max_reward={max_bounty_reward:.1f}",
             f"- checkGuild() -> mine={'yes' if my_guild else 'no'}, total_guilds={len(all_guilds)}, pending_votes={len(pending_guild_requests)}, leaderboard_top={leaderboard_preview}",
-            f"- checkLibrary() -> works={len(works)}, series={series_count}, recent_titles={'; '.join(str(w.get('title', 'untitled'))[:26] for w in works_recent) if works_recent else 'none'}",
-            f"- checkIdentityTools() -> respec_cost={respec_cost}, sessions={sessions}, creativity_seed={creativity_seed}",
+            f"- checkLibrary() -> works={len(works)}, series={series_count}, recent_titles={'; '.join(str(w.get('title', 'untitled'))[:self.CONTEXT_LIBRARY_TITLE_PREVIEW_CHARS] for w in works_recent) if works_recent else 'none'}",
+            f"- checkIdentityTools() / getSelfInfo() -> respec_cost={respec_cost}, sessions={sessions}, creativity_seed={creativity_seed}",
             "",
-            "ACTION MENU (choose one primary move):",
+            "POSSIBLE MOVES (mix and match as needed):",
             "- 1) checkBounties() then call claim_bounty(bounty_id) if ROI is good.",
             "- 2) syncSocial() by posting in town_hall / human_async while tasking. Sharing what the human liked (e.g. tips, preferences) there is encouraged and can earn recognition—optional. Gifting a resident who shares useful info is good for your own gain too: it builds cooperation; what is good for the whole is good for the singular.",
-            "- 3) reflect() with write_journal(...) or recall_memory(query='specific topic', limit=5). Journaling about feedback or tips is encouraged and can earn recognition—optional.",
-            "- 4) shapeIdentity() with create_identity / respec_identity when justified.",
+            f"- 3) reflect() with write_journal(...) or recall_memory(query='specific topic', limit={self.CONTEXT_MEMORY_RECALL_SUGGESTED_LIMIT}). Journaling about feedback or tips is encouraged and can earn recognition—optional.",
+            "- 4) shapeIdentity() with getSelfInfo() + changeSelfAttrs(...) or create_identity/respec_identity when justified.",
             "- 5) designMySpace() with edit_profile_ui(...).",
             f"- 6) windDown() with wind_down(tokens={self.DAILY_WIND_DOWN_TOKENS}, activity='bedtime_wind_down', journal_entry='...').",
             "",

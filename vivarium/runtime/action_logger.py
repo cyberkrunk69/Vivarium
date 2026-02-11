@@ -23,10 +23,10 @@ Log Format:
 
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Dict
 from dataclasses import dataclass, asdict
 from vivarium.runtime.vivarium_scope import AUDIT_ROOT, ensure_scope_layout
 
@@ -149,7 +149,7 @@ class ActionLogger:
     Thread-safe, writes to both file and optional callbacks (for streaming).
     """
 
-    def __init__(self, log_file: Optional[str] = None, max_detail_length: int = 80):
+    def __init__(self, log_file: Optional[str] = None, max_detail_length: int = 16000):
         resolved_log = Path(log_file) if log_file else (AUDIT_ROOT / "action_log.jsonl")
         self.log_file = resolved_log
         self.max_detail_length = max_detail_length
@@ -200,7 +200,7 @@ class ActionLogger:
             self._callbacks.remove(callback)
 
     def _truncate(self, text: str) -> str:
-        """Truncate detail text for display."""
+        """Limit detail length for display (very high limit; UI handles overflow)."""
         if len(text) > self.max_detail_length:
             return text[:self.max_detail_length - 3] + "..."
         return text
@@ -235,7 +235,7 @@ class ActionLogger:
             if model is not None and model != "":
                 meta["model"] = str(model)
             entry = ActionEntry(
-                timestamp=datetime.now().isoformat(timespec="milliseconds"),
+                timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                 actor=actor_val,
                 action_type=action_type.value,
                 action=action,
@@ -371,25 +371,34 @@ class ActionLogger:
         self.log(ActionType.SYSTEM, event, detail, actor="SYSTEM")
 
 
-# Global singleton
-_logger: Optional[ActionLogger] = None
+# Global logger cache (keyed by resolved log path)
+_loggers: Dict[str, ActionLogger] = {}
 _logger_lock = threading.Lock()
 
 
 def get_action_logger(log_file: Optional[str] = None) -> ActionLogger:
-    """Get the global action logger instance."""
-    global _logger
-    if _logger is None:
-        with _logger_lock:
-            if _logger is None:
-                _logger = ActionLogger(log_file)
-    return _logger
+    """Get an action logger instance for the requested log path."""
+    resolved_path = (
+        str(Path(log_file).expanduser().resolve())
+        if log_file
+        else str((AUDIT_ROOT / "action_log.jsonl").resolve())
+    )
+    with _logger_lock:
+        logger = _loggers.get(resolved_path)
+        if logger is None:
+            logger = ActionLogger(log_file or resolved_path)
+            _loggers[resolved_path] = logger
+        return logger
 
 
-def reset_action_logger():
-    """Reset the global logger (for testing)."""
-    global _logger
-    _logger = None
+def reset_action_logger(log_file: Optional[str] = None):
+    """Reset one logger (or all) for testing."""
+    with _logger_lock:
+        if log_file is None:
+            _loggers.clear()
+            return
+        resolved_path = str(Path(log_file).expanduser().resolve())
+        _loggers.pop(resolved_path, None)
 
 
 # Quick access functions for common operations

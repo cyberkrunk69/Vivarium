@@ -189,13 +189,20 @@ class SecureAPIWrapper:
         Returns result dict or raises PermissionError.
         """
 
+        audit_call_type = str(kwargs.pop("audit_call_type", "task_execution") or "task_execution").strip()
+        audit_task_id = kwargs.pop("audit_task_id", None)
+        audit_identity_id = kwargs.pop("audit_identity_id", None)
+
         # 1. Rate limiting
         if not self.rate_limiter.allow_request():
             self.auditor.log({
                 "event": "RATE_LIMITED",
                 "user": self.context.user_id,
                 "role": self.context.role,
-                "model": model
+                "model": model,
+                "call_type": audit_call_type,
+                "task_id": audit_task_id,
+                "identity_id": audit_identity_id,
             })
             raise PermissionError("Rate limit exceeded. Please wait before making more requests.")
 
@@ -207,7 +214,10 @@ class SecureAPIWrapper:
                 "user": self.context.user_id,
                 "role": self.context.role,
                 "reason": reason,
-                "prompt_hash": hashlib.sha256(prompt.encode()).hexdigest()[:16]
+                "prompt_hash": hashlib.sha256(prompt.encode()).hexdigest()[:16],
+                "call_type": audit_call_type,
+                "task_id": audit_task_id,
+                "identity_id": audit_identity_id,
             })
             raise PermissionError(f"Request violates constitutional rules: {reason}")
 
@@ -221,7 +231,10 @@ class SecureAPIWrapper:
                 "user": self.context.user_id,
                 "role": self.context.role,
                 "remaining": self.budget.remaining,
-                "requested": estimated_cost
+                "requested": estimated_cost,
+                "call_type": audit_call_type,
+                "task_id": audit_task_id,
+                "identity_id": audit_identity_id,
             })
             raise PermissionError(
                 f"Budget exceeded. Remaining: ${self.budget.remaining:.4f}, "
@@ -243,7 +256,10 @@ class SecureAPIWrapper:
                 "model": model,
                 "cost": result.get('cost', estimated_cost),
                 "input_tokens": result.get('input_tokens', 0),
-                "output_tokens": result.get('output_tokens', 0)
+                "output_tokens": result.get('output_tokens', 0),
+                "call_type": audit_call_type,
+                "task_id": audit_task_id,
+                "identity_id": audit_identity_id,
             })
 
             return result
@@ -256,7 +272,10 @@ class SecureAPIWrapper:
                 "event": "API_CALL_FAILURE",
                 "user": self.context.user_id,
                 "role": self.context.role,
-                "error": str(e)
+                "error": str(e),
+                "call_type": audit_call_type,
+                "task_id": audit_task_id,
+                "identity_id": audit_identity_id,
             })
             raise
 

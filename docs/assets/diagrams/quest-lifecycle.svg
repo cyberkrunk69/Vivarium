@@ -1,132 +1,142 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="760" viewBox="0 0 1520 760" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-labelledby="title desc">
   <title id="title">Quest Lifecycle from Mailbox to Completion</title>
-  <desc id="desc">Static flow diagram of mailbox quest assignment, worker execution, polling, operator controls, and completion approval reward.</desc>
+  <desc id="desc">Flow diagram: human assigns quest → UI writes queue + mailbox → worker polls → /cycle executes → logs append → UI polls (parallel) → operator controls → terminal event → human approves → finalize + reward.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
     </marker>
     <style>
-      .title { font: 700 30px Inter,Segoe UI,Arial,sans-serif; fill: #0f172a; }
-      .subtitle { font: 500 15px Inter,Segoe UI,Arial,sans-serif; fill: #475569; }
-      .lane-label { font: 700 16px Inter,Segoe UI,Arial,sans-serif; fill: #1e293b; }
+      .title { font: 700 26px Inter,Segoe UI,Arial,sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 13px Inter,Segoe UI,Arial,sans-serif; fill: #475569; }
+      .lane-label { font: 700 15px Inter,Segoe UI,Arial,sans-serif; fill: #1e293b; }
       .lane { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 12; }
       .step-ui { fill: #e0f2fe; stroke: #0284c7; stroke-width: 2; rx: 10; }
       .step-runtime { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; rx: 10; }
       .step-human { fill: #fef3c7; stroke: #d97706; stroke-width: 2; rx: 10; }
       .step-log { fill: #ede9fe; stroke: #7c3aed; stroke-width: 2; rx: 10; }
-      .num { fill: #0f172a; font: 700 13px Inter,Segoe UI,Arial,sans-serif; }
-      .text { fill: #0f172a; font: 600 13px Inter,Segoe UI,Arial,sans-serif; }
-      .small { fill: #334155; font: 500 12px Inter,Segoe UI,Arial,sans-serif; }
+      .num { fill: #0f172a; font: 700 12px Inter,Segoe UI,Arial,sans-serif; }
+      .text { fill: #0f172a; font: 600 12px Inter,Segoe UI,Arial,sans-serif; }
+      .small { fill: #334155; font: 500 11px Inter,Segoe UI,Arial,sans-serif; }
       .edge { stroke: #475569; stroke-width: 2; fill: none; marker-end: url(#arrow); }
-      .edge-dash { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 7 6; marker-end: url(#arrow); }
-      .loop { stroke: #0ea5e9; stroke-width: 2; fill: none; stroke-dasharray: 8 6; marker-end: url(#arrow); }
+      .edge-dash { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+      .loop { stroke: #0ea5e9; stroke-width: 2; fill: none; stroke-dasharray: 6 5; marker-end: url(#arrow); }
     </style>
   </defs>
 
-  <rect x="0" y="0" width="1520" height="760" fill="#ffffff"/>
-  <text x="40" y="56" class="title">Mailbox Quest Lifecycle (Static SVG)</text>
-  <text x="40" y="82" class="subtitle">Shows assignment, queue execution, realtime monitoring, operator controls, and approval/reward completion.</text>
+  <rect x="0" y="0" width="1400" height="700" fill="#ffffff"/>
+  <text x="36" y="48" class="title">Mailbox Quest Lifecycle</text>
+  <text x="36" y="72" class="subtitle">Canonical flow: assign → write → poll queue → execute /cycle → log → (UI polls in parallel) → operator controls → terminal event → human approves → finalize + reward.</text>
 
   <!-- Lanes -->
-  <rect x="40" y="110" width="1440" height="172" class="lane"/>
-  <text x="60" y="140" class="lane-label">Human + UI Orchestration</text>
+  <rect x="36" y="100" width="1328" height="160" class="lane"/>
+  <text x="56" y="128" class="lane-label">Human + UI</text>
 
-  <rect x="40" y="300" width="1440" height="172" class="lane"/>
-  <text x="60" y="330" class="lane-label">Worker + API Runtime</text>
+  <rect x="36" y="278" width="1328" height="160" class="lane"/>
+  <text x="56" y="306" class="lane-label">Worker + API</text>
 
-  <rect x="40" y="490" width="1440" height="210" class="lane"/>
-  <text x="60" y="520" class="lane-label">Logs + State Effects</text>
+  <rect x="36" y="456" width="1328" height="188" class="lane"/>
+  <text x="56" y="484" class="lane-label">Logs + State</text>
 
-  <!-- Human/UI lane -->
-  <rect x="84" y="164" width="246" height="86" class="step-human"/>
-  <circle cx="108" cy="187" r="14" fill="#fde68a"/><text x="103" y="191" class="num">1</text>
-  <text x="130" y="188" class="text">Human assigns quest</text>
-  <text x="130" y="208" class="small">identity, objective, budget, tip</text>
-  <text x="130" y="226" class="small">reward terms set in mailbox</text>
+  <!-- Human/UI lane: 1, 2, 6, 7, 9 in sequence -->
+  <rect x="56" y="152" width="140" height="76" class="step-human"/>
+  <circle cx="80" cy="175" r="12" fill="#fde68a"/><text x="75" y="179" class="num">1</text>
+  <text x="98" y="175" class="text">Human assigns quest</text>
+  <text x="98" y="192" class="small">identity, objective, budget</text>
+  <text x="98" y="208" class="small">tip, reward terms</text>
 
-  <rect x="356" y="164" width="250" height="86" class="step-ui"/>
-  <circle cx="380" cy="187" r="14" fill="#bae6fd"/><text x="375" y="191" class="num">2</text>
-  <text x="402" y="188" class="text">UI writes initial state</text>
-  <text x="402" y="208" class="small">mailbox_quests + queue task</text>
-  <text x="402" y="226" class="small">upfront tip token grant</text>
+  <rect x="224" y="152" width="140" height="76" class="step-ui"/>
+  <circle cx="248" cy="175" r="12" fill="#bae6fd"/><text x="243" y="179" class="num">2</text>
+  <text x="266" y="175" class="text">UI writes state</text>
+  <text x="266" y="192" class="small">mailbox_quests + queue</text>
+  <text x="266" y="208" class="small">upfront tip grant</text>
 
-  <rect x="632" y="164" width="250" height="86" class="step-ui"/>
-  <circle cx="656" cy="187" r="14" fill="#bae6fd"/><text x="651" y="191" class="num">6</text>
-  <text x="678" y="188" class="text">UI polls progress loop</text>
-  <text x="678" y="208" class="small">reads execution events</text>
-  <text x="678" y="226" class="small">renders live quest status</text>
+  <rect x="392" y="152" width="140" height="76" class="step-ui"/>
+  <circle cx="416" cy="175" r="12" fill="#bae6fd"/><text x="411" y="179" class="num">6</text>
+  <text x="434" y="175" class="text">UI polls progress</text>
+  <text x="434" y="192" class="small">reads execution_log</text>
+  <text x="434" y="208" class="small">(runs in parallel)</text>
 
-  <rect x="908" y="164" width="250" height="86" class="step-human"/>
-  <circle cx="932" cy="187" r="14" fill="#fde68a"/><text x="927" y="191" class="num">7</text>
-  <text x="954" y="188" class="text">Operator controls</text>
-  <text x="954" y="208" class="small">tip / pause / resume</text>
-  <text x="954" y="226" class="small">through mailbox controls</text>
+  <rect x="560" y="152" width="140" height="76" class="step-human"/>
+  <circle cx="584" cy="175" r="12" fill="#fde68a"/><text x="579" y="179" class="num">7</text>
+  <text x="602" y="175" class="text">Operator controls</text>
+  <text x="602" y="192" class="small">tip / pause / resume</text>
+  <text x="602" y="208" class="small">mailbox controls</text>
 
-  <rect x="1184" y="164" width="250" height="86" class="step-human"/>
-  <circle cx="1208" cy="187" r="14" fill="#fde68a"/><text x="1201" y="191" class="num">9</text>
-  <text x="1230" y="188" class="text">Human final approval</text>
-  <text x="1230" y="208" class="small">quest completion approved</text>
-  <text x="1230" y="226" class="small">completion reward unlocked</text>
+  <rect x="728" y="152" width="140" height="76" class="step-human"/>
+  <circle cx="752" cy="175" r="12" fill="#fde68a"/><text x="747" y="179" class="num">9</text>
+  <text x="770" y="175" class="text">Human approves</text>
+  <text x="770" y="192" class="small">completion approved</text>
+  <text x="770" y="208" class="small">reward unlocked</text>
 
-  <!-- Runtime lane -->
-  <rect x="244" y="354" width="250" height="86" class="step-runtime"/>
-  <circle cx="268" cy="377" r="14" fill="#bbf7d0"/><text x="263" y="381" class="num">3</text>
-  <text x="290" y="378" class="text">Worker polls queue</text>
-  <text x="290" y="398" class="small">acquire task lock</text>
-  <text x="290" y="416" class="small">begin execution</text>
+  <!-- Worker lane: 3, 4, 8 -->
+  <rect x="224" y="330" width="140" height="76" class="step-runtime"/>
+  <circle cx="248" cy="353" r="12" fill="#bbf7d0"/><text x="243" y="357" class="num">3</text>
+  <text x="266" y="353" class="text">Worker polls queue</text>
+  <text x="266" y="370" class="small">acquire task lock</text>
+  <text x="266" y="386" class="small">begin execution</text>
 
-  <rect x="520" y="354" width="250" height="86" class="step-runtime"/>
-  <circle cx="544" cy="377" r="14" fill="#bbf7d0"/><text x="539" y="381" class="num">4</text>
-  <text x="566" y="378" class="text">Worker calls /cycle API</text>
-  <text x="566" y="398" class="small">task cycle executes</text>
-  <text x="566" y="416" class="small">returns status + usage</text>
+  <rect x="392" y="330" width="140" height="76" class="step-runtime"/>
+  <circle cx="416" cy="353" r="12" fill="#bbf7d0"/><text x="411" y="357" class="num">4</text>
+  <text x="434" y="353" class="text">Worker calls /cycle</text>
+  <text x="434" y="370" class="small">task cycle executes</text>
+  <text x="434" y="386" class="small">returns status + usage</text>
 
-  <rect x="796" y="354" width="250" height="86" class="step-runtime"/>
-  <circle cx="820" cy="377" r="14" fill="#bbf7d0"/><text x="815" y="381" class="num">8</text>
-  <text x="842" y="378" class="text">Terminal execution event</text>
-  <text x="842" y="398" class="small">completed / approved</text>
-  <text x="842" y="416" class="small">or requeue / failed</text>
+  <rect x="560" y="330" width="140" height="76" class="step-runtime"/>
+  <circle cx="584" cy="353" r="12" fill="#bbf7d0"/><text x="579" y="357" class="num">8</text>
+  <text x="602" y="353" class="text">Terminal event</text>
+  <text x="602" y="370" class="small">completed / approved</text>
+  <text x="602" y="386" class="small">requeue / failed</text>
 
-  <!-- Logs + state lane -->
-  <rect x="520" y="548" width="250" height="90" class="step-log"/>
-  <circle cx="544" cy="572" r="14" fill="#ddd6fe"/><text x="539" y="576" class="num">5</text>
-  <text x="568" y="574" class="text">execution_log append</text>
-  <text x="568" y="594" class="small">lifecycle snapshots</text>
-  <text x="568" y="612" class="small">used for progress UI</text>
+  <!-- Logs lane: 5, 10 -->
+  <rect x="392" y="510" width="140" height="76" class="step-log"/>
+  <circle cx="416" cy="533" r="12" fill="#ddd6fe"/><text x="411" y="537" class="num">5</text>
+  <text x="434" y="533" class="text">execution_log append</text>
+  <text x="434" y="550" class="small">lifecycle snapshots</text>
+  <text x="434" y="566" class="small">for progress UI</text>
 
-  <rect x="908" y="548" width="250" height="90" class="step-log"/>
-  <circle cx="932" cy="572" r="14" fill="#ddd6fe"/><text x="925" y="576" class="num">10</text>
-  <text x="954" y="574" class="text">Finalize quest record</text>
-  <text x="954" y="594" class="small">mark completed</text>
-  <text x="954" y="612" class="small">pay guaranteed reward</text>
+  <rect x="728" y="510" width="140" height="76" class="step-log"/>
+  <circle cx="752" cy="533" r="12" fill="#ddd6fe"/><text x="747" y="537" class="num">10</text>
+  <text x="770" y="533" class="text">Finalize quest</text>
+  <text x="770" y="550" class="small">mark completed</text>
+  <text x="770" y="566" class="small">pay reward</text>
 
-  <!-- Main flow edges -->
-  <path d="M330 207 L356 207" class="edge"/>
-  <path d="M606 207 L632 207" class="edge"/>
-  <path d="M882 207 L908 207" class="edge"/>
-  <path d="M1158 207 L1184 207" class="edge"/>
+  <!-- Main flow edges (solid = canonical order) -->
+  <path d="M196 190 L224 190" class="edge"/>
+  <path d="M364 190 L392 190" class="edge"/>
+  <path d="M532 190 L560 190" class="edge"/>
+  <path d="M700 190 L728 190" class="edge"/>
 
-  <path d="M481 250 C481 310, 330 310, 330 354" class="edge"/>
-  <path d="M494 397 L520 397" class="edge"/>
-  <path d="M770 397 L796 397" class="edge"/>
-  <path d="M645 440 L645 548" class="edge"/>
-  <path d="M921 440 C921 500, 1033 500, 1033 548" class="edge"/>
-  <path d="M1309 250 C1309 498, 1033 498, 1033 548" class="edge"/>
+  <!-- 2 → 3: UI writes queue, worker polls -->
+  <path d="M294 228 L294 330" class="edge"/>
 
-  <!-- Control side-effects -->
-  <path d="M1033 250 C1033 318, 921 318, 921 354" class="edge-dash"/>
-  <path d="M1006 250 C1006 470, 645 470, 645 548" class="edge-dash"/>
+  <!-- 3 → 4 → 8 -->
+  <path d="M364 368 L392 368" class="edge"/>
+  <path d="M532 368 L560 368" class="edge"/>
 
-  <!-- Poll loop -->
-  <path d="M657 164 C580 122, 520 122, 520 207 C520 282, 620 282, 657 250" class="loop"/>
-  <text x="538" y="128" class="small">polling loop while active</text>
+  <!-- 4 → 5: worker writes execution_log -->
+  <path d="M462 406 L462 510" class="edge"/>
+
+  <!-- 8 → 9: terminal event (pending_review) → human approves -->
+  <path d="M700 368 L700 190 L728 190" class="edge"/>
+
+  <!-- 9 → 10: human approval triggers finalize -->
+  <path d="M798 228 L798 510" class="edge"/>
+
+  <!-- Side effects: dashed -->
+  <!-- 5 → 6: execution_log feeds UI poll (loop) -->
+  <path d="M434 510 L434 228" class="loop"/>
+  <text x="440" y="368" class="small">polls while active</text>
+
+  <!-- 7 → 8: operator controls affect runtime -->
+  <path d="M630 228 L630 330" class="edge-dash"/>
 
   <!-- Legend -->
-  <rect x="84" y="548" width="406" height="90" class="lane"/>
-  <rect x="102" y="568" width="78" height="24" class="step-human"/><text x="122" y="585" class="small">Human</text>
-  <rect x="192" y="568" width="78" height="24" class="step-ui"/><text x="221" y="585" class="small">UI</text>
-  <rect x="282" y="568" width="78" height="24" class="step-runtime"/><text x="300" y="585" class="small">Runtime</text>
-  <rect x="372" y="568" width="100" height="24" class="step-log"/><text x="397" y="585" class="small">Logs/State</text>
-  <line x1="110" y1="616" x2="190" y2="616" class="edge"/><text x="200" y="621" class="small">solid: canonical flow</text>
-  <line x1="306" y1="616" x2="386" y2="616" class="edge-dash"/><text x="396" y="621" class="small">dashed: side effects/control</text>
+  <rect x="56" y="510" width="300" height="100" class="lane"/>
+  <rect x="80" y="532" width="64" height="28" class="step-human"/><text x="100" y="550" class="small">Human</text>
+  <rect x="156" y="532" width="64" height="28" class="step-ui"/><text x="178" y="550" class="small">UI</text>
+  <rect x="232" y="532" width="64" height="28" class="step-runtime"/><text x="248" y="550" class="small">Runtime</text>
+  <rect x="308" y="532" width="72" height="28" class="step-log"/><text x="328" y="550" class="small">Logs</text>
+  <line x1="88" y1="590" x2="152" y2="590" class="edge"/><text x="162" y="595" class="small">solid: canonical flow</text>
+  <line x1="88" y1="610" x2="152" y2="610" class="edge-dash"/><text x="162" y="615" class="small">dashed: side effects</text>
+  <line x1="252" y1="590" x2="316" y2="590" class="loop"/><text x="326" y="595" class="small">blue: poll loop</text>
 </svg>

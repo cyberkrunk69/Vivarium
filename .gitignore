@@ -63,6 +63,8 @@ research_papers/
 .pytest_cache/
 .coverage
 htmlcov/
+.hypothesis/
+tests/control_panel/coverage_html/
 
 # Vivarium scoped runtime data
 /vivarium/world/mutable/*
@@ -86,3 +88,6 @@ htmlcov/
 
 # Local UI defaults (persisted across sessions, machine-local)
 /config/local_ui_settings.json
+
+# Local runtime workspace artifacts
+/.swarm/

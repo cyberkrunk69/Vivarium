@@ -1,0 +1,77 @@
+[
+  {
+    "id": "identity_updates_not_applying",
+    "trial_number": 1,
+    "timestamp": "2026-02-11T00:00:00",
+    "task_feedback": "Residents wrote long journals and town hall updates but identity state did not change.",
+    "lesson": "Require explicit self-edit tool calls in task output and execute those calls in review. Narrative-only output must fail the task.",
+    "self_verification": true,
+    "retrieval_cues": [
+      "identity",
+      "tool calls",
+      "review gate",
+      "journal-only",
+      "state mutation"
+    ]
+  },
+  {
+    "id": "premature_side_effects",
+    "trial_number": 2,
+    "timestamp": "2026-02-11T00:00:01",
+    "task_feedback": "Rejected attempts still appeared in town hall and docs, creating false confidence.",
+    "lesson": "Publish social and artifact side effects only after final review status is accepted. Never broadcast pre-review model output as completion.",
+    "self_verification": true,
+    "retrieval_cues": [
+      "town hall",
+      "artifact publish",
+      "post-review",
+      "false positive",
+      "workflow ordering"
+    ]
+  },
+  {
+    "id": "interface_elegance_over_tool_sprawl",
+    "trial_number": 3,
+    "timestamp": "2026-02-11T00:00:02",
+    "task_feedback": "Low-level tool contract was technically correct but too verbose for reliable agent behavior.",
+    "lesson": "Prefer one elegant interface for self-evolution (getSelfInfo + changeSelfAttrs) and route internally to low-level tools for enforcement and safety.",
+    "self_verification": true,
+    "retrieval_cues": [
+      "api design",
+      "elegance",
+      "abstraction",
+      "changeSelfAttrs",
+      "maintainability"
+    ]
+  },
+  {
+    "id": "anti_pattern_bandaid",
+    "trial_number": 4,
+    "timestamp": "2026-02-11T00:00:03",
+    "task_feedback": "Quick patches reduced immediate noise but let root cause survive and reappear.",
+    "lesson": "Do NOT apply bandaids or paper over gaping issues. Trace the failure path end-to-end, fix root cause, and add an enforceable guard to prevent recurrence.",
+    "self_verification": true,
+    "retrieval_cues": [
+      "bandaid",
+      "root cause",
+      "regression prevention",
+      "durable fix",
+      "anti-pattern"
+    ]
+  },
+  {
+    "id": "reset_rollback_safety",
+    "trial_number": 5,
+    "timestamp": "2026-02-11T00:00:04",
+    "task_feedback": "Reset and rollback operations failed with 409 while workers were still active.",
+    "lesson": "Maintenance operations should either require an explicit stop or perform controlled force-stop before mutation operations to avoid race conditions.",
+    "self_verification": true,
+    "retrieval_cues": [
+      "fresh reset",
+      "rollback",
+      "worker status",
+      "race condition",
+      "operational safety"
+    ]
+  }
+]

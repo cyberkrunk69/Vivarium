@@ -80,6 +80,7 @@ def test_phase4_plan_compiles_subtasks_with_dependencies(monkeypatch, tmp_path):
     queue_path = tmp_path / "queue.json"
     monkeypatch.setattr(worker, "QUEUE_FILE", queue_path)
     monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", _StubGatekeeper())
+    monkeypatch.setattr(worker, "MVP_DOCS_ONLY_MODE", False)
 
     queue = normalize_queue(
         {
@@ -122,6 +123,7 @@ def test_phase4_plan_uses_comma_delimited_feature_splitting(monkeypatch, tmp_pat
     queue_path = tmp_path / "queue.json"
     monkeypatch.setattr(worker, "QUEUE_FILE", queue_path)
     monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", _StubGatekeeper())
+    monkeypatch.setattr(worker, "MVP_DOCS_ONLY_MODE", False)
 
     queue = normalize_queue(
         {
@@ -144,6 +146,37 @@ def test_phase4_plan_uses_comma_delimited_feature_splitting(monkeypatch, tmp_pat
     assert "add integration tests" in plan["features"]
     assert "update deployment docs" in plan["features"]
     assert plan["subtasks_added"] >= 3
+
+
+def test_phase4_plan_skipped_in_mvp_docs_only_mode(monkeypatch, tmp_path):
+    """In MVP, residents do not create their own tasks; Phase 4 decomposition is skipped."""
+    queue_path = tmp_path / "queue.json"
+    monkeypatch.setattr(worker, "QUEUE_FILE", queue_path)
+    monkeypatch.setattr(worker, "WORKER_INTENT_GATEKEEPER", _StubGatekeeper())
+    monkeypatch.setattr(worker, "MVP_DOCS_ONLY_MODE", True)
+
+    queue = normalize_queue(
+        {
+            "tasks": [
+                {
+                    "id": "task_would_decompose",
+                    "prompt": "Implement auth API, add integration tests, update deployment docs.",
+                    "min_budget": 0.12,
+                    "max_budget": 0.30,
+                    "intensity": "high",
+                }
+            ]
+        }
+    )
+    queue_path.write_text(json.dumps(queue), encoding="utf-8")
+
+    task = queue["tasks"][0]
+    plan = worker._maybe_compile_phase4_plan(task, queue)
+    assert plan is None
+
+    updated_queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    assert len(updated_queue["tasks"]) == 1
+    assert "phase4_plan" not in updated_queue["tasks"][0]
 
 
 def test_worker_execute_task_injects_intent_context(monkeypatch):

@@ -82,7 +82,7 @@
   <!-- Transition labels -->
   <text x="352" y="196" class="small">worker acquires lock</text>
   <text x="590" y="198" class="small">execution complete</text>
-  <text x="742" y="286" class="small">passes review</text>
+  <text x="742" y="286" class="small">human approves</text>
   <text x="506" y="300" class="small">task returned</text>
   <text x="586" y="334" class="small">revision requested</text>
   <text x="308" y="334" class="small">hard reject</text>

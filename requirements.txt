@@ -1,6 +1,9 @@
 # Core API and HTTP client dependencies
 fastapi
+hypothesis
 uvicorn
 httpx
 python-dotenv
 pydantic
+numpy>=1.24.0
+watchdog

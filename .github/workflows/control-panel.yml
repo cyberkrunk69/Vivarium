@@ -1,0 +1,109 @@
+name: Control Panel Tests
+
+on:
+  push:
+    branches: [main, master, slay9kDragon]
+    paths:
+      - 'vivarium/runtime/control_panel/**'
+      - 'tests/control_panel/**'
+      - 'requirements*.txt'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'vivarium/runtime/control_panel/**'
+      - 'tests/control_panel/**'
+      - 'requirements*.txt'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "numpy>=1.24.0"
+          pip install pytest pytest-cov pytest-timeout
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-groq.txt ]; then pip install -r requirements-groq.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run control panel tests
+        env:
+          CI_RESTRICTED: "1"
+          PYTEST_TIMEOUT: 30
+        run: |
+          python -m pytest tests/control_panel/ \
+            -v \
+            --timeout=30 \
+            --tb=short \
+            --cov=vivarium/runtime/control_panel \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=50
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "=== Coverage report (if any) ==="
+          cat coverage.xml 2>/dev/null || echo "No coverage.xml found"
+          echo ""
+          echo "=== Test artifacts ==="
+          ls -la .coverage* 2>/dev/null || true
+          echo ""
+          echo "=== Recent logs ==="
+          find . -name "*.log" -mmin -10 2>/dev/null | head -5 | xargs tail -100 2>/dev/null || true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        if: matrix.python-version == '3.11'
+        with:
+          file: ./coverage.xml
+          flags: control-panel
+          name: control-panel-coverage
+
+      - name: Check for circular imports
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from vivarium.runtime.control_panel.blueprints.identities import identities_bp
+          from vivarium.runtime.control_panel.blueprints.messages import messages_bp
+          from vivarium.runtime.control_panel.blueprints.logs import logs_bp
+          from vivarium.runtime.control_panel.blueprints.queue import queue_bp
+          from vivarium.runtime.control_panel.blueprints.bounties import bounties_bp
+          from vivarium.runtime.control_panel.blueprints.quests import quests_bp
+          print('✅ All blueprints import without circular dependencies')
+          "
+
+      - name: Verify blueprint registry
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from vivarium.runtime.control_panel.blueprints_registry import BLUEPRINT_SPECS, register_blueprints
+          from flask import Flask
+          app = Flask(__name__)
+          register_blueprints(app)
+          print(f'✅ Registered {len(BLUEPRINT_SPECS)} blueprints successfully')
+          "

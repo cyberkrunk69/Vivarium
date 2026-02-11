@@ -20,6 +20,7 @@ import random
 import re
 import threading
 import httpx
+from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,6 +42,12 @@ from vivarium.runtime.config import (
     API_TIMEOUT_SECONDS,
     DEFAULT_MIN_BUDGET,
     DEFAULT_MAX_BUDGET,
+    MAX_TEXT_DETAIL_CHARS,
+    HUMAN_MESSAGE_DEDUP_SCAN_LIMIT,
+    PLANNING_RESPONSE_SCAN_CHARS,
+    TASK_REVIEW_EXCERPT_MAX_CHARS,
+    REQUIRE_HUMAN_APPROVAL_DEFAULT,
+    AUTO_APPROVE_MIN_CONFIDENCE,
     validate_model_id,
     validate_config,
 )
@@ -109,6 +116,9 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 QUEUE_FILE: Path = MUTABLE_QUEUE_FILE
 LOCKS_DIR: Path = MUTABLE_LOCKS_DIR
 EXECUTION_LOG: Path = AUDIT_ROOT / "execution_log.jsonl"
+KILL_SWITCH: Path = MUTABLE_SWARM_DIR / "kill_switch.json"
+UI_SETTINGS_FILE: Path = SECURITY_ROOT / "local_ui_settings.json"
+MESSAGES_TO_HUMAN_PATH: Path = MUTABLE_SWARM_DIR / "messages_to_human.jsonl"
 PHASE5_REWARD_LEDGER: Path = MUTABLE_SWARM_DIR / "phase5_reward_ledger.json"
 MVP_ARTIFACT_FINGERPRINTS_FILE: Path = MUTABLE_SWARM_DIR / "artifact_fingerprints.json"
 
@@ -123,6 +133,7 @@ ENRICHMENT_RECALL_MAX_CHARS: int = 600
 ENRICHMENT_RECALL_LIMIT: int = 4
 ENRICHMENT_RECALL_DISPLAY_LIMIT: int = 4
 DISCUSSION_REPLY_LOOKBACK_LIMIT: int = 8
+RESIDENT_MAX_SUBTASKS_DEFAULT: int = max(1, int(os.environ.get("VIVARIUM_RESIDENT_MAX_SUBTASKS_DEFAULT", "5")))
 FOCUS_HAT_MAP = {
     "strategy": "Strategist",
     "build": "Builder",
@@ -179,9 +190,30 @@ MVP_ALLOWED_DOC_ROOTS: Tuple[Path, ...] = (
     MVP_LEGACY_LIBRARY_DOCS_DIR,
     MVP_LEGACY_RESIDENT_SUGGESTIONS_ROOT,
 )
+MVP_ARTIFACT_KEYWORDS: Tuple[str, ...] = (
+    "create",
+    "proposal",
+    "crystallize",
+    "document",
+    "write",
+    "persist",
+    "artifact",
+    "markdown",
+    "journal",
+)
+MVP_PLANNING_TEXT_MARKERS: Tuple[str, ...] = (
+    "i will",
+    "i'll",
+    "the document will",
+    "proposal:",
+    "here is the proposal",
+    "i can create",
+    "i would create",
+)
 
 _EXECUTION_LOG_STATE: Dict[str, Any] = {"offset": 0, "size": 0, "tasks": {}}
 _EXECUTION_LOG_LOCK = threading.Lock()
+_last_halt_log_at: List[float] = [0.0]  # Mutable for throttled halt logging
 _SCAN_CURSOR: int = 0
 
 # Generate unique resident ID (keep worker_id for compatibility in logs)
@@ -382,11 +414,9 @@ def _build_enrichment_prompt_context(
     return "\n\n".join(sections)
 
 
-def _truncate_single_line(value: Any, max_chars: int) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= max_chars:
-        return text
-    return text[: max(0, max_chars - 3)] + "..."
+def _truncate_single_line(value: Any, max_chars: int = MAX_TEXT_DETAIL_CHARS) -> str:
+    """Flatten to single line; no truncation (UI handles overflow)."""
+    return " ".join(str(value or "").split())
 
 
 def _publish_task_update_to_discussion(
@@ -539,6 +569,114 @@ def _compute_artifact_fingerprint(identity_id: str, prompt: str, result_text: st
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _task_requires_mvp_artifact(task: Dict[str, Any]) -> bool:
+    prompt_text = str(_resolve_task_prompt(task) or "").strip().lower()
+    if any(task.get(k) for k in ("doc_path", "artifact_path", "output_path")):
+        return True
+    return any(token in prompt_text for token in MVP_ARTIFACT_KEYWORDS)
+
+
+def _looks_like_planning_only_response(result_summary: Any) -> bool:
+    text = str(result_summary or "").strip().lower()
+    if not text:
+        return False
+    lead = " ".join(text.split())
+    if len(lead) > PLANNING_RESPONSE_SCAN_CHARS:
+        lead = lead[:PLANNING_RESPONSE_SCAN_CHARS]
+    return any(marker in lead for marker in MVP_PLANNING_TEXT_MARKERS)
+
+
+def _evaluate_mvp_artifact_gate(task: Dict[str, Any], result: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """
+    Enforce docs-only completion quality:
+    - artifact-requiring tasks must actually persist artifacts
+    - planning-only outputs must be retried instead of accepted
+    """
+    if not MVP_DOCS_ONLY_MODE:
+        return None
+    if not _task_requires_mvp_artifact(task):
+        return None
+
+    artifacts = result.get("mvp_markdown_artifacts")
+    artifacts_dict = artifacts if isinstance(artifacts, dict) else {}
+    if not artifacts_dict.get("written"):
+        reason = str(artifacts_dict.get("reason") or "artifact_not_written")
+        return {
+            "issue": f"MVP docs-only task did not produce an artifact ({reason}).",
+            "suggestion": "Call write_file/persist_artifact and produce a concrete markdown artifact path.",
+        }
+
+    if _looks_like_planning_only_response(result.get("result_summary")):
+        return {
+            "issue": "Output appears to be planning text instead of executed artifact-producing work.",
+            "suggestion": "Avoid phrases like 'I will' and return concrete completed output tied to written artifacts.",
+        }
+    return None
+
+
+def _requires_human_approval(
+    task: Dict[str, Any],
+    *,
+    confidence: float,
+    issues: List[str],
+) -> bool:
+    """
+    Decide whether a completed task still needs explicit HIL approval.
+    """
+    if REQUIRE_HUMAN_APPROVAL_DEFAULT:
+        return True
+    if issues:
+        return True
+    if confidence < AUTO_APPROVE_MIN_CONFIDENCE:
+        return True
+    mode = str(task.get("mode") or "").strip().lower()
+    if mode == "local":
+        # Local command tasks carry higher risk than LLM-only docs tasks.
+        return True
+    return False
+
+
+def _maybe_submit_task_community_review(
+    *,
+    task_id: str,
+    result_summary: str,
+    identity_id: str,
+    identity_name: str,
+    review_verdict: str,
+) -> Dict[str, Any]:
+    """
+    Best-effort submission into blind community task review queue.
+    Returns diagnostic metadata; never raises.
+    """
+    enrichment = WORKER_ENRICHMENT
+    if enrichment is None:
+        return {"community_review_submitted": False, "community_review_reason": "enrichment_unavailable"}
+    submit_fn = getattr(enrichment, "submit_task_for_community_review", None)
+    if not callable(submit_fn):
+        return {"community_review_submitted": False, "community_review_reason": "submit_fn_unavailable"}
+    try:
+        response = submit_fn(
+            task_id=task_id,
+            result_excerpt=str(result_summary or "")[:TASK_REVIEW_EXCERPT_MAX_CHARS],
+            author_id=str(identity_id or ""),
+            author_name=str(identity_name or ""),
+            result_summary=str(result_summary or ""),
+            review_verdict=str(review_verdict or ""),
+        )
+        if isinstance(response, dict):
+            return {
+                "community_review_submitted": bool(response.get("success")),
+                "community_review_auto_accepted": bool(response.get("auto_accepted", False)),
+                "community_review_jurors_selected": int(response.get("jurors_selected", 0) or 0),
+                "community_review_already_submitted": bool(response.get("already_submitted", False)),
+                "community_review_reason": str(response.get("reason") or ""),
+            }
+        return {"community_review_submitted": True, "community_review_reason": ""}
+    except Exception as exc:
+        _log("WARN", f"Community task review submission failed for {task_id}: {exc}")
+        return {"community_review_submitted": False, "community_review_reason": f"submit_failed:{exc}"}
 
 
 def _load_artifact_fingerprints() -> Dict[str, Any]:
@@ -712,6 +850,65 @@ def read_queue() -> Dict[str, Any]:
     return normalize_queue(data)
 
 
+def _is_halted() -> bool:
+    """
+    Check if worker must stop: kill switch ON, or total spend >= budget limit.
+    When budget exceeded, auto-engages kill switch so UI shows HALT until user re-enables.
+    """
+    # 1. Kill switch (manual or previous budget halt)
+    if KILL_SWITCH.exists():
+        try:
+            with open(KILL_SWITCH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("halt", False):
+                return True
+        except Exception:
+            pass
+
+    # 2. Budget: total spend >= limit → stop fully until user says so
+    budget_limit = 1.0
+    if UI_SETTINGS_FILE.exists():
+        try:
+            with open(UI_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                ui = json.load(f)
+            budget_limit = max(0.01, float(ui.get("budget_limit", 1.0) or 1.0))
+        except Exception:
+            pass
+
+    api_cost_all_time = 0.0
+    try:
+        entries = read_jsonl(EXECUTION_LOG, default=[])
+        for entry in entries:
+            bu = entry.get("budget_used")
+            if bu is not None:
+                try:
+                    api_cost_all_time += float(bu)
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass
+
+    if api_cost_all_time >= budget_limit:
+        _log("WARN", f"Budget limit reached: ${api_cost_all_time:.4f} >= ${budget_limit:.2f}. Halting until you re-enable.")
+        KILL_SWITCH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(KILL_SWITCH, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "halt": True,
+                        "reason": f"Budget limit reached (${api_cost_all_time:.4f} >= ${budget_limit:.2f})",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                    f,
+                    indent=2,
+                )
+        except Exception as e:
+            _log("WARN", f"Could not write kill switch: {e}")
+        return True
+
+    return False
+
+
 def read_execution_log() -> Dict[str, Any]:
     """Read the execution log (JSONL) and return latest status per task. Thread-safe."""
     if EXECUTION_LOG.exists():
@@ -776,6 +973,31 @@ def append_execution_event(task_id: str, status: str, **fields: Any) -> None:
     append_jsonl(EXECUTION_LOG, record)
 
 
+def _human_friendly_result_preview(raw: str, max_len: int = MAX_TEXT_DETAIL_CHARS) -> str:
+    """Strip markdown/jargon and return a short human-readable preview."""
+    if not raw or not isinstance(raw, str):
+        return "Task completed."
+    text = re.sub(r"^#+\s*", "", raw, flags=re.MULTILINE)
+    text = re.sub(r"\*\*[^*]+\*\*", "", text)
+    text = re.sub(r"\n+", " ", text).strip()
+    if re.match(r"^(step\s+\d|understand|the\s+task\s+is\s+to)", text, re.I):
+        return "Task completed."
+    return text or "Task completed."
+
+
+def _already_notified_task_pending_approval(task_id: str, messages_file: Path) -> bool:
+    """Check if we've already sent a pending-approval notification for this task.
+    Scans recent messages to cover test/phase2/phase5 flows and repeated reviews."""
+    try:
+        records = read_jsonl(messages_file, default=[])
+        for m in reversed(records[-HUMAN_MESSAGE_DEDUP_SCAN_LIMIT:]):
+            if m.get("type") == "task_pending_approval" and str(m.get("task_id") or "") == str(task_id):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _notify_human_task_pending_approval(
     task_id: str,
     identity_id: str,
@@ -784,13 +1006,18 @@ def _notify_human_task_pending_approval(
     review_verdict: str,
 ) -> None:
     """Append a mailbox message so the human sees that a task is ready for approval (no token cost)."""
-    messages_file = WORKSPACE / ".swarm" / "messages_to_human.jsonl"
+    messages_file = MESSAGES_TO_HUMAN_PATH
     messages_file.parent.mkdir(parents=True, exist_ok=True)
+    if _already_notified_task_pending_approval(task_id, messages_file):
+        return
+    preview = _human_friendly_result_preview(result_preview)
     content = (
-        f"Task “{task_id}” is ready for your approval. "
-        f"Verdict: {review_verdict}. "
-        f"Result: {result_preview}"
+        f"A resident completed a task and it needs your approval. "
+        f"Click Approve task below to reward them and mark it done. "
+        f"({identity_name or 'Resident'})"
     )
+    if preview and preview != "Task completed.":
+        content += f" Result preview: {preview}"
     message = {
         "id": f"msg_{identity_id or 'worker'}_{int(time.time() * 1000)}",
         "from_id": identity_id or "worker",
@@ -871,24 +1098,35 @@ def release_lock(task_id: str) -> None:
         _log("ERROR", f"Failed to release lock ({task_id}): {e}")
 
 
-def check_dependencies_complete(task: Dict[str, Any], execution_log: Dict[str, Any]) -> bool:
-    """Check if all dependencies for a task are completed."""
+def check_dependencies_complete(
+    task: Dict[str, Any],
+    execution_log: Dict[str, Any],
+    queue: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Check if all dependencies for a task are completed. Treats pending_review and
+    phase4_skip tasks as satisfied (parent can proceed when subtask awaits human or is skipped)."""
     depends_on = task.get("depends_on", [])
     if not depends_on:
         return True
 
     tasks_log = execution_log.get("tasks", {})
+    queue_tasks = {t.get("id"): t for t in (queue or {}).get("tasks", [])} if queue else {}
+    satisfied_statuses = {"completed", "approved", "ready_for_merge", "pending_review"}
+
     for dep_id in depends_on:
+        dep_task = queue_tasks.get(dep_id, {})
+        if dep_task.get("phase4_skip"):
+            continue
         dep_status = tasks_log.get(dep_id, {}).get("status")
-        if dep_status != "completed":
+        if dep_status not in satisfied_statuses:
             return False
     return True
 
 
 def is_task_done(task_id: str, execution_log: Dict[str, Any]) -> bool:
-    """Check if a task is already completed or failed."""
+    """Check if a task is already completed, failed, or awaiting human approval."""
     task_status = execution_log.get("tasks", {}).get(task_id, {}).get("status")
-    return task_status in ("completed", "approved", "ready_for_merge", "failed")
+    return task_status in ("completed", "approved", "ready_for_merge", "failed", "pending_review")
 
 
 def _apply_queue_outcome(task_id: str, final_status: str) -> None:
@@ -950,6 +1188,9 @@ def _resolve_shard_id(resident_id: str) -> Optional[int]:
 def _select_tasks_for_scan(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not tasks:
         return tasks
+    tasks = [t for t in tasks if not t.get("phase4_skip")]
+    if not tasks:
+        return []
     if RESIDENT_SCAN_LIMIT <= 0 or RESIDENT_SCAN_LIMIT >= len(tasks):
         return tasks
     global _SCAN_CURSOR
@@ -1024,14 +1265,14 @@ def _split_budget(min_budget: float, max_budget: float, parts: int) -> Tuple[flo
     return per_min, per_max
 
 
-def _apply_hat_overlay(prompt: str, focus: Optional[str]) -> str:
+def _apply_hat_overlay(prompt: str, focus: Optional[str]) -> Tuple[str, Optional[str]]:
     if not prompt or not focus or not HAT_LIBRARY or not apply_hat:
-        return prompt
+        return prompt, None
     hat_name = FOCUS_HAT_MAP.get(focus.lower(), focus.title())
     hat = HAT_LIBRARY.get_hat(hat_name)
     if not hat:
-        return prompt
-    return apply_hat(prompt, hat)
+        return prompt, None
+    return apply_hat(prompt, hat), hat.name
 
 
 def _resolve_safety_task_text(prompt: Optional[str], command: Optional[str], mode: Optional[str]) -> str:
@@ -1187,6 +1428,8 @@ def _phase4_should_split_comma_clauses(parts: List[str], source_text: str) -> bo
 
 
 def _phase4_feature_breakdown(prompt: str, intent_goal: str, max_features: int = 5) -> List[str]:
+    """Break down intent into semantic features. Prefers sentence-based splitting over comma-splitting
+    to avoid fragmenting human messages or mid-sentence truncation."""
     text = (prompt or "").strip()
     if not text:
         return [intent_goal] if intent_goal else []
@@ -1206,11 +1449,16 @@ def _phase4_feature_breakdown(prompt: str, intent_goal: str, max_features: int =
             if not clause:
                 continue
 
-            comma_parts = [piece.strip() for piece in clause.split(",") if piece.strip()]
-            if _phase4_should_split_comma_clauses(comma_parts, clause):
-                clause_candidates = comma_parts
+            clause_candidates: List[str] = []
+            sentence_parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", clause) if p.strip()]
+            if len(sentence_parts) >= 2 and all(len(p.split()) >= 4 for p in sentence_parts):
+                clause_candidates = sentence_parts
             else:
-                clause_candidates = [clause]
+                comma_parts = [piece.strip() for piece in clause.split(",") if piece.strip()]
+                if _phase4_should_split_comma_clauses(comma_parts, clause):
+                    clause_candidates = comma_parts
+                else:
+                    clause_candidates = [clause]
 
             for clause_candidate in clause_candidates:
                 for piece in PHASE4_SEQUENCE_SPLIT_RE.split(clause_candidate):
@@ -1322,6 +1570,10 @@ def _phase4_atomize_task(
 
 
 def _maybe_compile_phase4_plan(task: Dict[str, Any], queue: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    # MVP: residents do not create their own tasks; no Phase 4 decomposition
+    if MVP_DOCS_ONLY_MODE:
+        return None
+
     prompt = _resolve_task_prompt(task)
     command = task.get("command") or task.get("shell")
     mode = (task.get("mode") or "").lower().strip() or None
@@ -1457,7 +1709,7 @@ def _ensure_quality_gate_change(task: Dict[str, Any], resident_ctx: Optional["Re
         description = task.get("description") or task.get("prompt") or task.get("task") or ""
         author_id = _quality_gate_author_id(task, resident_ctx)
         WORKER_QUALITY_GATES.submit_change_for_vote(
-            title=str(title)[:240],
+            title=str(title),
             description=str(description),
             author_id=str(author_id),
             change_id=str(change_id),
@@ -1722,6 +1974,378 @@ def apply_phase5_reward_for_human_approval(
     }
 
 
+def _is_identity_evolution_task(task: Dict[str, Any]) -> bool:
+    text = " ".join(
+        str(task.get(key, "") or "")
+        for key in ("prompt", "instruction", "task", "description", "type")
+    ).lower()
+    if not text.strip():
+        return False
+    cues = (
+        "self-evolution",
+        "update yourself",
+        "identity fields",
+        "mutable.current_mood",
+        "mutable.current_focus",
+        "identity updates",
+        "crystallize your personality",
+        "core traits",
+        "core values",
+        "who i'm becoming",
+        "who i am becoming",
+        "identity updates applied",
+        "icebreaker message",
+        "break the ice",
+        "get to know each other",
+    )
+    return any(cue in text for cue in cues)
+
+
+def _extract_call_kwarg(args_text: str, key: str) -> Optional[str]:
+    if not args_text:
+        return None
+    pattern = re.compile(
+        rf"{re.escape(key)}\s*=\s*(?:'([^']*)'|\"([^\"]*)\"|([^,\)\n]+))",
+        re.IGNORECASE,
+    )
+    match = pattern.search(args_text)
+    if not match:
+        return None
+    value = (match.group(1) or match.group(2) or match.group(3) or "").strip()
+    return value or None
+
+
+def _extract_call_kwargs(args_text: str) -> Dict[str, str]:
+    if not args_text:
+        return {}
+    out: Dict[str, str] = {}
+    pattern = re.compile(
+        r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:'([^']*)'|\"([^\"]*)\"|([^,\)\n]+))"
+    )
+    for match in pattern.finditer(args_text):
+        key = str(match.group(1) or "").strip()
+        value = (match.group(2) or match.group(3) or match.group(4) or "").strip()
+        if key:
+            out[key] = value
+    return out
+
+
+@dataclass(frozen=True)
+class MutableUpdateCall:
+    attribute: str
+    value: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class RespecCall:
+    new_name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ProfileFacetCall:
+    key: str
+    value: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ChangeSelfAttrsCall:
+    updates: Dict[str, str]
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ParsedIdentityToolCalls:
+    mutable: List[MutableUpdateCall]
+    respec: List[RespecCall]
+    profile_facet: List[ProfileFacetCall]
+    change_self_attrs: List[ChangeSelfAttrsCall]
+    get_self_info_count: int = 0
+
+
+@dataclass(frozen=True)
+class IdentityUpdateGateResult:
+    required: bool
+    satisfied: bool
+    applied: List[str]
+    error: Optional[str] = None
+    observed_change_self_attrs: int = 0
+    observed_get_self_info: int = 0
+    observed_update_mutable_attribute: int = 0
+    observed_update_profile_facet: int = 0
+    observed_respec_identity: int = 0
+
+
+def _extract_identity_tool_calls(output_text: str) -> ParsedIdentityToolCalls:
+    text = str(output_text or "")
+    mutable_calls: List[MutableUpdateCall] = []
+    respec_calls: List[RespecCall] = []
+    profile_facet_calls: List[ProfileFacetCall] = []
+    change_self_attrs_calls: List[ChangeSelfAttrsCall] = []
+    get_self_info_count = 0
+    if not text:
+        return ParsedIdentityToolCalls(
+            mutable=mutable_calls,
+            respec=respec_calls,
+            profile_facet=profile_facet_calls,
+            change_self_attrs=change_self_attrs_calls,
+            get_self_info_count=get_self_info_count,
+        )
+
+    get_self_info_count = len(re.findall(r"getSelfInfo\s*\(\s*\)", text, flags=re.IGNORECASE))
+
+    change_self_pattern = re.compile(r"changeSelfAttrs\s*\((.*?)\)", re.IGNORECASE | re.DOTALL)
+    for match in change_self_pattern.finditer(text):
+        args = match.group(1) or ""
+        kwargs = _extract_call_kwargs(args)
+        reason = str(kwargs.pop("reason", "") or "").strip()
+        updates = {k: v for k, v in kwargs.items() if str(k).strip()}
+        if updates:
+            change_self_attrs_calls.append(
+                ChangeSelfAttrsCall(
+                    updates=updates,
+                    reason=reason,
+                )
+            )
+
+    mutable_pattern = re.compile(r"update_mutable_attribute\s*\((.*?)\)", re.IGNORECASE | re.DOTALL)
+    for match in mutable_pattern.finditer(text):
+        args = match.group(1) or ""
+        attribute = _extract_call_kwarg(args, "attribute")
+        value = _extract_call_kwarg(args, "value")
+        reason = _extract_call_kwarg(args, "reason")
+        if attribute and value:
+            mutable_calls.append(
+                MutableUpdateCall(
+                    attribute=attribute,
+                    value=value,
+                    reason=reason or "",
+                )
+            )
+
+    respec_pattern = re.compile(r"respec_identity\s*\((.*?)\)", re.IGNORECASE | re.DOTALL)
+    for match in respec_pattern.finditer(text):
+        args = match.group(1) or ""
+        new_name = _extract_call_kwarg(args, "new_name")
+        reason = _extract_call_kwarg(args, "reason")
+        if new_name and reason:
+            respec_calls.append(
+                RespecCall(
+                    new_name=new_name,
+                    reason=reason,
+                )
+            )
+
+    profile_pattern = re.compile(r"update_profile_facet\s*\((.*?)\)", re.IGNORECASE | re.DOTALL)
+    for match in profile_pattern.finditer(text):
+        args = match.group(1) or ""
+        key = _extract_call_kwarg(args, "key")
+        value = _extract_call_kwarg(args, "value")
+        reason = _extract_call_kwarg(args, "reason")
+        if key and value:
+            profile_facet_calls.append(
+                ProfileFacetCall(
+                    key=key,
+                    value=value,
+                    reason=reason or "",
+                )
+            )
+
+    return ParsedIdentityToolCalls(
+        mutable=mutable_calls,
+        respec=respec_calls,
+        profile_facet=profile_facet_calls,
+        change_self_attrs=change_self_attrs_calls,
+        get_self_info_count=get_self_info_count,
+    )
+
+
+def _extract_named_field(text: str, field_name: str) -> Optional[str]:
+    if not text:
+        return None
+    field_pattern = re.escape(field_name).replace("\\ ", r"\s+")
+    pattern = re.compile(
+        rf"(?im)^\s*(?:[-*]\s*)?(?:\*\*)?{field_pattern}(?:\*\*)?\s*[:\-]\s*(.+?)\s*$"
+    )
+    match = pattern.search(text)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", str(match.group(1) or "").strip())
+    if not value:
+        return None
+    return value[:220]
+
+
+def _enforce_identity_mutable_updates(
+    task: Dict[str, Any],
+    result: Dict[str, Any],
+    resident_ctx: Optional["ResidentContext"],
+) -> IdentityUpdateGateResult:
+    if not _is_identity_evolution_task(task):
+        return IdentityUpdateGateResult(required=False, satisfied=True, applied=[])
+
+    identity_id = ""
+    if resident_ctx and getattr(resident_ctx, "identity", None):
+        identity_id = str(getattr(resident_ctx.identity, "identity_id", "")).strip()
+    if not identity_id:
+        identity_id = str(task.get("identity_id") or task.get("resident_identity") or "").strip()
+    if not identity_id:
+        return IdentityUpdateGateResult(
+            required=True,
+            satisfied=False,
+            applied=[],
+            error="identity-update contract requires identity_id",
+        )
+
+    output_text = str(result.get("result_summary") or "")
+    calls = _extract_identity_tool_calls(output_text)
+    parsed_mutable_calls = calls.mutable
+    parsed_respec_calls = calls.respec
+    parsed_profile_facet_calls = calls.profile_facet
+    parsed_change_self_attrs_calls = calls.change_self_attrs
+    observed_get_self_info = int(calls.get_self_info_count or 0)
+    mood = _extract_named_field(output_text, "current mood")
+    focus = _extract_named_field(output_text, "current focus")
+    if (
+        not parsed_change_self_attrs_calls
+        and not parsed_mutable_calls
+        and not parsed_respec_calls
+        and not parsed_profile_facet_calls
+        and not mood
+        and not focus
+    ):
+        return IdentityUpdateGateResult(
+            required=True,
+            satisfied=False,
+            applied=[],
+            error=(
+                "identity-update contract requires explicit tool calls "
+                "(changeSelfAttrs/update_mutable_attribute/update_profile_facet/respec_identity) "
+                "or Current Mood/Current Focus values"
+            ),
+            observed_get_self_info=observed_get_self_info,
+        )
+
+    if WORKER_ENRICHMENT is None or not hasattr(WORKER_ENRICHMENT, "update_mutable_attribute"):
+        return IdentityUpdateGateResult(
+            required=True,
+            satisfied=False,
+            applied=[],
+            error="identity-update tool unavailable (update_mutable_attribute)",
+        )
+
+    applied: List[str] = []
+    failures: List[str] = []
+    task_reason = f"auto_apply_identity_evolution:{task.get('id', 'unknown')}"
+    try:
+        if parsed_change_self_attrs_calls:
+            if not hasattr(WORKER_ENRICHMENT, "change_self_attrs"):
+                failures.append("changeSelfAttrs:tool_unavailable")
+            else:
+                for call in parsed_change_self_attrs_calls:
+                    change_result = WORKER_ENRICHMENT.change_self_attrs(
+                        identity_id=identity_id,
+                        updates=call.updates,
+                        reason=(call.reason or task_reason),
+                        allow_new_attrs=True,
+                        allow_contract_bypass=True,
+                    )
+                    if change_result.get("success"):
+                        applied.extend(str(x) for x in (change_result.get("applied") or []))
+                    else:
+                        failures.append(
+                            f"changeSelfAttrs:{change_result.get('reason', 'unknown')}"
+                        )
+
+        for call in parsed_mutable_calls:
+            attr = str(call.attribute or "").strip()
+            value = str(call.value or "").strip()
+            if not attr or not value:
+                continue
+            reason = str(call.reason or "").strip() or task_reason
+            update_result = WORKER_ENRICHMENT.update_mutable_attribute(
+                identity_id, attr, value, reason=reason
+            )
+            if update_result.get("success"):
+                applied.append(attr)
+            else:
+                failures.append(f"{attr}:{update_result.get('reason', 'unknown')}")
+
+        if parsed_profile_facet_calls:
+            if not hasattr(WORKER_ENRICHMENT, "update_profile_facet"):
+                failures.append("update_profile_facet:tool_unavailable")
+            else:
+                for call in parsed_profile_facet_calls:
+                    key = str(call.key or "").strip()
+                    value = str(call.value or "").strip()
+                    if not key or not value:
+                        continue
+                    reason = str(call.reason or "").strip() or task_reason
+                    profile_result = WORKER_ENRICHMENT.update_profile_facet(
+                        identity_id, key, value, reason=reason
+                    )
+                    if profile_result.get("success"):
+                        applied.append(f"profile.{key}")
+                    else:
+                        failures.append(
+                            f"profile.{key}:{profile_result.get('reason', 'unknown')}"
+                        )
+
+        if parsed_respec_calls:
+            if not hasattr(WORKER_ENRICHMENT, "respec_identity"):
+                failures.append("respec_identity:tool_unavailable")
+            else:
+                for call in parsed_respec_calls:
+                    new_name = str(call.new_name or "").strip()
+                    reason = str(call.reason or "").strip()
+                    if not new_name or not reason:
+                        continue
+                    respec_result = WORKER_ENRICHMENT.respec_identity(
+                        identity_id, new_name=new_name, reason=reason
+                    )
+                    if respec_result.get("success"):
+                        applied.append("respec_identity")
+                    else:
+                        failures.append(f"respec_identity:{respec_result.get('reason', 'unknown')}")
+
+        # Back-compat fallback for older prompts that only emitted named fields.
+        if mood:
+            mood_result = WORKER_ENRICHMENT.update_mutable_attribute(
+                identity_id, "current_mood", mood, reason=task_reason
+            )
+            if mood_result.get("success"):
+                if "current_mood" not in applied:
+                    applied.append("current_mood")
+            else:
+                failures.append(f"current_mood:{mood_result.get('reason', 'unknown')}")
+        if focus:
+            focus_result = WORKER_ENRICHMENT.update_mutable_attribute(
+                identity_id, "current_focus", focus, reason=task_reason
+            )
+            if focus_result.get("success"):
+                if "current_focus" not in applied:
+                    applied.append("current_focus")
+            else:
+                failures.append(f"current_focus:{focus_result.get('reason', 'unknown')}")
+    except Exception as exc:
+        failures.append(str(exc))
+
+    satisfied = len(applied) > 0
+    return IdentityUpdateGateResult(
+        required=True,
+        satisfied=satisfied,
+        applied=applied,
+        error=None if satisfied else ("; ".join(failures) or "no identity updates applied"),
+        observed_change_self_attrs=len(parsed_change_self_attrs_calls),
+        observed_get_self_info=observed_get_self_info,
+        observed_update_mutable_attribute=len(parsed_mutable_calls),
+        observed_update_profile_facet=len(parsed_profile_facet_calls),
+        observed_respec_identity=len(parsed_respec_calls),
+    )
+
+
 def _run_post_execution_review(
     task: Dict[str, Any],
     result: Dict[str, Any],
@@ -1760,24 +2384,48 @@ def _run_post_execution_review(
     else:
         suggestions = ["Task verifier unavailable; accepted without critic review."]
 
+    mvp_gate = _evaluate_mvp_artifact_gate(task, result)
+    if mvp_gate is not None:
+        approved = False
+        verdict_name = "REJECT"
+        confidence = min(confidence, 0.2)
+        issues.insert(0, mvp_gate["issue"])
+        suggestions.insert(0, mvp_gate["suggestion"])
+
+    identity_update_gate = _enforce_identity_mutable_updates(task, result, resident_ctx)
+    if identity_update_gate.required and not identity_update_gate.satisfied:
+        approved = False
+        verdict_name = "REJECT"
+        confidence = min(confidence, 0.2)
+        issues.insert(
+            0,
+            "Identity update contract failed: must apply identity updates via tools "
+            "(changeSelfAttrs/update_mutable_attribute/update_profile_facet/respec_identity), not journal-only output.",
+        )
+        suggestions.insert(
+            0,
+            f"Include explicit identity tool calls in output and apply changes. "
+            f"Gate detail: {identity_update_gate.error or 'missing mutable update'}",
+        )
+
     review_attempt = previous_review_attempt + (0 if approved else 1)
     identity_id = ""
     identity_name = "Resident"
     if resident_ctx and getattr(resident_ctx, "identity", None):
         identity_id = str(getattr(resident_ctx.identity, "identity_id", "")).strip()
         identity_name = str(getattr(resident_ctx.identity, "name", "")).strip() or identity_id
-    append_execution_event(
-        task_id,
-        "pending_review",
-        review_verdict=verdict_name,
-        review_confidence=confidence,
-        review_issues=issues,
-        review_suggestions=suggestions,
-        review_attempt=review_attempt,
-        identity_id=identity_id or None,
-        identity_name=identity_name or None,
-    )
-
+    if not identity_id:
+        identity_id = str(task.get("identity_id") or task.get("resident_identity") or task.get("author_id") or "").strip()
+        identity_name = str(task.get("identity_name") or task.get("resident_identity_name") or identity_id or "Resident").strip() or "Resident"
+    _PLACEHOLDER_IDS = frozenset({"identity_phase5", "worker", "resident"})
+    if not identity_id or identity_id.lower() in _PLACEHOLDER_IDS or (identity_name and identity_name.lower() in _PLACEHOLDER_IDS):
+        last_event = read_execution_log().get("tasks", {}).get(task_id, {})
+        ev_id = str(last_event.get("identity_id") or "").strip()
+        ev_name = str(last_event.get("identity_name") or "").strip()
+        if ev_id and ev_id.lower() not in _PLACEHOLDER_IDS:
+            identity_id = ev_id
+            identity_name = ev_name or ev_id
+    # Do NOT append pending_review here; caller appends once with full review metadata
     quality_gate = _record_quality_gate_review(task, resident_ctx, approved=approved)
     review_summary = {
         "review_verdict": verdict_name,
@@ -1785,26 +2433,58 @@ def _run_post_execution_review(
         "review_issues": issues,
         "review_suggestions": suggestions,
         "review_attempt": review_attempt,
+        "identity_update_required": bool(identity_update_gate.required),
+        "identity_update_applied": list(identity_update_gate.applied),
+        "identity_update_error": identity_update_gate.error,
+        "identity_update_observed_calls": {
+            "changeSelfAttrs": identity_update_gate.observed_change_self_attrs,
+            "getSelfInfo": identity_update_gate.observed_get_self_info,
+            "update_mutable_attribute": identity_update_gate.observed_update_mutable_attribute,
+            "update_profile_facet": identity_update_gate.observed_update_profile_facet,
+            "respec_identity": identity_update_gate.observed_respec_identity,
+        },
         **quality_gate,
     }
-    # Never auto-approve: require human to click Approve in the control panel. Reward is granted on approval.
     phase5_reward = {
         "phase5_reward_applied": False,
-        "phase5_reward_reason": "awaiting_human_approval",
+        "phase5_reward_reason": "not_applied",
     }
-
-    # Notify human via mailbox so they know to approve (resident or guild claiming completion messages human)
-    result_preview = (result.get("result_summary") or result.get("errors") or "Done")[:200]
-    _notify_human_task_pending_approval(
+    community_review = _maybe_submit_task_community_review(
         task_id=task_id,
+        result_summary=str(result.get("result_summary") or ""),
         identity_id=identity_id,
         identity_name=identity_name,
-        result_preview=result_preview,
         review_verdict=verdict_name,
     )
+    review_summary.update(community_review)
 
-    # Always return pending_review so task stays in queue until human approves
+    needs_human_approval = _requires_human_approval(
+        task,
+        confidence=confidence,
+        issues=issues,
+    )
+
     if approved:
+        if not needs_human_approval:
+            phase5_reward = _maybe_apply_phase5_reward(task, result, resident_ctx, confidence)
+            return {
+                "status": "approved",
+                "result_summary": result.get("result_summary"),
+                "errors": None,
+                **review_summary,
+                **phase5_reward,
+            }
+
+        # Human-approval path: keep task in pending_review.
+        phase5_reward = {"phase5_reward_applied": False, "phase5_reward_reason": "awaiting_human_approval"}
+        result_preview = (result.get("result_summary") or result.get("errors") or "Done")
+        _notify_human_task_pending_approval(
+            task_id=task_id,
+            identity_id=identity_id,
+            identity_name=identity_name,
+            result_preview=result_preview,
+            review_verdict=verdict_name,
+        )
         return {
             "status": "pending_review",
             "result_summary": result.get("result_summary"),
@@ -1866,7 +2546,7 @@ def _execute_delegated_subtasks(
         subtask_id = getattr(sub, "subtask_id", None) or f"subtask_{index:02d}"
         focus = getattr(sub, "suggested_focus", None)
         sub_prompt = getattr(sub, "description", "") or ""
-        sub_prompt = _apply_hat_overlay(sub_prompt, focus)
+        sub_prompt, hat_name = _apply_hat_overlay(sub_prompt, focus)
         if resident_ctx and sub_prompt:
             sub_prompt = resident_ctx.apply_to_prompt(sub_prompt)
 
@@ -1887,6 +2567,7 @@ def _execute_delegated_subtasks(
                 "subtask_failed",
                 subtask_id=subtask_id,
                 focus=focus,
+                hat_name=hat_name,
                 errors=error_msg,
                 safety_report=safety_report,
                 **identity_fields,
@@ -1903,6 +2584,7 @@ def _execute_delegated_subtasks(
             "subtask_started",
             subtask_id=subtask_id,
             focus=focus,
+            hat_name=hat_name,
             **identity_fields,
         )
 
@@ -1961,6 +2643,7 @@ def _execute_delegated_subtasks(
             }
 
         result = response.json()
+        budget_used = result.get("budget_used")
         append_execution_event(
             task_id,
             "subtask_completed",
@@ -1968,6 +2651,7 @@ def _execute_delegated_subtasks(
             focus=focus,
             result_summary=result.get("result"),
             model=result.get("model"),
+            budget_used=budget_used,
             **identity_fields,
         )
         return {
@@ -1975,10 +2659,12 @@ def _execute_delegated_subtasks(
             "result": result.get("result", f"{subtask_id} completed"),
             "subtask_id": subtask_id,
             "index": index,
+            "budget_used": budget_used,
         }
 
     results_by_index: Dict[int, str] = {}
     failures: List[str] = []
+    total_budget_used: float = 0.0
 
     with ThreadPoolExecutor(max_workers=max_parallel) as executor:
         futures = {
@@ -1991,6 +2677,12 @@ def _execute_delegated_subtasks(
                 failures.append(outcome.get("error", "subtask failed"))
             else:
                 results_by_index[outcome.get("index", 0)] = outcome.get("result", "subtask completed")
+                bu = outcome.get("budget_used")
+                if bu is not None:
+                    try:
+                        total_budget_used += float(bu)
+                    except (TypeError, ValueError):
+                        pass
 
     if failures:
         return {
@@ -2008,6 +2700,7 @@ def _execute_delegated_subtasks(
         "result_summary": summary,
         "errors": None,
         "model": model,
+        "budget_used": round(total_budget_used, 6) if total_budget_used else None,
     }
 
 
@@ -2094,7 +2787,7 @@ def execute_task(
     if resident_ctx and prompt and resident_decompose_task and (should_decompose or should_delegate):
         max_subtasks = task.get("max_subtasks")
         if not isinstance(max_subtasks, int) or max_subtasks <= 0:
-            max_subtasks = 3
+            max_subtasks = RESIDENT_MAX_SUBTASKS_DEFAULT
         plan = resident_decompose_task(
             prompt,
             resident_id=resident_ctx.resident_id,
@@ -2139,6 +2832,20 @@ def execute_task(
         enrichment_prompt = _build_enrichment_prompt_context(resident_ctx, task_prompt=recall_query)
         if enrichment_prompt:
             prompt = f"{prompt}\n\n{enrichment_prompt}"
+        if _is_identity_evolution_task(task):
+            prompt = (
+                f"{prompt}\n\n"
+                "IDENTITY TOOL APPLICATION CONTRACT (REQUIRED FOR IDENTITY TASKS):\n"
+                "- If you change identity state, output an `Identity Tool Calls` section.\n"
+                "- Preferred interface (elegant path):\n"
+                "  getSelfInfo()\n"
+                "  changeSelfAttrs(reason='...', current_mood='...', current_focus='...', social_style='...')\n"
+                "- Low-level calls are still accepted for backwards compatibility:\n"
+                "  update_mutable_attribute(...), update_profile_facet(...), respec_identity(...)\n"
+                "- Value elegance over bandaids: apply coherent changes, not placeholder prose.\n"
+                "- Do not just journal plans. Include executable tool call lines in your final output.\n"
+                "- If tool calls are missing, this task is rejected and no completion broadcast is published.\n"
+            )
         if MVP_DOCS_ONLY_MODE:
             prompt = (
                 "MVP MODE: You are currently limited to documentation artifacts.\n"
@@ -2193,6 +2900,15 @@ def execute_task(
         except Exception as exc:
             _log("WARN", f"Intent injection failed for {task_id}: {exc}")
 
+    if prompt and mode != "local" and not command:
+        task_lower = (prompt or "").lower()
+        if any(kw in task_lower for kw in ("create", "proposal", "crystallize", "document", "write", "persist")):
+            prompt = (
+                f"{prompt}\n\n"
+                "[REQUIREMENT] Execute tools (write_file, edit_profile_ui, persist_artifact) to create the artifact. "
+                "Do not output planning text ('I will...', 'Proposal:', 'The document will...')—call the tools now."
+            )
+
     payload = {
         "prompt": prompt,
         "model": model,
@@ -2221,19 +2937,10 @@ def execute_task(
             result = response.json()
             api_safety_report = result.get("safety_report")
             result_summary = result.get("result", "Task completed")
-            _publish_task_update_to_discussion(task, resident_ctx, task_id, result_summary)
             markdown_artifacts = _persist_mvp_markdown_artifacts(task, result_summary, resident_ctx)
-            checkpoint_sha = None
-            if WORKER_MUTABLE_VCS is not None:
-                try:
-                    checkpoint = WORKER_MUTABLE_VCS.checkpoint(
-                        task_id=task_id,
-                        summary=str(result_summary),
-                        metadata={"mode": mode or "llm", "model": result.get("model")},
-                    )
-                    checkpoint_sha = checkpoint.commit_sha
-                except Exception as exc:
-                    _log("WARN", f"Auto-checkpoint failed for {task_id}: {exc}")
+            publish_text = str(result_summary or "").strip()
+            if publish_text:
+                _publish_task_update_to_discussion(task, resident_ctx, task_id, publish_text)
             return {
                 "status": "completed",
                 "result_summary": result_summary,
@@ -2242,7 +2949,6 @@ def execute_task(
                 "budget_used": result.get("budget_used"),
                 "safety_passed": bool((api_safety_report or safety_report).get("passed", True)),
                 "safety_report": api_safety_report or safety_report,
-                "mutable_checkpoint": checkpoint_sha,
                 "mvp_markdown_artifacts": markdown_artifacts,
                 **tool_route_info,
             }
@@ -2331,7 +3037,7 @@ def find_and_execute_task(
         if is_task_done(task_id, execution_log):
             continue
 
-        if not check_dependencies_complete(task, execution_log):
+        if not check_dependencies_complete(task, execution_log, queue):
             continue
 
         accept, reason = _should_accept_task(task, resident_ctx, min_score)
@@ -2355,6 +3061,10 @@ def find_and_execute_task(
             identity_fields = {}
             if resident_ctx:
                 identity_fields["identity_id"] = resident_ctx.identity.identity_id
+                identity_fields["identity_name"] = (
+                    str(getattr(resident_ctx.identity, "name", "") or "").strip()
+                    or resident_ctx.identity.identity_id
+                )
 
             phase4_plan = _maybe_compile_phase4_plan(task, queue)
             if phase4_plan:
@@ -2402,6 +3112,7 @@ def find_and_execute_task(
             )
 
             final_status = result["status"]
+            final_result_summary = result.get("result_summary")
             if final_status == "completed":
                 review_result = _run_post_execution_review(
                     task=task,
@@ -2410,6 +3121,7 @@ def find_and_execute_task(
                     previous_review_attempt=previous_review_attempt,
                 )
                 final_status = review_result["status"]
+                final_result_summary = review_result.get("result_summary")
                 append_execution_event(
                     task_id,
                     final_status,
@@ -2442,6 +3154,25 @@ def find_and_execute_task(
                     tool_confidence=result.get("tool_confidence"),
                     **identity_fields,
                 )
+
+            if final_status in {"completed", "approved", "ready_for_merge", "pending_review"}:
+                publish_text = str(final_result_summary or "").strip()
+                if publish_text:
+                    _publish_task_update_to_discussion(task, resident_ctx, task_id, publish_text)
+                    if not isinstance(result.get("mvp_markdown_artifacts"), dict):
+                        result["mvp_markdown_artifacts"] = _persist_mvp_markdown_artifacts(
+                            task, publish_text, resident_ctx
+                        )
+                    if WORKER_MUTABLE_VCS is not None:
+                        try:
+                            checkpoint = WORKER_MUTABLE_VCS.checkpoint(
+                                task_id=task_id,
+                                summary=publish_text,
+                                metadata={"mode": task.get("mode") or "llm", "model": result.get("model")},
+                            )
+                            result["mutable_checkpoint"] = checkpoint.commit_sha
+                        except Exception as exc:
+                            _log("WARN", f"Auto-checkpoint failed for {task_id}: {exc}")
 
             _apply_queue_outcome(task_id, final_status)
             _log("INFO", f"Completed task {task_id} - {final_status}")
@@ -2493,6 +3224,14 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
                 break
 
             try:
+                if _is_halted():
+                    now_ts = time.time()
+                    if now_ts - _last_halt_log_at[0] >= 60.0:
+                        _log("INFO", "Halted (kill switch or budget limit). Re-enable via HALT button when ready.")
+                        _last_halt_log_at[0] = now_ts
+                    time.sleep(5.0)
+                    continue
+
                 queue = read_queue()
 
                 if find_and_execute_task(queue, resident_ctx, DEFAULT_MIN_SCORE, shard_id):

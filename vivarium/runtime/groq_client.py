@@ -102,6 +102,51 @@ GROQ_MODELS = {
     ),
 }
 
+# Per-model optimal API settings (from Groq docs: console.groq.com/docs/prompting)
+# Temperature: 0 = deterministic, 0.2 = factual, 0.7 = creative, 0.8 = copywriting
+# Use temp OR top_p, not both (Groq recommends one)
+GROQ_MODEL_SETTINGS: Dict[str, Dict[str, Any]] = {
+    "openai/gpt-oss-120b": {"temperature": 0.7, "top_p": None, "max_tokens": 4096},
+    "openai/gpt-oss-20b": {"temperature": 0.7, "top_p": None, "max_tokens": 4096},
+    "groq/compound": {"temperature": 0.7, "top_p": None, "max_tokens": 8192},
+    "groq/compound-mini": {"temperature": 0.7, "top_p": None, "max_tokens": 8192},
+    "llama-3.1-8b-instant": {"temperature": 0.3, "top_p": None, "max_tokens": 4096},
+    "llama-3.3-70b-versatile": {"temperature": 0.7, "top_p": None, "max_tokens": 4096},
+    "llama-guard-3-8b": {"temperature": 0.0, "top_p": None, "max_tokens": 1024},
+}
+# Task-type overrides (override model defaults when task type is explicit)
+# From Groq docs: factual 0.2, creative 0.8, brainstorming 0.7, code 0.3, extraction 0.0
+GROQ_TASK_OVERRIDES: Dict[str, Dict[str, Any]] = {
+    "deterministic": {"temperature": 0.0},
+    "factual": {"temperature": 0.2},
+    "creative": {"temperature": 0.8},
+    "brainstorming": {"temperature": 0.7},
+    "code": {"temperature": 0.3},
+    "extraction": {"temperature": 0.0},
+}
+
+
+def _resolve_model_settings(
+    model_id: str,
+    task_type: Optional[str] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Resolve temperature, top_p, max_tokens from model defaults + task type + explicit overrides."""
+    model_settings = GROQ_MODEL_SETTINGS.get(model_id, {"temperature": 0.7, "top_p": None, "max_tokens": 4096})
+    out = dict(model_settings)
+    if task_type and task_type in GROQ_TASK_OVERRIDES:
+        out.update(GROQ_TASK_OVERRIDES[task_type])
+    if temperature is not None:
+        out["temperature"] = temperature
+    if top_p is not None:
+        out["top_p"] = top_p
+    if max_tokens is not None:
+        out["max_tokens"] = max_tokens
+    return out
+
+
 # Model aliases - DEFAULT is GPT-OSS 120B
 MODEL_ALIASES = {
     "auto": "openai/gpt-oss-120b",     # Default: GPT-OSS 120B
@@ -119,6 +164,11 @@ MODEL_ALIASES = {
     "8b": "llama-3.1-8b-instant",
     "70b": "llama-3.3-70b-versatile",
 }
+
+DEFAULT_SYSTEM_PROMPT = (
+    "You are an expert software engineer executing tasks precisely. "
+    "Follow instructions exactly."
+)
 
 
 class GroqInferenceEngine:
@@ -225,9 +275,14 @@ class GroqInferenceEngine:
         prompt: str,
         model: str = "openai/gpt-oss-120b",  # DEFAULT: GPT-OSS 120B
         complexity_score: float = 0.0,  # Ignored - Groq Compound handles this automatically
-        max_tokens: int = 4096,
-        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         timeout: int = 600,
+        seed: Optional[int] = None,
+        task_type: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Execute a prompt using Groq API.
@@ -239,6 +294,7 @@ class GroqInferenceEngine:
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
             timeout: Request timeout in seconds
+            system_prompt: Optional system instruction override
 
         Returns:
             Dict with keys: result, cost, input_tokens, output_tokens, model, elapsed
@@ -248,6 +304,15 @@ class GroqInferenceEngine:
         # Select appropriate model
         model_id = self._select_model_for_complexity(model, complexity_score)
         model_config = GROQ_MODELS.get(model_id)
+
+        # Resolve settings from model defaults + task_type + explicit overrides
+        resolved = _resolve_model_settings(
+            model_id, task_type=task_type,
+            temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+        )
+        temperature = resolved["temperature"]
+        top_p = resolved.get("top_p")
+        max_tokens = resolved.get("max_tokens") or 4096
 
         if not model_config:
             return {
@@ -261,23 +326,25 @@ class GroqInferenceEngine:
         self._rate_limit_wait()
 
         try:
+            system_message = (system_prompt or kwargs.get("system_prompt") or DEFAULT_SYSTEM_PROMPT).strip()
+            if not system_message:
+                system_message = DEFAULT_SYSTEM_PROMPT
             # Make API request
-            response = self.client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert software engineer executing tasks precisely. Follow instructions exactly."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+            create_kwargs = {
+                "model": model_id,
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
                 ],
-                max_tokens=min(max_tokens, model_config.max_completion),
-                temperature=temperature,
-                timeout=timeout
-            )
+                "max_tokens": min(max_tokens, model_config.max_completion),
+                "temperature": temperature,
+                "timeout": timeout,
+            }
+            if top_p is not None:
+                create_kwargs["top_p"] = top_p
+            if seed is not None:
+                create_kwargs["seed"] = seed
+            response = self.client.chat.completions.create(**create_kwargs)
 
             # Extract response
             result_text = response.choices[0].message.content or ""
@@ -324,7 +391,11 @@ class GroqInferenceEngine:
                         complexity_score=complexity_score,
                         max_tokens=max_tokens,
                         temperature=temperature,
-                        timeout=timeout
+                        timeout=timeout,
+                        top_p=top_p,
+                        seed=seed,
+                        task_type=task_type,
+                        system_prompt=system_message,
                     )
                 return {
                     "error": "rate_limit",
