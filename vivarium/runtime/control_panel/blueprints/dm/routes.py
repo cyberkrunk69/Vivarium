@@ -64,7 +64,7 @@ def api_dm_messages():
 @bp.route("/dm/send", methods=["POST"])
 def api_dm_send():
     """Send a resident-to-resident private DM."""
-    _dm_enrichment, get_identities, _ = _app_helpers()
+    _dm_enrichment, get_identities, *_ = _app_helpers()
     names = {item.get("id"): item.get("name") for item in get_identities() if item.get("id")}
     data = request.get_json(force=True, silent=True) or {}
     from_id = str(data.get("from_id") or "").strip()
