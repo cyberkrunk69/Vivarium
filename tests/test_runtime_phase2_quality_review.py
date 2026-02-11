@@ -67,7 +67,8 @@ def test_post_execution_review_approved_records_needs_qa(monkeypatch, tmp_path):
     result = {"status": "completed", "result_summary": "done", "errors": None, "model": "local"}
     review = worker._run_post_execution_review(task, result, resident_ctx=None, previous_review_attempt=0)
 
-    assert review["status"] == "approved"
+    # Verifier approved -> task stays pending_review until human approves in control panel
+    assert review["status"] == "pending_review"
     assert review["quality_gate_status"] == "needs_qa"
 
     state = manager.load_state()
@@ -155,14 +156,11 @@ def test_post_execution_review_approved_applies_phase5_reward(monkeypatch, tmp_p
         previous_review_attempt=0,
     )
 
-    assert review["status"] == "approved"
-    assert review["phase5_reward_applied"] is True
-    assert review["phase5_reward_tokens_requested"] > 0
-    assert review["phase5_reward_tokens_awarded"] == review["phase5_reward_tokens_requested"]
-    assert review["phase5_reward_identity"] == "identity_phase5"
-    assert review["phase5_reward_ledger_recorded"] is True
-    assert enrichment.calls
-    assert enrichment.calls[0]["reason"].startswith("worker_approved_under_budget:task_phase5_reward")
+    # Verifier approved -> pending_review; phase5 reward is applied on human approval, not here
+    assert review["status"] == "pending_review"
+    assert review["phase5_reward_applied"] is False
+    assert review["phase5_reward_reason"] == "awaiting_human_approval"
+    assert enrichment.calls == []
 
 
 def test_post_execution_review_approved_skips_phase5_reward_without_budget_savings(monkeypatch, tmp_path):
@@ -199,9 +197,10 @@ def test_post_execution_review_approved_skips_phase5_reward_without_budget_savin
         previous_review_attempt=0,
     )
 
-    assert review["status"] == "approved"
+    # Verifier approved -> pending_review; reward not applied here (human approval path checks budget)
+    assert review["status"] == "pending_review"
     assert review["phase5_reward_applied"] is False
-    assert review["phase5_reward_reason"] == "not_under_budget"
+    assert review["phase5_reward_reason"] == "awaiting_human_approval"
     assert enrichment.calls == []
 
 
@@ -246,16 +245,12 @@ def test_post_execution_review_approved_phase5_reward_is_idempotent(monkeypatch,
         previous_review_attempt=0,
     )
 
-    assert first_review["phase5_reward_applied"] is True
-    assert first_review["phase5_reward_ledger_recorded"] is True
+    # Both return pending_review; no reward applied in this flow (human approval applies it)
+    assert first_review["status"] == "pending_review"
+    assert first_review["phase5_reward_applied"] is False
+    assert first_review["phase5_reward_reason"] == "awaiting_human_approval"
+    assert second_review["status"] == "pending_review"
     assert second_review["phase5_reward_applied"] is False
-    assert second_review["phase5_reward_reason"] == "already_granted"
-    assert second_review["phase5_reward_ledger_recorded"] is True
-    assert second_review["phase5_reward_tokens_awarded"] == first_review["phase5_reward_tokens_awarded"]
-    assert len(enrichment.calls) == 1
-
-    ledger = read_json(worker.PHASE5_REWARD_LEDGER, default={})
-    assert ledger.get("version") == 1
-    grants = ledger.get("grants", {})
-    assert "task_phase5_once::identity_phase5" in grants
+    assert second_review["phase5_reward_reason"] == "awaiting_human_approval"
+    assert enrichment.calls == []
 

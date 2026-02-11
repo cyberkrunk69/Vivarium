@@ -457,6 +457,7 @@ def test_worker_execute_task_persists_mvp_markdown_artifacts(monkeypatch, tmp_pa
     monkeypatch.setattr(worker, "MVP_JOURNALS_DIR", journals_dir)
     monkeypatch.setattr(worker, "MVP_LIBRARY_DOCS_DIR", library_docs_dir)
     monkeypatch.setattr(worker, "MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT", resident_suggestions_root)
+    monkeypatch.setattr(worker, "MVP_ARTIFACT_FINGERPRINTS_FILE", tmp_path / "artifact_fingerprints.json")
     monkeypatch.setattr(
         worker,
         "MVP_ALLOWED_DOC_ROOTS",
@@ -562,6 +563,7 @@ def test_worker_execute_task_defaults_suggestions_to_resident_library_folder(mon
     monkeypatch.setattr(worker, "MVP_JOURNALS_DIR", journals_dir)
     monkeypatch.setattr(worker, "MVP_LIBRARY_DOCS_DIR", library_docs_dir)
     monkeypatch.setattr(worker, "MVP_LIBRARY_RESIDENT_SUGGESTIONS_ROOT", resident_suggestions_root)
+    monkeypatch.setattr(worker, "MVP_ARTIFACT_FINGERPRINTS_FILE", tmp_path / "artifact_fingerprints.json")
     monkeypatch.setattr(
         worker,
         "MVP_ALLOWED_DOC_ROOTS",
