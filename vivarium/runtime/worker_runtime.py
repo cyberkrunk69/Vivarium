@@ -2938,6 +2938,9 @@ def execute_task(
             api_safety_report = result.get("safety_report")
             result_summary = result.get("result", "Task completed")
             markdown_artifacts = _persist_mvp_markdown_artifacts(task, result_summary, resident_ctx)
+            publish_text = str(result_summary or "").strip()
+            if publish_text:
+                _publish_task_update_to_discussion(task, resident_ctx, task_id, publish_text)
             return {
                 "status": "completed",
                 "result_summary": result_summary,
