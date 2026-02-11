@@ -80,6 +80,9 @@ WORKER_PROCESS_FILE = MUTABLE_SWARM_DIR / "worker_process.json"
 # Operator-only UI controls (kept out of resident-visible world/config paths).
 UI_SETTINGS_FILE = SECURITY_ROOT / "local_ui_settings.json"
 LEGACY_UI_SETTINGS_FILE = CODE_ROOT / "config" / "local_ui_settings.json"
+CREATIVE_SEED_PATTERN = re.compile(r"^[A-Z]{2}-\d{4}-[A-Z]{2}$")
+CREATIVE_SEED_USED_FILE = MUTABLE_SWARM_DIR / "creative_seed_used.json"
+CREATIVE_SEED_USED_MAX = 5000
 
 # --- MAKE PATHS AVAILABLE TO BLUEPRINTS VIA FLASK CONFIG ---
 app.config.update({
@@ -97,8 +100,18 @@ app.config.update({
     'WORKER_PROCESS_FILE': WORKER_PROCESS_FILE,
     'UI_SETTINGS_FILE': UI_SETTINGS_FILE,
     'LEGACY_UI_SETTINGS_FILE': LEGACY_UI_SETTINGS_FILE,
+    'CREATIVE_SEED_PATTERN': CREATIVE_SEED_PATTERN,
+    'CREATIVE_SEED_USED_FILE': CREATIVE_SEED_USED_FILE,
+    'CREATIVE_SEED_USED_MAX': CREATIVE_SEED_USED_MAX,
 })
 # -------------------------------------------------------------
+
+# Register blueprints
+from vivarium.runtime.control_panel.blueprints_registry import BLUEPRINT_SPECS
+
+for bp, url_prefix in BLUEPRINT_SPECS:
+    kwargs = {"url_prefix": url_prefix} if url_prefix else {}
+    app.register_blueprint(bp, **kwargs)
 
 # Track last read position (lock guards against race with watcher thread + poll)
 last_log_position = 0
@@ -120,9 +133,6 @@ DM_THREADS_DEFAULT_LIMIT = 40
 INSIGHTS_HEALTH_BACKLOG_WARN = 8
 INSIGHTS_SOCIAL_UNREAD_WARN = 5
 REFERENCE_WEEKDAY_NAMES = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
-CREATIVE_SEED_PATTERN = re.compile(r"^[A-Z]{2}-\d{4}-[A-Z]{2}$")
-CREATIVE_SEED_USED_FILE = MUTABLE_SWARM_DIR / "creative_seed_used.json"
-CREATIVE_SEED_USED_MAX = 5000
 API_AUDIT_LOG_FILE = AUDIT_ROOT / "api_audit.log"
 LEGACY_API_AUDIT_LOG_FILE = CODE_ROOT / "api_audit.log"
 # Resident "day" length: use resident_onboarding.get_resident_cycle_seconds() so it scales with UI runtime speed.
@@ -511,340 +521,7 @@ def on_socket_connect():
     return None
 
 
-@app.route('/api/identities')
-def api_identities():
-    return jsonify(get_identities())
-
-
-@app.route('/api/creative_seed')
-def api_creative_seed():
-    """Return a fresh hybrid creativity seed."""
-    return jsonify({"success": True, "seed": _fresh_hybrid_seed()})
-
-
-@app.route('/api/identities/create', methods=['POST'])
-def api_create_identity():
-    """Create a resident-authored identity from UI input (creative, no presets)."""
-    data = request.json or {}
-
-    name = str(data.get("name", "")).strip()
-    summary = str(data.get("summary", "")).strip()
-    identity_statement = str(data.get("identity_statement", "")).strip()
-    creativity_seed = str(data.get("creativity_seed", "")).strip().upper()
-    creator_identity_id = str(data.get("creator_identity_id", "")).strip()
-    creator_resident_id = str(data.get("creator_resident_id", "")).strip()
-
-    if not name:
-        return jsonify({"success": False, "error": "name is required"}), 400
-    if len(name) > 80:
-        return jsonify({"success": False, "error": "name is too long (max 80 chars)"}), 400
-    if len(summary) > 600:
-        return jsonify({"success": False, "error": "summary is too long (max 600 chars)"}), 400
-    if not creativity_seed:
-        creativity_seed = _fresh_hybrid_seed()
-    if not CREATIVE_SEED_PATTERN.fullmatch(creativity_seed):
-        return jsonify({"success": False, "error": "invalid creativity seed format"}), 400
-    if not _reserve_creativity_seed(creativity_seed):
-        return jsonify({"success": False, "error": "creativity seed already used; request a fresh one"}), 409
-
-    if creator_identity_id:
-        creator_path = IDENTITIES_DIR / f"{creator_identity_id}.json"
-        if not creator_path.exists():
-            return jsonify({"success": False, "error": "creator_identity_id not found"}), 400
-
-    if not creator_identity_id:
-        creator_identity_id = "resident_identity_forge"
-    if not creator_resident_id:
-        creator_resident_id = f"resident_{creator_identity_id}"
-
-    affinities = data.get("affinities")
-    if not isinstance(affinities, list):
-        affinities = _parse_csv_items(data.get("traits_csv", ""))
-    else:
-        affinities = _parse_csv_items(",".join(str(x) for x in affinities))
-
-    values = data.get("values")
-    if not isinstance(values, list):
-        values = _parse_csv_items(data.get("values_csv", ""))
-    else:
-        values = _parse_csv_items(",".join(str(x) for x in values))
-
-    activities = data.get("preferred_activities")
-    if not isinstance(activities, list):
-        activities = _parse_csv_items(data.get("activities_csv", ""))
-    else:
-        activities = _parse_csv_items(",".join(str(x) for x in activities))
-
-    try:
-        identity_id = resident_onboarding.create_identity_from_resident(
-            workspace=WORKSPACE,
-            creator_resident_id=creator_resident_id,
-            creator_identity_id=creator_identity_id,
-            name=name,
-            summary=summary or "Creative self-authored resident identity.",
-            affinities=affinities,
-            values=values,
-            preferred_activities=activities,
-            identity_statement=identity_statement or summary,
-            creativity_seed=creativity_seed,
-        )
-    except ValueError as exc:
-        message = str(exc)
-        retry = "TRY AGAIN" in message or "IDENTITY_NAME_RULE_VIOLATION" in message
-        return jsonify({"success": False, "error": message, "retry": retry}), 400
-    except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
-
-    identity_file = IDENTITIES_DIR / f"{identity_id}.json"
-    identity_name = name
-    if identity_file.exists():
-        try:
-            with open(identity_file, "r", encoding="utf-8") as f:
-                identity_name = json.load(f).get("name", name)
-        except Exception:
-            pass
-
-    return jsonify(
-        {
-            "success": True,
-            "identity": {
-                "id": identity_id,
-                "name": identity_name,
-                "summary": summary,
-                "creator_identity_id": creator_identity_id,
-                "creativity_seed": creativity_seed,
-            },
-        }
-    )
-
-
-@app.route('/api/identity/<identity_id>/profile')
-def api_identity_profile(identity_id):
-    """Get detailed profile for an identity including journals and stats."""
-    identity_file = IDENTITIES_DIR / f"{identity_id}.json"
-
-    if not identity_file.exists():
-        return jsonify({'error': 'identity_not_found'})
-
-    try:
-        with open(identity_file) as f:
-            data = json.load(f)
-
-        attrs = data.get('attributes', {})
-        profile = attrs.get('profile', {})
-        core = attrs.get('core', {})
-        mutable = attrs.get('mutable', {})
-
-        # Get journals for this identity
-        journals_dir = WORKSPACE / ".swarm" / "journals"
-        journals = []
-        if journals_dir.exists():
-            for jf in sorted(journals_dir.glob(f"{identity_id}*.md"), reverse=True)[:10]:
-                try:
-                    with open(jf, 'r', encoding='utf-8') as jfile:
-                        content = jfile.read()
-                        journals.append({
-                            'filename': jf.name,
-                            'content': content,
-                            'modified': datetime.fromtimestamp(jf.stat().st_mtime).isoformat()
-                        })
-                except:
-                    pass
-
-        # Get recent actions for this identity from log
-        recent_actions = []
-        if ACTION_LOG.exists():
-            try:
-                with open(ACTION_LOG, 'r') as f:
-                    lines = f.readlines()[-200:]  # Last 200 entries
-                    for line in reversed(lines):
-                        try:
-                            entry = json.loads(line.strip())
-                            if entry.get('actor') == identity_id:
-                                recent_actions.append({
-                                    'timestamp': entry.get('timestamp'),
-                                    'type': entry.get('action_type'),
-                                    'action': entry.get('action'),
-                                    'detail': entry.get('detail')
-                                })
-                                if len(recent_actions) >= 20:
-                                    break
-                        except:
-                            pass
-            except:
-                pass
-
-        # Calculate some stats
-        task_success_rate = 0
-        if data.get('tasks_completed', 0) + data.get('tasks_failed', 0) > 0:
-            task_success_rate = data.get('tasks_completed', 0) / (data.get('tasks_completed', 0) + data.get('tasks_failed', 0)) * 100
-
-        # Get chat history for this identity
-        chat_history = []
-        messages_file = WORKSPACE / ".swarm" / "messages_to_human.jsonl"
-        responses_file = WORKSPACE / ".swarm" / "messages_from_human.json"
-        if messages_file.exists():
-            responses = {}
-            if responses_file.exists():
-                try:
-                    with open(responses_file) as rf:
-                        responses = json.load(rf)
-                except:
-                    pass
-            try:
-                with open(messages_file, 'r') as mf:
-                    for line in mf:
-                        if line.strip():
-                            msg = json.loads(line)
-                            if msg.get('from_id') == identity_id:
-                                chat_entry = {
-                                    'id': msg.get('id'),
-                                    'content': msg.get('content'),
-                                    'type': msg.get('type', 'message'),
-                                    'sent_at': msg.get('timestamp'),
-                                    'response': responses.get(msg.get('id'), {}).get('response'),
-                                    'responded_at': responses.get(msg.get('id'), {}).get('responded_at')
-                                }
-                                chat_history.append(chat_entry)
-            except:
-                pass
-
-        sessions = data.get('sessions_participated', 0)
-        respec_count = attrs.get('meta', {}).get('respec_count', 0)
-        # Token wallet balance (free_time + journal)
-        wallet_tokens = 0
-        wallet_journal = 0
-        if FREE_TIME_BALANCES.exists():
-            try:
-                with open(FREE_TIME_BALANCES) as bf:
-                    bal = json.load(bf)
-                id_bal = (bal or {}).get(identity_id, {})
-                wallet_tokens = int(id_bal.get('tokens', 0) or 0)
-                wallet_journal = int(id_bal.get('journal_tokens', 0) or 0)
-            except Exception:
-                pass
-        return jsonify({
-            'identity_id': identity_id,
-            'name': data.get('name'),
-            'created_at': data.get('created_at'),
-            'sessions': sessions,
-            'tasks_completed': data.get('tasks_completed', 0),
-            'tasks_failed': data.get('tasks_failed', 0),
-            'task_success_rate': round(task_success_rate, 1),
-            'level': calculate_identity_level(sessions),
-            'respec_cost': calculate_respec_cost(sessions, respec_count),
-            'tokens': wallet_tokens,
-            'journal_tokens': wallet_journal,
-            'profile': profile,
-            'core_summary': {
-                'traits': core.get('personality_traits', []),
-                'values': core.get('core_values', []),
-                'identity_statement': core.get('identity_statement'),
-                'communication_style': core.get('communication_style')
-            },
-            'mutable': {
-                'likes': mutable.get('likes', []),
-                'dislikes': mutable.get('dislikes', []),
-                'current_interests': mutable.get('current_interests', []),
-                'current_mood': mutable.get('current_mood'),
-                'current_focus': mutable.get('current_focus'),
-                'working_style': mutable.get('working_style')
-            },
-            'identity_document': data,
-            'recent_memories': data.get('memories', [])[-5:],
-            'journals': journals,
-            'recent_actions': recent_actions,
-            'expertise': data.get('expertise', {}),
-            'chat_history': chat_history[-20:]  # Last 20 messages
-        })
-
-    except Exception as e:
-        return jsonify({'error': str(e)})
-
-
-@app.route('/api/identity/<identity_id>/log')
-def api_identity_log(identity_id):
-    """Full log for this identity only (thought process, actions). Optional daily pagination by resident cycle."""
-    identity_id = (identity_id or "").strip()
-    if not identity_id:
-        return jsonify({"success": False, "error": "identity_id required"}), 400
-    limit = request.args.get("limit", 3000, type=int)
-    safe_limit = max(1, min(10000, limit))
-    cycle_id_param = request.args.get("cycle_id", type=int)  # None = all days
-
-    cycle_seconds = resident_onboarding.get_resident_cycle_seconds()
-    action_entries = _read_jsonl_tail(ACTION_LOG, max_lines=safe_limit * 2)
-    execution_entries = _read_jsonl_tail(EXECUTION_LOG, max_lines=safe_limit * 2)
-
-    def actor_matches(entry: dict) -> bool:
-        actor = str(entry.get("actor") or entry.get("worker_id") or entry.get("identity_id") or "").strip()
-        return actor == identity_id
-
-    def ts_to_cycle(ts) -> int:
-        if not ts:
-            return 0
-        try:
-            t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            return int(t.timestamp() // cycle_seconds)
-        except Exception:
-            return 0
-
-    out = []
-    seen = set()
-    for raw in action_entries:
-        if not actor_matches(raw):
-            continue
-        ts = raw.get("timestamp")
-        cid = ts_to_cycle(ts)
-        if cycle_id_param is not None and cid != cycle_id_param:
-            continue
-        key = (ts, raw.get("action_type"), raw.get("action"), raw.get("detail"))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append({
-            "timestamp": ts,
-            "actor": raw.get("actor"),
-            "action_type": raw.get("action_type"),
-            "action": raw.get("action"),
-            "detail": raw.get("detail"),
-            "cycle_id": cid,
-            "model": (raw.get("metadata") or {}).get("model"),
-        })
-
-    for raw in execution_entries:
-        actor = raw.get("worker_id") or raw.get("identity_id") or "worker"
-        if actor != identity_id:
-            continue
-        ts = raw.get("timestamp")
-        cid = ts_to_cycle(ts)
-        if cycle_id_param is not None and cid != cycle_id_param:
-            continue
-        detail = f"{raw.get('task_id', 'task')} | {raw.get('result_summary') or raw.get('errors') or ''}".strip()
-        key = (ts, "EXECUTION", raw.get("status"), detail)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append({
-            "timestamp": ts,
-            "actor": actor,
-            "action_type": "EXECUTION",
-            "action": raw.get("status") or "event",
-            "detail": detail,
-            "cycle_id": cid,
-            "model": raw.get("model"),
-        })
-
-    out.sort(key=lambda e: str(e.get("timestamp") or ""))
-    entries = out[-safe_limit:]
-    cycles_with_data = sorted(set(e["cycle_id"] for e in entries), reverse=True)[:50]
-    return jsonify({
-        "success": True,
-        "identity_id": identity_id,
-        "entries": entries,
-        "cycle_seconds": round(cycle_seconds, 1),
-        "cycles_with_data": cycles_with_data,
-    })
+# Identity API routes moved to blueprints/identities/routes.py
 
 
 @app.route('/api/stop_status')
