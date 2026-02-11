@@ -81,6 +81,25 @@ WORKER_PROCESS_FILE = MUTABLE_SWARM_DIR / "worker_process.json"
 UI_SETTINGS_FILE = SECURITY_ROOT / "local_ui_settings.json"
 LEGACY_UI_SETTINGS_FILE = CODE_ROOT / "config" / "local_ui_settings.json"
 
+# --- MAKE PATHS AVAILABLE TO BLUEPRINTS VIA FLASK CONFIG ---
+app.config.update({
+    'CODE_ROOT': CODE_ROOT,
+    'WORKSPACE': WORKSPACE,
+    'ACTION_LOG': ACTION_LOG,
+    'EXECUTION_LOG': EXECUTION_LOG,
+    'QUEUE_FILE': QUEUE_FILE,
+    'KILL_SWITCH': KILL_SWITCH,
+    'FREE_TIME_BALANCES': FREE_TIME_BALANCES,
+    'IDENTITIES_DIR': IDENTITIES_DIR,
+    'DISCUSSIONS_DIR': DISCUSSIONS_DIR,
+    'RUNTIME_SPEED_FILE': RUNTIME_SPEED_FILE,
+    'GROQ_API_KEY_FILE': GROQ_API_KEY_FILE,
+    'WORKER_PROCESS_FILE': WORKER_PROCESS_FILE,
+    'UI_SETTINGS_FILE': UI_SETTINGS_FILE,
+    'LEGACY_UI_SETTINGS_FILE': LEGACY_UI_SETTINGS_FILE,
+})
+# -------------------------------------------------------------
+
 # Track last read position (lock guards against race with watcher thread + poll)
 last_log_position = 0
 last_execution_log_position = 0
