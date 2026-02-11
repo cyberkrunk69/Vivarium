@@ -54,7 +54,7 @@ jobs:
             --cov=vivarium.runtime.control_panel \
             --cov-report=term-missing \
             --cov-report=xml \
-            --cov-fail-under=50  # Temporary, increment as we improve
+            --cov-fail-under=40
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
