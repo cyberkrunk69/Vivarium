@@ -1,21 +1,25 @@
-import os
 import pytest
 import json
-import time
 
-# Worker lifecycle tests spawn subprocesses; skip on CI where process spawning may fail
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="Worker subprocess tests skipped on CI (process spawning restricted)",
-)
+
+def _wait_worker_stopped(client, localhost_kwargs, timeout_sec: float = 2.0):
+    """Poll status until worker reports stopped (deterministic, no fixed sleep)."""
+    import time
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        resp = client.get('/api/worker/status', **localhost_kwargs)
+        if resp.status_code == 200:
+            data = resp.get_json()
+            if not data.get('running', True):
+                return
+        time.sleep(0.05)
 
 
 @pytest.fixture(autouse=True)
 def ensure_worker_stopped(client, localhost_kwargs):
     """Pre-flight: ensure worker is stopped before each test"""
     client.post('/api/worker/stop', **localhost_kwargs)
-    # Give it a moment
-    time.sleep(0.1)
+    _wait_worker_stopped(client, localhost_kwargs)
 
 
 def test_worker_status_when_stopped(client, localhost_kwargs):

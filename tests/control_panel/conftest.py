@@ -84,15 +84,20 @@ def cleanup_worker_state(app):
             if pid and isinstance(pid, int):
                 try:
                     os.kill(pid, signal.SIGTERM)
-                    # Wait for termination
+                    # Poll until process exits (max 2s) instead of fixed sleep
                     import time
-                    time.sleep(0.5)
-                    # Force kill if needed
+                    for _ in range(40):
+                        try:
+                            os.kill(pid, 0)
+                        except ProcessLookupError:
+                            break
+                        time.sleep(0.05)
+                    # Force kill if still alive
                     try:
-                        os.kill(pid, 0)  # Check if exists
+                        os.kill(pid, 0)
                         os.kill(pid, signal.SIGKILL)
                     except ProcessLookupError:
-                        pass  # Already dead
+                        pass
                 except (ProcessLookupError, PermissionError, OSError):
                     pass  # Process not found or can't kill
 
