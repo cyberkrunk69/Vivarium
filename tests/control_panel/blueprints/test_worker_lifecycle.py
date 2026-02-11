@@ -1,5 +1,15 @@
 import pytest
 import json
+import time
+
+
+@pytest.fixture(autouse=True)
+def ensure_worker_stopped(client, localhost_kwargs):
+    """Pre-flight: ensure worker is stopped before each test"""
+    client.post('/api/worker/stop', **localhost_kwargs)
+    # Give it a moment
+    time.sleep(0.1)
+
 
 def test_worker_status_when_stopped(client, localhost_kwargs):
     """GET /api/worker/status when no worker running"""
