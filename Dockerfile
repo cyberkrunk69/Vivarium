@@ -29,11 +29,11 @@ COPY . .
 RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
 # Create runtime directories (community library world texture)
-RUN mkdir -p /app/grind_logs /app/library/community_library /app/library/creative_works /app/experiments /app/data
+RUN mkdir -p /app/activity_logs /app/library/community_library /app/library/creative_works /app/experiments /app/data
 
 # Create non-root user for security (UID 1000 matches most host users)
 RUN useradd -m -u 1000 swarm && \
-    chown -R swarm:swarm /app/grind_logs /app/library /app/experiments /app/data && \
+    chown -R swarm:swarm /app/activity_logs /app/library /app/experiments /app/data && \
     chmod +x docker-entrypoint.sh
 
 # Environment

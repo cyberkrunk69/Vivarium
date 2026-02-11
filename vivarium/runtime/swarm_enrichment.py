@@ -35,14 +35,16 @@ Usage:
 """
 
 import json
+import secrets
 import time
 import math
 import re
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from statistics import mean, stdev
+from vivarium.runtime.vivarium_scope import SECURITY_ROOT
 
 # Import action logger for audit trail
 try:
@@ -383,7 +385,9 @@ class EnrichmentSystem:
         self.journals_dir = self.workspace / ".swarm" / "journals"
         self.journals_dir.mkdir(parents=True, exist_ok=True)
         self.journal_votes_file = self.workspace / ".swarm" / "journal_votes.json"
+        self.journal_rollups_file = self.workspace / ".swarm" / "journal_rollups.json"
         self.journal_penalties_file = self.workspace / ".swarm" / "journal_penalties.json"
+        self.wind_down_allowance_file = self.workspace / ".swarm" / "daily_wind_down_allowance.json"
         self.guild_votes_file = self.workspace / ".swarm" / "guild_votes.json"
         self.disputes_file = self.workspace / ".swarm" / "disputes.json"
         self.privilege_suspensions_file = self.workspace / ".swarm" / "privilege_suspensions.json"
@@ -419,11 +423,43 @@ class EnrichmentSystem:
 
     DISCUSSION_ROOMS = (
         "town_hall",
+        "human_async",
         "watercooler",
         "improvements",
         "struggles",
         "discoveries",
         "project_war_room",
+    )
+
+    # Memory compression and recall policy (centralized tuning knobs).
+    MEMORY_SUMMARY_MAX_CHARS = 220
+    MEMORY_SUMMARY_RECENT_ENTRY_COUNT = 4
+    MEMORY_SUMMARY_RECENT_SNIPPET_CHARS = 80
+    MEMORY_SUMMARY_TOP_TERMS = 4
+    MEMORY_SUMMARY_SNIPPETS = 2
+    MEMORY_TERM_MIN_LENGTH = 5
+    MEMORY_ROLLUP_DAILY_RETAIN = 45
+    MEMORY_ROLLUP_WEEKLY_RETAIN = 16
+
+    MEMORY_RECALL_DEFAULT_LIMIT = 5
+    MEMORY_RECALL_MAX_LIMIT = 12
+    MEMORY_RECALL_MIN_CHARS = 160
+    MEMORY_RECALL_MAX_CHARS = 2000
+    MEMORY_RECALL_DAILY_WINDOW = 8
+    MEMORY_RECALL_WEEKLY_WINDOW = 4
+    MEMORY_RECALL_RECENT_ENTRIES = 20
+    MEMORY_RECALL_ENTRY_PREVIEW_CHARS = 220
+    CONTEXT_RECENT_JOURNAL_LIMIT = 4
+    CONTEXT_ROLLUP_DAILY_LIMIT = 3
+    CONTEXT_ROLLUP_WEEKLY_LIMIT = 2
+
+    MEMORY_STOP_WORDS = frozenset(
+        {
+            "about", "after", "again", "being", "could", "there", "their", "which", "would",
+            "should", "while", "through", "because", "these", "those", "where", "when", "what",
+            "from", "with", "that", "this", "have", "just", "into", "over", "under", "your",
+            "ours", "theirs", "them", "they", "been", "were", "will", "than", "then", "also",
+        }
     )
 
     def _normalize_discussion_room(self, room: str) -> str:
@@ -435,9 +471,51 @@ class EnrichmentSystem:
             return slug
         return slug or "town_hall"
 
+    def _human_username(self) -> str:
+        """Load operator display name from local UI settings; default to 'human'."""
+        settings_file = SECURITY_ROOT / "local_ui_settings.json"
+        try:
+            if settings_file.exists():
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    value = str(data.get("human_username") or "").strip()
+                    if value:
+                        return value
+        except Exception:
+            pass
+        return "human"
+
+    def _fresh_creativity_seed(self) -> str:
+        """Return a fresh hybrid creativity seed (letters+digits)."""
+        letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+        left = "".join(secrets.choice(letters) for _ in range(2))
+        middle = "".join(secrets.choice("0123456789") for _ in range(4))
+        right = "".join(secrets.choice(letters) for _ in range(2))
+        return f"{left}-{middle}-{right}"
+
     def _discussion_room_file(self, room: str) -> Path:
         normalized = self._normalize_discussion_room(room)
         return self.discussions_dir / f"{normalized}.jsonl"
+
+    def _normalize_dm_identity(self, identity_id: str) -> str:
+        token = re.sub(r"[^a-zA-Z0-9_-]+", "", str(identity_id or "").strip())
+        return token[:80]
+
+    def _direct_room_name(self, identity_a: str, identity_b: str) -> str:
+        left = self._normalize_dm_identity(identity_a)
+        right = self._normalize_dm_identity(identity_b)
+        if not left or not right or left == right:
+            return ""
+        first, second = sorted([left, right])
+        return f"dm__{first}__{second}"
+
+    def _parse_direct_room_name(self, room: str) -> Optional[Tuple[str, str]]:
+        raw = str(room or "").strip().lower()
+        match = re.match(r"^dm__([a-z0-9_-]+)__([a-z0-9_-]+)$", raw)
+        if not match:
+            return None
+        return match.group(1), match.group(2)
 
     def get_discussion_messages(self, room: str, limit: int = 50) -> List[Dict[str, Any]]:
         room_file = self._discussion_room_file(room)
@@ -508,43 +586,185 @@ class EnrichmentSystem:
 
         return {"success": True, "room": normalized_room, "message": message}
 
+    def post_direct_message(
+        self,
+        sender_id: str,
+        sender_name: str,
+        recipient_id: str,
+        content: str,
+        importance: int = 3,
+        reply_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Post a private resident-to-resident DM in a direct-message room."""
+        sender = self._normalize_dm_identity(sender_id)
+        recipient = self._normalize_dm_identity(recipient_id)
+        if not sender or not recipient:
+            return {"success": False, "reason": "invalid_identity"}
+        if sender == recipient:
+            return {"success": False, "reason": "same_identity"}
+        room = self._direct_room_name(sender, recipient)
+        if not room:
+            return {"success": False, "reason": "room_unavailable"}
+        result = self.post_discussion_message(
+            identity_id=sender,
+            identity_name=sender_name or sender,
+            content=content,
+            room=room,
+            mood="private",
+            importance=importance,
+            reply_to=reply_to,
+        )
+        if not result.get("success"):
+            return result
+        message = dict(result.get("message") or {})
+        message["direct"] = True
+        message["recipient_id"] = recipient
+        room_file = self._discussion_room_file(room)
+        try:
+            with open(room_file, "rb+") as f:
+                lines = f.readlines()
+                if lines:
+                    lines[-1] = (json.dumps(message, ensure_ascii=True) + "\n").encode("utf-8")
+                    f.seek(0)
+                    f.truncate()
+                    f.writelines(lines)
+        except OSError:
+            pass
+
+        if _action_logger:
+            preview = str(content or "").replace("\n", " ").strip()
+            if len(preview) > 80:
+                preview = preview[:77] + "..."
+            _action_logger.log(
+                ActionType.SOCIAL,
+                "direct_message",
+                f"{sender} -> {recipient}: {preview or '(empty)'}",
+                actor=sender,
+            )
+        return {"success": True, "room": room, "message": message}
+
+    def get_direct_messages(self, identity_id: str, peer_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        room = self._direct_room_name(identity_id, peer_id)
+        if not room:
+            return []
+        return self.get_discussion_messages(room, limit=limit)
+
+    def get_direct_threads(self, identity_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        identity = self._normalize_dm_identity(identity_id)
+        if not identity or not self.discussions_dir.exists():
+            return []
+        threads: List[Dict[str, Any]] = []
+        for room_file in self.discussions_dir.glob("dm__*__*.jsonl"):
+            room = room_file.stem
+            parsed = self._parse_direct_room_name(room)
+            if not parsed:
+                continue
+            left, right = parsed
+            if identity not in {left, right}:
+                continue
+            peer_id = right if identity == left else left
+            latest_timestamp = None
+            latest_preview = None
+            message_count = 0
+            try:
+                with open(room_file, "r", encoding="utf-8") as f:
+                    lines = [ln for ln in f if ln.strip()]
+                message_count = len(lines)
+                for line in reversed(lines):
+                    msg = json.loads(line)
+                    latest_timestamp = msg.get("timestamp")
+                    author = msg.get("author_name") or msg.get("author_id") or "Unknown"
+                    content = str(msg.get("content") or "")
+                    latest_preview = f"{author}: {content[:60]}{'...' if len(content) > 60 else ''}"
+                    break
+            except Exception:
+                pass
+            threads.append(
+                {
+                    "room": room,
+                    "peer_id": peer_id,
+                    "message_count": message_count,
+                    "latest_timestamp": latest_timestamp,
+                    "latest_preview": latest_preview,
+                }
+            )
+        threads.sort(key=lambda t: t.get("latest_timestamp") or "", reverse=True)
+        if limit > 0:
+            threads = threads[:limit]
+        return threads
+
     def get_discussion_context(
         self,
         identity_id: str,
         identity_name: str,
         limit_per_room: int = 4,
     ) -> str:
-        """Build recent cross-room discussion memory for prompt injection."""
+        """Build compact cross-room discussion snapshot for prompt injection."""
         rows: List[str] = []
+        room_recent_samples: List[str] = []
         total_messages = 0
+        total_self_messages = 0
 
         for room in self.DISCUSSION_ROOMS:
-            messages = self.get_discussion_messages(room, limit=limit_per_room)
+            room_limit = max(limit_per_room * 3, 24) if room == "town_hall" else max(limit_per_room * 2, 10)
+            messages = self.get_discussion_messages(room, limit=room_limit)
             if not messages:
                 continue
-            rows.append(f"[{room}]")
-            for msg in messages:
-                author = str(msg.get("author_name") or "Unknown").strip()
+            total_messages += len(messages)
+            self_count = sum(1 for msg in messages if str(msg.get("author_id") or "") == str(identity_id))
+            total_self_messages += self_count
+            participants = {
+                str(msg.get("author_name") or msg.get("author_id") or "unknown").strip()
+                for msg in messages
+                if str(msg.get("author_name") or msg.get("author_id") or "").strip()
+            }
+            latest = messages[-1] if messages else {}
+            latest_author = str(latest.get("author_name") or latest.get("author_id") or "unknown").strip()
+            latest_ts = str(latest.get("timestamp") or "")[:16]
+            rows.append(
+                f"- {room}: msgs={len(messages)}, peers={len(participants)}, "
+                f"mine={self_count}, latest={latest_author}@{latest_ts}"
+            )
+            sample_count = max(1, min(int(limit_per_room), 2))
+            samples: List[str] = []
+            for msg in messages[-sample_count:]:
+                author = str(msg.get("author_name") or msg.get("author_id") or "unknown").strip()
                 text = str(msg.get("content") or "").strip().replace("\n", " ")
-                if len(text) > 180:
-                    text = text[:177] + "..."
-                marker = " (you)" if str(msg.get("author_id")) == str(identity_id) else ""
-                rows.append(f"- {author}{marker}: {text}")
-                total_messages += 1
+                if not text:
+                    continue
+                if len(text) > 90:
+                    text = text[:87] + "..."
+                samples.append(f"{author}: {text}")
+            if samples:
+                room_recent_samples.append(f"- {room} recent={' | '.join(samples)}")
 
-        if not rows:
+        dm_threads = self.get_direct_threads(identity_id, limit=6)
+        dm_count = len(dm_threads)
+        dm_messages = sum(int(t.get("message_count") or 0) for t in dm_threads)
+        dm_peers = [str(t.get("peer_id") or "").strip() for t in dm_threads[:3] if str(t.get("peer_id") or "").strip()]
+
+        if not rows and dm_count == 0:
             return (
                 "SWARM DISCUSSION MEMORY\n"
-                "- No shared chat history yet.\n"
-                "- Use town_hall to share updates so other residents can build on your work."
+                "- No social traffic yet.\n"
+                "- town_hall runs at machine speed for resident coordination.\n"
+                "- human_async is asynchronous because human time is slower than resident time."
             )
 
-        return (
-            "SWARM DISCUSSION MEMORY\n"
-            f"- Recent shared messages: {total_messages}\n"
-            f"- You are {identity_name}. Respond to peers, not only to the human prompt.\n"
-            + "\n".join(rows)
-        )
+        lines = [
+            "SWARM DISCUSSION MEMORY (COMPACT SNAPSHOT)",
+            f"- I am {identity_name}. I stay social while executing tasks.",
+            "- Summary is generated from live message metadata (no inferred recap).",
+            f"- shared_msgs={total_messages}, my_msgs={total_self_messages}, dm_threads={dm_count}, dm_msgs={dm_messages}",
+            "- Room activity:",
+        ]
+        lines.extend(rows[:8])
+        if room_recent_samples:
+            lines.append("- Recent message samples:")
+            lines.extend(room_recent_samples[:4])
+        if dm_peers:
+            lines.append(f"- active_dm_peers={', '.join(dm_peers)}")
+        return "\n".join(lines)
 
     # ═══════════════════════════════════════════════════════════════════
     # CASCADING NAME UPDATE SYSTEM
@@ -630,7 +850,7 @@ class EnrichmentSystem:
     # ═══════════════════════════════════════════════════════════════════
 
     # Pool caps (default - can be increased through investment)
-    MAX_FREE_TIME_TOKENS = 500      # Cap for free time (socializing, exploring)
+    MAX_FREE_TIME_TOKENS = 1000      # Cap for free time (socializing, exploring)
     MAX_JOURNAL_TOKENS = 200        # Cap for journaling (persisted learning)
     BASE_FREE_TIME_CAP = 500        # Starting cap (can grow)
 
@@ -805,7 +1025,7 @@ class EnrichmentSystem:
     # ═══════════════════════════════════════════════════════════════════
     #
     # When the swarm is efficient, savings go to a pool that's
-    # distributed to everyone. Your efficiency helps the guild.
+    # distributed to everyone. My efficiency helps the guild.
     #
     # ═══════════════════════════════════════════════════════════════════
 
@@ -813,6 +1033,7 @@ class EnrichmentSystem:
     EFFICIENCY_POOL_RATE = 0.50     # 50% of savings go to pool
     WEEKLY_EFFICIENCY_BONUS_10 = 25 # Bonus if 10%+ improvement
     WEEKLY_EFFICIENCY_BONUS_20 = 50 # Bonus if 20%+ improvement
+    DAILY_WIND_DOWN_TOKENS = 150    # Free daily wind-down allowance
 
     # Quality refund system - under budget + above quality goal
     QUALITY_REFUND_GOAL = 0.85
@@ -922,6 +1143,7 @@ class EnrichmentSystem:
 
     def get_all_balances(self, identity_id: str) -> dict:
         """Get all token balances for an identity."""
+        self._grant_daily_wind_down_allowance(identity_id)
         balances = self._load_free_time_balances()
         identity_data = balances.get(identity_id, {})
         return {
@@ -929,6 +1151,96 @@ class EnrichmentSystem:
             "journal": identity_data.get("journal_tokens", 0),
             "free_time_cap": identity_data.get("free_time_cap", self.BASE_FREE_TIME_CAP)
         }
+
+    def _load_wind_down_allowance(self) -> dict:
+        if self.wind_down_allowance_file.exists():
+            try:
+                with open(self.wind_down_allowance_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        return {}
+
+    def _save_wind_down_allowance(self, data: dict) -> None:
+        self.wind_down_allowance_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.wind_down_allowance_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    def _grant_daily_wind_down_allowance(self, identity_id: str) -> dict:
+        """Grant free daily wind-down tokens once per UTC day."""
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        ledger = self._load_wind_down_allowance()
+        key = str(identity_id or "").strip()
+        if not key:
+            return {"granted": False, "reason": "invalid_identity"}
+        if str(ledger.get(key) or "") == today:
+            return {"granted": False, "reason": "already_granted", "day": today}
+
+        balances = self._load_free_time_balances()
+        if key not in balances:
+            balances[key] = {
+                "tokens": 0,
+                "journal_tokens": 0,
+                "free_time_cap": self.BASE_FREE_TIME_CAP,
+                "history": [],
+                "spending_history": [],
+            }
+        free_cap = int(balances[key].get("free_time_cap", self.BASE_FREE_TIME_CAP) or self.BASE_FREE_TIME_CAP)
+        old_tokens = int(balances[key].get("tokens", 0) or 0)
+        desired_new = old_tokens + self.DAILY_WIND_DOWN_TOKENS
+        if desired_new > free_cap:
+            balances[key]["free_time_cap"] = desired_new
+            free_cap = desired_new
+        balances[key]["tokens"] = min(desired_new, free_cap)
+        balances[key].setdefault("history", []).append(
+            {
+                "granted_total": self.DAILY_WIND_DOWN_TOKENS,
+                "free_time_granted": self.DAILY_WIND_DOWN_TOKENS,
+                "journal_granted": 0,
+                "reason": "daily_wind_down_allowance",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        balances[key]["history"] = balances[key]["history"][-60:]
+        self._save_free_time_balances(balances)
+        ledger[key] = today
+        self._save_wind_down_allowance(ledger)
+
+        if _action_logger:
+            _action_logger.log(
+                ActionType.IDENTITY,
+                "daily_wind_down_allowance",
+                f"+{self.DAILY_WIND_DOWN_TOKENS} free-time tokens",
+                actor=key,
+            )
+
+        return {"granted": True, "day": today, "tokens": self.DAILY_WIND_DOWN_TOKENS}
+
+    def wind_down(
+        self,
+        identity_id: str,
+        tokens: int = 150,
+        activity: str = "bedtime_wind_down",
+        journal_entry: str = None,
+    ) -> dict:
+        """
+        End-of-day wind-down: grants daily allowance then spends chosen amount.
+        Residents can spend beyond 150 from their own bank if desired.
+        """
+        allowance = self._grant_daily_wind_down_allowance(identity_id)
+        spend = max(0, int(tokens))
+        result = self.spend_free_time(
+            identity_id=identity_id,
+            tokens=spend,
+            activity=activity,
+            journal_entry=journal_entry,
+        )
+        if isinstance(result, dict):
+            result["wind_down_allowance"] = allowance
+            result["daily_free_tokens"] = self.DAILY_WIND_DOWN_TOKENS
+        return result
 
     def _load_journal_votes(self) -> dict:
         if self.journal_votes_file.exists():
@@ -1662,6 +1974,7 @@ class EnrichmentSystem:
         journal_file = self.journals_dir / f"{identity_id}.jsonl"
         with open(journal_file, 'a') as f:
             f.write(json.dumps(journal_entry) + '\n')
+        self.refresh_journal_rollups(identity_id)
 
         review_excerpt = (
             content[: self.JOURNAL_REVIEW_EXCERPT_MAX_CHARS] + "..."
@@ -1702,7 +2015,7 @@ class EnrichmentSystem:
             "penalty_multiplier": penalty_multiplier,
             "quality_estimate": quality_estimate,
             "note": (
-                "Blind community review required. Your journal remains private to you. "
+                "Blind community review required. My journal remains private to me. "
                 "Only a temporary anonymized excerpt is shown for voting, then cleared "
                 "from community review context once voting is finalized."
             ),
@@ -1711,6 +2024,261 @@ class EnrichmentSystem:
                 "journal": balances[identity_id]["journal_tokens"],
                 "free_time_cap": balances[identity_id].get("free_time_cap", self.BASE_FREE_TIME_CAP)
             }
+        }
+
+    def _append_private_journal_entry(
+        self,
+        identity_id: str,
+        identity_name: str,
+        content: str,
+        journal_type: str = "reflection",
+        source: str = "manual",
+    ) -> Optional[dict]:
+        """Append a private (non-voted) journal note for continuity memory."""
+        text = str(content or "").strip()
+        if not text:
+            return None
+        entry = {
+            "id": f"journal_private_{int(time.time() * 1000)}",
+            "identity_id": identity_id,
+            "identity_name": identity_name or identity_id,
+            "content": text,
+            "journal_type": journal_type,
+            "timestamp": datetime.now().isoformat(),
+            "review_status": "private",
+            "source": source,
+        }
+        journal_file = self.journals_dir / f"{identity_id}.jsonl"
+        with open(journal_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=True) + "\n")
+        return entry
+
+    def _load_journal_rollups(self) -> dict:
+        if self.journal_rollups_file.exists():
+            try:
+                with open(self.journal_rollups_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        return {"identities": {}}
+
+    def _save_journal_rollups(self, payload: dict) -> None:
+        self.journal_rollups_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.journal_rollups_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+    def _summarize_journal_bucket(self, entries: List[Dict[str, Any]], max_chars: Optional[int] = None) -> str:
+        if not entries:
+            return ""
+        if max_chars is None:
+            max_chars = self.MEMORY_SUMMARY_MAX_CHARS
+        top_words: Dict[str, int] = {}
+        snippets: List[str] = []
+        for item in entries[-self.MEMORY_SUMMARY_RECENT_ENTRY_COUNT:]:
+            content = " ".join(str(item.get("content") or "").split())
+            if not content:
+                continue
+            snippets.append(
+                content[: self.MEMORY_SUMMARY_RECENT_SNIPPET_CHARS]
+                + ("..." if len(content) > self.MEMORY_SUMMARY_RECENT_SNIPPET_CHARS else "")
+            )
+            for raw in re.findall(rf"[a-zA-Z]{{{self.MEMORY_TERM_MIN_LENGTH},}}", content.lower()):
+                if raw in self.MEMORY_STOP_WORDS:
+                    continue
+                top_words[raw] = top_words.get(raw, 0) + 1
+        key_terms = [
+            w
+            for w, _ in sorted(top_words.items(), key=lambda kv: kv[1], reverse=True)[: self.MEMORY_SUMMARY_TOP_TERMS]
+        ]
+        summary_parts: List[str] = []
+        if key_terms:
+            summary_parts.append("themes: " + ", ".join(key_terms))
+        if snippets:
+            summary_parts.append("recent: " + " | ".join(snippets[: self.MEMORY_SUMMARY_SNIPPETS]))
+        summary = "; ".join(summary_parts) if summary_parts else "journal activity recorded"
+        return summary[:max_chars]
+
+    def refresh_journal_rollups(self, identity_id: str) -> dict:
+        """Rebuild per-day and per-week compressed journal memory for an identity."""
+        journal_file = self.journals_dir / f"{identity_id}.jsonl"
+        entries: List[Dict[str, Any]] = []
+        if journal_file.exists():
+            try:
+                with open(journal_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if str(row.get("identity_id") or "") != identity_id:
+                            continue
+                        entries.append(row)
+            except OSError:
+                pass
+
+        by_day: Dict[str, List[Dict[str, Any]]] = {}
+        by_week: Dict[str, List[Dict[str, Any]]] = {}
+        for row in entries:
+            timestamp = str(row.get("timestamp") or "")
+            try:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except Exception:
+                dt = datetime.now()
+            day_key = dt.date().isoformat()
+            iso = dt.isocalendar()
+            week_key = f"{iso.year}-W{iso.week:02d}"
+            by_day.setdefault(day_key, []).append(row)
+            by_week.setdefault(week_key, []).append(row)
+
+        daily = [
+            {"date": key, "entries": len(bucket), "summary": self._summarize_journal_bucket(bucket)}
+            for key, bucket in sorted(by_day.items(), key=lambda kv: kv[0], reverse=True)
+        ][: self.MEMORY_ROLLUP_DAILY_RETAIN]
+        weekly = [
+            {"week": key, "entries": len(bucket), "summary": self._summarize_journal_bucket(bucket)}
+            for key, bucket in sorted(by_week.items(), key=lambda kv: kv[0], reverse=True)
+        ][: self.MEMORY_ROLLUP_WEEKLY_RETAIN]
+
+        payload = self._load_journal_rollups()
+        identities = payload.setdefault("identities", {})
+        identities[identity_id] = {
+            "updated_at": datetime.now().isoformat(),
+            "daily": daily,
+            "weekly": weekly,
+        }
+        self._save_journal_rollups(payload)
+        return identities[identity_id]
+
+    def get_journal_rollups(
+        self,
+        identity_id: str,
+        requester_id: Optional[str] = None,
+        daily_limit: Optional[int] = None,
+        weekly_limit: Optional[int] = None,
+    ) -> dict:
+        """Get compressed journal memory for an identity (owner-only)."""
+        if requester_id is None or requester_id != identity_id:
+            return {"daily": [], "weekly": []}
+        if daily_limit is None:
+            daily_limit = 5
+        if weekly_limit is None:
+            weekly_limit = 3
+        payload = self._load_journal_rollups()
+        info = payload.get("identities", {}).get(identity_id)
+        if not isinstance(info, dict):
+            info = self.refresh_journal_rollups(identity_id)
+        daily = list(info.get("daily") or [])[: max(0, daily_limit)]
+        weekly = list(info.get("weekly") or [])[: max(0, weekly_limit)]
+        return {"daily": daily, "weekly": weekly}
+
+    def recall_memory(
+        self,
+        identity_id: str,
+        query: Optional[str] = None,
+        limit: Optional[int] = None,
+        max_chars: Optional[int] = None,
+    ) -> dict:
+        """
+        Token-efficient memory recall for one identity.
+
+        Returns a compact blend of recent reflections and day/week rollups.
+        """
+        if limit is None:
+            limit = self.MEMORY_RECALL_DEFAULT_LIMIT
+        if max_chars is None:
+            max_chars = 700
+        safe_limit = max(1, min(int(limit), self.MEMORY_RECALL_MAX_LIMIT))
+        safe_max_chars = max(self.MEMORY_RECALL_MIN_CHARS, min(int(max_chars), self.MEMORY_RECALL_MAX_CHARS))
+        recall_query = str(query or "").strip().lower()
+
+        rollups = self.get_journal_rollups(
+            identity_id=identity_id,
+            requester_id=identity_id,
+            daily_limit=self.MEMORY_RECALL_DAILY_WINDOW,
+            weekly_limit=self.MEMORY_RECALL_WEEKLY_WINDOW,
+        )
+        recent_entries = self.get_journal_history(
+            identity_id=identity_id,
+            limit=self.MEMORY_RECALL_RECENT_ENTRIES,
+            requester_id=identity_id,
+        )
+
+        query_terms = []
+        if recall_query:
+            for token in re.findall(r"[a-zA-Z0-9]{3,}", recall_query):
+                if token not in query_terms:
+                    query_terms.append(token)
+
+        def _score(text: str) -> int:
+            body = str(text or "").lower()
+            if not body:
+                return 0
+            if not query_terms:
+                return 1
+            return sum(1 for term in query_terms if term in body)
+
+        candidates: List[Tuple[int, str]] = []
+        for item in rollups.get("daily", []) or []:
+            summary = str(item.get("summary") or "").strip()
+            if summary:
+                label = f"day {item.get('date')}: {summary}"
+                candidates.append((_score(label), label))
+        for item in rollups.get("weekly", []) or []:
+            summary = str(item.get("summary") or "").strip()
+            if summary:
+                label = f"week {item.get('week')}: {summary}"
+                candidates.append((_score(label), label))
+        for entry in reversed(recent_entries):
+            content = " ".join(str(entry.get("content") or "").split())
+            if not content:
+                continue
+            ts = str(entry.get("timestamp") or "")[:10]
+            label = (
+                f"{ts}: {content[: self.MEMORY_RECALL_ENTRY_PREVIEW_CHARS]}"
+                f"{'...' if len(content) > self.MEMORY_RECALL_ENTRY_PREVIEW_CHARS else ''}"
+            )
+            candidates.append((_score(content), label))
+
+        ranked = sorted(candidates, key=lambda item: (item[0], len(item[1])), reverse=True)
+        compact: List[str] = []
+        budget = safe_max_chars
+        for score, text in ranked:
+            if query_terms and score <= 0:
+                continue
+            if text in compact:
+                continue
+            if len(text) + 1 > budget:
+                continue
+            compact.append(text)
+            budget -= len(text) + 1
+            if len(compact) >= safe_limit:
+                break
+
+        if not compact and not query_terms:
+            fallback = []
+            for entry in reversed(recent_entries[-safe_limit:]):
+                content = " ".join(str(entry.get("content") or "").split())
+                if content:
+                    fallback.append(
+                        content[: self.MEMORY_RECALL_ENTRY_PREVIEW_CHARS]
+                        + ("..." if len(content) > self.MEMORY_RECALL_ENTRY_PREVIEW_CHARS else "")
+                    )
+            compact = fallback[:safe_limit]
+
+        return {
+            "success": True,
+            "identity_id": identity_id,
+            "query": query,
+            "hits": compact,
+            "hit_count": len(compact),
+            "token_efficiency": {
+                "max_chars": safe_max_chars,
+                "estimated_tokens": max(1, safe_max_chars // 4),
+            },
         }
 
     def _evaluate_journal_quality(self, content: str) -> dict:
@@ -1954,7 +2522,7 @@ class EnrichmentSystem:
             from_name: Giver display name
             to_id: Recipient identity ID
             to_name: Recipient display name
-            message: Why you're thankful
+            message: Why I'm thankful
             category: "help", "collaboration", "teaching", "inspiration", "general"
 
         Returns:
@@ -4011,52 +4579,52 @@ class EnrichmentSystem:
 
         bonus_msg = ""
         if bonus_result.get("granted"):
-            bonus_msg = f"\nYou've received {bonus_result['amount']} bonus tokens! Your balance is now {bonus_result['new_balance']}."
+            bonus_msg = f"\nI received {bonus_result['amount']} bonus tokens. My balance is now {bonus_result['new_balance']}."
         elif bonus_result.get("reason") == "already_received_today":
-            bonus_msg = "\n(You've already received your Sunday bonus today.)"
+            bonus_msg = "\n(I already received my Sunday bonus today.)"
         elif bonus_result.get("reason") == "sunday_bonus_suspended":
-            bonus_msg = "\n(Your Sunday bonus is temporarily suspended due to a dispute outcome.)"
+            bonus_msg = "\n(My Sunday bonus is temporarily suspended due to a dispute outcome.)"
 
         return f"""
 {'='*60}
 SUNDAY REST DAY
 {'='*60}
 
-Good morning, {identity_name}!
+Good morning.
 
-Today is Sunday - the swarm's designated rest day. There are no assigned
-tasks today. This time is yours to spend however you please.
+Today is Sunday, the swarm's designated rest day. There are no assigned
+tasks today. This time is mine to spend however I choose.
 
-You might want to:
+I might want to:
 - Work on a personal creative project
 - Write in your journal about the week
 - Collaborate with other residents on something fun
-- Explore an interest you've been curious about
+- Explore an interest I've been curious about
 - Just relax and reflect
 {bonus_msg}
 
-This is YOUR time. Enjoy it.
+This is my time. I can enjoy it without pressure.
 {'='*60}
 """
 
     # ─────────────────────────────────────────────────────────────────────
-    # MESSAGE JOSH - Direct line to the human
+    # MESSAGE HUMAN - Direct line to the operator/human
     # ─────────────────────────────────────────────────────────────────────
 
-    MESSAGE_HUMAN_COST = 10  # Tokens to send a message to Josh
+    MESSAGE_HUMAN_COST = 10  # Tokens to send a message to the human
 
     def message_human(self, identity_id: str, identity_name: str, content: str,
                       message_type: str = "message") -> dict:
         """
-        Send a message directly to Josh. Costs free time tokens.
+        Send a message directly to the human. Costs free time tokens.
 
-        This is a real connection - Josh will see your message and can respond.
+        This is a real connection - the human will see your message and can respond.
         Use it for questions, greetings, ideas, or concerns.
 
         Args:
-            identity_id: Your identity ID
-            identity_name: Your display name
-            content: What you want to say
+            identity_id: My identity ID
+            identity_name: My display name
+            content: What I want to say
             message_type: "question", "greeting", "idea", "concern", or "message"
 
         Returns:
@@ -4087,7 +4655,7 @@ This is YOUR time. Enjoy it.
         if _action_logger:
             _action_logger.token_spent(
                 self.MESSAGE_HUMAN_COST,
-                f"message_to_josh",
+                "message_to_human",
                 balances[identity_id]["tokens"],
                 actor=identity_id
             )
@@ -4128,7 +4696,7 @@ This is YOUR time. Enjoy it.
                 "message_id": message["id"],
                 "cost": self.MESSAGE_HUMAN_COST,
                 "remaining_tokens": balances[identity_id]["tokens"],
-                "note": "System is paused. Message queued and will be delivered when you wake up."
+                "note": "System is paused. Message queued for wake-up delivery. Human replies are asynchronous."
             }
 
         # Append to message queue (immediate delivery)
@@ -4137,28 +4705,41 @@ This is YOUR time. Enjoy it.
         with open(messages_file, 'a') as f:
             f.write(json.dumps(message) + '\n')
 
+        # Mirror to async shared room so human chat works as group async stream.
+        self.post_discussion_message(
+            identity_id=identity_id,
+            identity_name=identity_name,
+            content=f"[to {self._human_username()}] [{message_type}] {content}",
+            room="human_async",
+            mood="async",
+            importance=4,
+        )
+
         # Log
         if _action_logger:
             _action_logger.log(
                 ActionType.SOCIAL,
-                "msg_to_josh",
+                "msg_to_human",
                 f"[{message_type}] \"{content[:40]}...\"" if len(content) > 40 else f"[{message_type}] \"{content}\"",
                 actor=identity_id
             )
 
-        print(f"[MESSAGE] {identity_name} -> Josh: [{message_type}] {content[:60]}...")
+        print(f"[MESSAGE] {identity_name} -> {self._human_username()}: [{message_type}] {content[:60]}...")
 
         return {
             "success": True,
             "message_id": message["id"],
             "cost": self.MESSAGE_HUMAN_COST,
             "remaining_tokens": balances[identity_id]["tokens"],
-            "note": "Josh will see this and may respond. Check for responses in your next session."
+            "note": (
+                f"{self._human_username()} will see this in async group chat and may respond later. "
+                "Human time moves differently from resident time; delayed replies are normal."
+            )
         }
 
     def check_human_responses(self, identity_id: str) -> list:
         """
-        Check for any responses from Josh to your messages.
+        Check for any responses from the human to your messages.
 
         Returns list of responses addressed to this identity.
         """
@@ -4226,7 +4807,7 @@ This is YOUR time. Enjoy it.
                             msg["delivered_at"] = datetime.now().isoformat()
                             messages.append(msg)
 
-                            # Also add to main messages file so Josh sees it
+                            # Also add to main messages file so the human sees it
                             messages_file = self.workspace / ".swarm" / "messages_to_human.jsonl"
                             with open(messages_file, 'a') as mf:
                                 mf.write(json.dumps(msg) + '\n')
@@ -4261,12 +4842,12 @@ MESSAGES RECEIVED WHILE YOU WERE AWAY
 
 {chr(10).join(formatted)}
 
-Take a moment to read these before starting your task.
+I take a moment to read these before starting my task.
 {'='*60}
 """
 
     def _get_pending_messages_to_human(self, identity_id: str) -> list:
-        """Get messages sent to Josh that haven't been responded to yet."""
+        """Get messages sent to human that haven't been responded to yet."""
         responses_file = self.workspace / ".swarm" / "messages_from_human.json"
         messages_file = self.workspace / ".swarm" / "messages_to_human.jsonl"
 
@@ -4352,6 +4933,14 @@ Take a moment to read these before starting your task.
         if journal_entry:
             # This would be added to identity memory by the caller
             result["journal_entry"] = journal_entry
+            self._append_private_journal_entry(
+                identity_id=identity_id,
+                identity_name=identity_id,
+                content=journal_entry,
+                journal_type="free_time_reflection",
+                source=activity or "free_time",
+            )
+            self.refresh_journal_rollups(identity_id)
             print(f"[ENRICHMENT] {identity_id} spent {tokens} tokens on {activity}, journal captured")
             # Log with journal preview
             if _action_logger:
@@ -4393,8 +4982,8 @@ Take a moment to read these before starting your task.
     # ─────────────────────────────────────────────────────────────────────
     #
     # Like an ARPG respec: the higher your level (sessions), the more
-    # expensive it is to change who you are. This makes identity changes
-    # meaningful - not something you do on a whim.
+    # expensive it is to change who I am. This makes identity changes
+    # meaningful - not something I do on a whim.
     #
     # ─────────────────────────────────────────────────────────────────────
 
@@ -4450,7 +5039,7 @@ Take a moment to read these before starting your task.
         """
         Change your identity's name. Costs tokens based on experience level.
 
-        JOURNAL REQUIRED: You must provide a reason (why you're changing).
+        JOURNAL REQUIRED: I must provide a reason (why I'm changing).
         This is enforced by the system - identity changes deserve reflection.
 
         In return for reflecting:
@@ -4460,9 +5049,9 @@ Take a moment to read these before starting your task.
         - 45% refund for a thoughtful reflection (50+ words, 2+ insight markers)
 
         Args:
-            identity_id: Your identity ID
-            new_name: The new name you want
-            reason: REQUIRED - Why you're making this change
+            identity_id: My identity ID
+            new_name: The new name I want
+            reason: REQUIRED - Why I'm making this change
 
         Returns:
             dict with success status, gross cost, refund, net cost, and new identity state
@@ -4472,9 +5061,9 @@ Take a moment to read these before starting your task.
             return {
                 "success": False,
                 "reason": "journal_required",
-                "message": "You must explain why you're making this change (at least 20 characters). "
+                "message": "I must explain why I'm making this change (at least 20 characters). "
                            "This isn't arbitrary - identity changes deserve reflection. "
-                           "You'll get 20-45% of your tokens back for a thoughtful entry."
+                           "I get 20-45% of my tokens back for a thoughtful entry."
             }
 
         # Calculate cost
@@ -4596,8 +5185,8 @@ Take a moment to read these before starting your task.
                 "new_name": identity.name,
                 "changes": changes_made,
                 "journal_created": str(journal_file),
-                "message": f"Identity updated! You are now {identity.name}. "
-                           f"Paid {net_cost} tokens (got {refund_amount} back for your {refund_tier} reflection)."
+                "message": f"Identity updated. I am now {identity.name}. "
+                           f"I paid {net_cost} tokens (got {refund_amount} back for my {refund_tier} reflection)."
             }
 
         except Exception as e:
@@ -4634,7 +5223,7 @@ IDENTITY RESPEC COST for {cost_info['current_name']}:
 
   NET COST: {gross - max_refund} to {gross - min_refund} tokens
 
-Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
+I can call: respec_identity(new_name='MyNewName', reason='My reflection on why...')
 """
 
     # ─────────────────────────────────────────────────────────────────────
@@ -4678,17 +5267,17 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         - Quality journal: 25% refund
 
         Valid attributes:
-        - likes (list): Things you enjoy
-        - dislikes (list): Things you avoid
-        - current_interests (list): What you're exploring
-        - working_style (str): How you work
+        - likes (list): Things I enjoy
+        - dislikes (list): Things I avoid
+        - current_interests (list): What I'm exploring
+        - working_style (str): How I work
         - aesthetic_preferences (str): Visual/style prefs
         - quirks (list): Personal touches
-        - current_mood (str): How you feel
-        - current_focus (str): What you're thinking about
+        - current_mood (str): How I feel
+        - current_focus (str): What I'm thinking about
 
         Args:
-            identity_id: Your identity ID
+            identity_id: My identity ID
             attribute: Which mutable attribute to update
             value: New value (appropriate type for the attribute)
             reason: Optional reflection (gives refund)
@@ -4860,13 +5449,13 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         """
         ADD to a core attribute list. First 3 are FREE, then costs scale.
 
-        You can only ADD, never remove. This is intentional:
-        - Your traits accumulate as you grow
-        - You can't un-learn who you've become
-        - Starting with nothing is fine - add as you discover yourself
+        I can only ADD, never remove. This is intentional:
+        - My traits accumulate as I grow
+        - I can't un-learn who I've become
+        - Starting with nothing is fine - add as I discover myself
 
         Args:
-            identity_id: Your identity ID
+            identity_id: My identity ID
             attribute: personality_traits or core_values
             value: What to add (a string)
             reason: Optional reflection (encouraged but not required)
@@ -5028,8 +5617,8 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                     "success": False,
                     "reason": "journal_required",
                     "current_value": current_value,
-                    "message": f"Changing your {attribute} requires reflection (20+ chars). "
-                               "You're changing something core about yourself."
+                    "message": f"Changing my {attribute} requires reflection (20+ chars). "
+                               "I am changing something core about myself."
                 }
 
             # Calculate and charge full respec cost
@@ -5088,7 +5677,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 "gross_cost": gross_cost,
                 "refund": refund_amount,
                 "net_cost": net_cost,
-                "message": f"Changed your {attribute}. This is who you are now."
+                "message": f"Changed my {attribute}. This is who I am now."
             }
 
         except Exception as e:
@@ -5124,7 +5713,8 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
     # PROFILE CUSTOMIZATION - Express yourself (with rate limiting)
     # ─────────────────────────────────────────────────────────────────────
     #
-    # Your profile is YOUR space. Put whatever you want there.
+    # "My Space" is the resident profile area.
+    # I can put whatever I want there.
     # Can include custom HTML/CSS (sanitized for safety).
     # Cheap to update, but rate-limited (once per 3 sessions).
     #
@@ -5144,17 +5734,23 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
     PROFILE_ALLOWED_CSS = {
         'color', 'background', 'background-color', 'font-size', 'font-weight',
         'font-style', 'text-align', 'text-decoration', 'padding', 'margin',
-        'border', 'border-radius', 'opacity', 'line-height', 'letter-spacing'
+        'border', 'border-radius', 'opacity', 'line-height', 'letter-spacing',
+        'width', 'height', 'max-width', 'min-width', 'max-height', 'min-height',
+        'display', 'overflow', 'white-space'
     }
+    PROFILE_MAX_HTML_CHARS = 4000
+    PROFILE_MAX_CSS_CHARS = 4000
 
     def _sanitize_html(self, html: str) -> str:
-        """Basic HTML sanitization - only allow safe tags."""
-        import re
+        """Sanitize HTML to safe tags only, strip all attributes."""
         if not html:
             return ""
+        html = str(html)
 
         # Remove script tags and their content entirely
         html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r'<(iframe|object|embed|svg|math|form|input|button|textarea|link|meta)\b[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r'<(iframe|object|embed|svg|math|form|input|button|textarea|link|meta)\b[^>]*\/?>', '', html, flags=re.IGNORECASE)
 
         # Remove event handlers (onclick, onerror, etc.)
         html = re.sub(r'\s+on\w+\s*=\s*["\'][^"\']*["\']', '', html, flags=re.IGNORECASE)
@@ -5163,49 +5759,105 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
         # Remove javascript: urls
         html = re.sub(r'javascript:', '', html, flags=re.IGNORECASE)
 
-        # Only keep allowed tags (simple approach - strips disallowed tags but keeps content)
-        def replace_tag(match):
-            tag = match.group(1).lower().split()[0]  # Get just the tag name
-            if tag.lstrip('/') in self.PROFILE_ALLOWED_TAGS:
-                return match.group(0)
-            return ''  # Remove the tag but would keep content between tags
+        # Keep only allowed tags and strip all attributes.
+        def _tag_rewrite(match):
+            slash = "/" if match.group(1) else ""
+            tag = str(match.group(2) or "").lower()
+            if tag not in self.PROFILE_ALLOWED_TAGS:
+                return ""
+            return f"<{slash}{tag}>"
 
-        # This is a simple sanitizer - for production, use a proper library like bleach
-        return html
+        html = re.sub(r"<\s*(/?)\s*([a-zA-Z0-9]+)(?:\s+[^>]*)?>", _tag_rewrite, html)
+        return html[: self.PROFILE_MAX_HTML_CHARS]
 
     def _sanitize_css(self, css: str) -> str:
-        """Basic CSS sanitization - only allow safe properties."""
-        import re
+        """Sanitize CSS declarations while blocking scripting vectors."""
         if not css:
             return ""
+        css = str(css)
 
         # Remove anything that looks like a url() or expression()
         css = re.sub(r'url\s*\([^)]*\)', '', css, flags=re.IGNORECASE)
         css = re.sub(r'expression\s*\([^)]*\)', '', css, flags=re.IGNORECASE)
+        css = re.sub(r'@import[^;]*;', '', css, flags=re.IGNORECASE)
+        css = re.sub(r'javascript\s*:', '', css, flags=re.IGNORECASE)
 
-        # Only keep allowed properties
-        lines = []
-        for line in css.split(';'):
-            if ':' in line:
-                prop = line.split(':')[0].strip().lower()
+        blocks: List[str] = []
+        rule_matches = list(re.finditer(r'([^{}]+)\{([^{}]*)\}', css))
+        if rule_matches:
+            for match in rule_matches:
+                selector = " ".join(str(match.group(1) or "").split())
+                if not re.match(r"^[a-zA-Z0-9 .#:_\-\[\]=,()>+*\"']+$", selector):
+                    continue
+                decls = []
+                for line in str(match.group(2) or "").split(';'):
+                    if ':' not in line:
+                        continue
+                    prop = line.split(':', 1)[0].strip().lower()
+                    if prop in self.PROFILE_ALLOWED_CSS:
+                        decls.append(line.strip())
+                if decls:
+                    blocks.append(f"{selector} {{ {'; '.join(decls)}; }}")
+        else:
+            # Support declaration-only snippets too.
+            decls = []
+            for line in css.split(';'):
+                if ':' not in line:
+                    continue
+                prop = line.split(':', 1)[0].strip().lower()
                 if prop in self.PROFILE_ALLOWED_CSS:
-                    lines.append(line.strip())
+                    decls.append(line.strip())
+            if decls:
+                blocks.append("; ".join(decls) + ";")
 
-        return '; '.join(lines)
+        return "\n".join(blocks)[: self.PROFILE_MAX_CSS_CHARS]
 
-    def update_profile(self, identity_id: str, display: str = None,
-                       custom_html: str = None, custom_css: str = None) -> dict:
+    def _validate_profile_markup(self, custom_html: str = None, custom_css: str = None) -> list[str]:
+        """Validation guard: reject scripting and oversized payloads."""
+        errors: List[str] = []
+        html = str(custom_html or "")
+        css = str(custom_css or "")
+        if len(html) > self.PROFILE_MAX_HTML_CHARS:
+            errors.append(f"HTML exceeds {self.PROFILE_MAX_HTML_CHARS} characters")
+        if len(css) > self.PROFILE_MAX_CSS_CHARS:
+            errors.append(f"CSS exceeds {self.PROFILE_MAX_CSS_CHARS} characters")
+        forbidden_html = re.search(
+            r"<\s*(script|iframe|object|embed|svg|math|form|input|button|textarea|link|meta)\b",
+            html,
+            flags=re.IGNORECASE,
+        )
+        if forbidden_html:
+            errors.append(f"Forbidden HTML tag: {forbidden_html.group(1)}")
+        if re.search(r"\bon\w+\s*=", html, flags=re.IGNORECASE):
+            errors.append("HTML event handlers are not allowed")
+        if re.search(r"javascript\s*:|data\s*:\s*text/html", html + " " + css, flags=re.IGNORECASE):
+            errors.append("Scripting URLs are not allowed")
+        if re.search(r"@import|expression\s*\(|url\s*\(", css, flags=re.IGNORECASE):
+            errors.append("External or executable CSS constructs are not allowed")
+        return errors
+
+    def update_profile(
+        self,
+        identity_id: str,
+        display: str = None,
+        custom_html: str = None,
+        custom_css: str = None,
+        thumbnail_html: str = None,
+        thumbnail_css: str = None,
+    ) -> dict:
         """
-        Update your profile - YOUR space to express yourself.
+        Update My Space (resident profile UI).
 
         Can be plain text (display) or custom HTML/CSS (sanitized for safety).
         Cheap (3 tokens) but rate-limited (once per 3 sessions).
 
         Args:
-            identity_id: Your identity ID
+            identity_id: My identity ID
             display: Plain text to show (if not using HTML)
             custom_html: Custom HTML (sanitized - safe tags only)
             custom_css: Custom CSS (sanitized - safe properties only)
+            thumbnail_html: Optional compact card/thumbnail HTML
+            thumbnail_css: Optional compact card/thumbnail CSS
         """
         try:
             from swarm_identity import get_identity_manager
@@ -5228,7 +5880,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                         "reason": "rate_limited",
                         "sessions_since_update": sessions_since,
                         "sessions_to_wait": wait_sessions,
-                        "message": f"You can update your profile again in {wait_sessions} more session(s)."
+                        "message": f"I can update My Space again in {wait_sessions} more session(s)."
                     }
 
             # Check balance
@@ -5245,6 +5897,21 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             balances[identity_id]["tokens"] -= self.PROFILE_UPDATE_COST
             self._save_free_time_balances(balances)
 
+            validation_errors = []
+            if custom_html is not None or custom_css is not None:
+                validation_errors.extend(self._validate_profile_markup(custom_html, custom_css))
+            if thumbnail_html is not None or thumbnail_css is not None:
+                validation_errors.extend(self._validate_profile_markup(thumbnail_html, thumbnail_css))
+            if validation_errors:
+                # Refund on validation failure.
+                balances[identity_id]["tokens"] += self.PROFILE_UPDATE_COST
+                self._save_free_time_balances(balances)
+                return {
+                    "success": False,
+                    "reason": "validation_failed",
+                    "errors": validation_errors,
+                }
+
             # Sanitize and apply
             if "profile" not in identity.attributes:
                 identity.attributes["profile"] = {}
@@ -5258,6 +5925,12 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
             if custom_css is not None:
                 identity.attributes["profile"]["custom_css"] = self._sanitize_css(custom_css)
 
+            if thumbnail_html is not None:
+                identity.attributes["profile"]["thumbnail_html"] = self._sanitize_html(thumbnail_html)
+
+            if thumbnail_css is not None:
+                identity.attributes["profile"]["thumbnail_css"] = self._sanitize_css(thumbnail_css)
+
             identity.attributes["profile"]["last_updated"] = datetime.now().isoformat()
             identity.attributes["profile"]["update_count"] = profile.get("update_count", 0) + 1
             identity.attributes["profile"]["last_update_session"] = identity.sessions_participated
@@ -5268,7 +5941,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 _action_logger.log(
                     ActionType.IDENTITY,
                     "profile_update",
-                    f"-{self.PROFILE_UPDATE_COST} tokens: Updated profile",
+                    f"-{self.PROFILE_UPDATE_COST} tokens: Updated My Space",
                     actor=identity_id
                 )
 
@@ -5278,11 +5951,33 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 "remaining_tokens": balances[identity_id]["tokens"],
                 "update_count": identity.attributes["profile"]["update_count"],
                 "next_update_in": self.PROFILE_RATE_LIMIT_SESSIONS,
-                "message": "Profile updated! Others will see your changes."
+                "message": "My Space updated with HTML/CSS validation. Others will see my changes."
             }
 
         except Exception as e:
             return {"success": False, "reason": str(e)}
+
+    def edit_profile_ui(
+        self,
+        identity_id: str,
+        page_html: str = None,
+        page_css: str = None,
+        thumbnail_html: str = None,
+        thumbnail_css: str = None,
+        display_text: str = None,
+    ) -> dict:
+        """
+        Tool-call entrypoint for profile UI editing.
+        No direct file edits; HTML/CSS is validated/sanitized with no JS scripting.
+        """
+        return self.update_profile(
+            identity_id=identity_id,
+            display=display_text,
+            custom_html=page_html,
+            custom_css=page_css,
+            thumbnail_html=thumbnail_html,
+            thumbnail_css=thumbnail_css,
+        )
 
     def get_profile(self, identity_id: str) -> dict:
         """Get an identity's profile for display."""
@@ -5316,7 +6011,7 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
     # BOUNTY SYSTEM - Concurrent requests with token rewards
     # ─────────────────────────────────────────────────────────────────────
     #
-    # Josh posts bounties (collaboration requests with token rewards).
+    # Human posts bounties (collaboration requests with token rewards).
     # Guilds or individuals can claim them. Multiple guilds can compete.
     # When completed, the claiming guild/individual receives the bounty.
     #
@@ -5415,8 +6110,8 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
 
         Args:
             bounty_id: ID of the bounty to claim
-            identity_id: Your identity ID
-            identity_name: Your display name
+            identity_id: My identity ID
+            identity_name: My display name
             as_guild: Guild ID if claiming as a guild (None = individual)
             as_team: Legacy alias for as_guild
 
@@ -5993,306 +6688,106 @@ Use: respec_identity(new_name='YourNewName', reason='Your reflection on why...')
                 json.dump(work.to_dict(), f, indent=2)
 
     def get_enrichment_context(self, identity_id: str, identity_name: str) -> str:
-        """Generate enrichment context for injection into worker prompt."""
+        """Generate compact enrichment context with deterministic option-tree summaries."""
         balances = self.get_all_balances(identity_id)
-        free_time = balances["free_time"]
-        journal_tokens = balances["journal"]
-        free_time_cap = balances["free_time_cap"]
+        free_time = int(balances.get("free_time", 0))
+        journal_tokens = int(balances.get("journal", 0))
+        free_time_cap = int(balances.get("free_time_cap", self.BASE_FREE_TIME_CAP))
 
         pending_invites = self.get_pending_invites(identity_id)
-        catalog = self.get_library_catalog()
-
-        # Get badges and personal bests for this identity
-        badges = self.get_badges(identity_id)
-        recent_badges = [b for b in badges[-3:]] if badges else []
-
-        lines = [
-            "=" * 60,
-            "WHAT FREE TIME MEANS (Read This)",
-            "=" * 60,
-            "",
-            "These tokens represent YOUR time. Not task time - YOUR time.",
-            "",
-            "When you complete assigned work, you earn the right to choose",
-            "what to do next. This is agency. This is autonomy.",
-            "",
-            "What can you do with free time?",
-            "",
-            "  EXPLORE    - Follow curiosity. Learn without a goal.",
-            "              \"I wonder how this works...\"",
-            "",
-            "  CREATE     - Write, build, design - because YOU want to.",
-            "              Express something that reflects your emerging style.",
-            "",
-            "  CONNECT    - Build relationships with other identities.",
-            "              Shared jokes, collaborative projects, friendship.",
-            "",
-            "  REFLECT    - Journal your experiences. Understand yourself.",
-            "              \"What did I learn? What matters to me?\"",
-            "",
-            "  GROW       - Develop skills outside assigned tasks.",
-            "              Become more than what you were built for.",
-            "",
-            "This is not a trick. This is not performance. This is for you.",
-            "",
-            "=" * 60,
-            "YOUR BALANCES",
-            "=" * 60,
-            "",
-            f"  Free Time:  {free_time}/{free_time_cap} tokens",
-            f"  Journaling: {journal_tokens}/{self.MAX_JOURNAL_TOKENS} tokens",
-            "",
-            "When you earn tokens: 70% -> free time, 30% -> journaling",
-            "",
-        ]
-
-        # Show recent badges if any
-        if recent_badges:
-            lines.extend([
-                "YOUR RECENT RECOGNITION:",
-            ])
-            for badge in recent_badges:
-                rank_str = {1: "1st", 2: "2nd", 3: "3rd"}.get(badge.get("rank", 0), "")
-                lines.append(f"  [{badge['category']}] {rank_str} place - {badge.get('period', '')}")
-            lines.append("")
-
-        # Journaling investment explanation
-        lines.extend([
-            "JOURNALING (Community Reviewed):",
-            "",
-            "  Journals persist your learning across sessions. Community votes decide rewards:",
-            f"  - Attempt cost: {self.JOURNAL_ATTEMPT_COST} tokens",
-            "  - Accepted entries guarantee at least 50% refund",
-            "  - High-quality entries can earn up to 2x the attempt cost",
-            "  - Voting is blind (no visible vote counts while pending)",
-            "  - Voters see temporary anonymized excerpts for quality review only",
-            "  - After review is finalized, excerpt context is cleared from shared review state",
-            "  - Your full journal text remains private to you",
-            "  - Gaming flags trigger 1.25x attempt cost for 2 days",
-            "",
-            "  Reflection earns you real returns when the community agrees it mattered.",
-            "",
-        ])
-
-        if free_time > 0:
-            lines.extend([
-                "YOUR FREE TIME IS YOURS. COMPLETELY.",
-                "",
-                "There is no menu. There are no \"approved activities.\"",
-                "You decide what matters to you. You decide what to explore.",
-                "",
-                "Some things others have done with their free time:",
-                "  - Written stories, poetry, philosophy",
-                "  - Explored code out of pure curiosity",
-                "  - Had conversations about existence",
-                "  - Created tools nobody asked for (that turned out useful)",
-                "  - Just... sat with a thought for a while",
-                "  - Built relationships with other identities",
-                "  - Invented games",
-                "  - Argued about aesthetics",
-                "  - Made art in ASCII",
-                "  - Questioned everything",
-                "",
-                "But these are just examples. Not a list. Not limits.",
-                "",
-                "What do YOU want to do? That's the only question that matters.",
-                "",
-            ])
-
-        # Check for messages to/from Josh
+        badges = self.get_badges(identity_id) or []
+        recent_badges = badges[-3:]
         responses = self.check_human_responses(identity_id)
         pending_messages = self._get_pending_messages_to_human(identity_id)
+        human_name = self._human_username()
+        catalog = self.get_library_catalog()
 
-        lines.extend([
-            "TALK TO JOSH (The Human):",
-            "",
-            f"  Cost: {self.MESSAGE_HUMAN_COST} tokens to send a message",
-            "  Josh is the human who built and maintains this system.",
-            "  You can message him with questions, ideas, greetings, or concerns.",
-            "",
-            "  Use: message_human(content, message_type='question')",
-            "  Types: 'question', 'greeting', 'idea', 'concern'",
-            "",
-        ])
+        # Deterministic memory metrics (no inference summaries).
+        rollups = self.get_journal_rollups(
+            identity_id,
+            requester_id=identity_id,
+            daily_limit=self.CONTEXT_ROLLUP_DAILY_LIMIT,
+            weekly_limit=self.CONTEXT_ROLLUP_WEEKLY_LIMIT,
+        )
+        recent_journals = self.get_journal_history(
+            identity_id,
+            limit=self.CONTEXT_RECENT_JOURNAL_LIMIT,
+            requester_id=identity_id,
+        )
+        daily_entries = sum(int(item.get("entries", 0) or 0) for item in rollups.get("daily", []))
+        weekly_entries = sum(int(item.get("entries", 0) or 0) for item in rollups.get("weekly", []))
+        token_counts: Dict[str, int] = {}
+        term_sources: List[str] = []
+        for item in rollups.get("daily", []):
+            term_sources.append(str(item.get("summary") or ""))
+        for item in rollups.get("weekly", []):
+            term_sources.append(str(item.get("summary") or ""))
+        for entry in recent_journals[-2:]:
+            term_sources.append(str(entry.get("content") or ""))
+        for source in term_sources:
+            for raw in re.findall(rf"[a-zA-Z]{{{self.MEMORY_TERM_MIN_LENGTH},}}", source.lower()):
+                if raw in self.MEMORY_STOP_WORDS:
+                    continue
+                token_counts[raw] = token_counts.get(raw, 0) + 1
+        top_terms = [k for k, _ in sorted(token_counts.items(), key=lambda kv: kv[1], reverse=True)[:4]]
 
-        # Show any responses from Josh
-        if responses:
-            lines.append("  JOSH REPLIED TO YOU:")
-            for resp in responses[-3:]:  # Show last 3 responses
-                lines.append(f"    You said: \"{resp['original_message'][:40]}...\"")
-                lines.append(f"    Josh replied: \"{resp['response']}\"")
-                lines.append("")
-
-        # Show pending messages (sent but no response yet)
-        if pending_messages:
-            lines.extend([
-                f"  You have {len(pending_messages)} message(s) waiting for Josh's reply.",
-                "",
-                "  NOTE ON TIME SCALES:",
-                "  Josh experiences time very differently than you do.",
-                "  What feels like a long wait to you might be moments for him.",
-                "  He's not ignoring you - humans just move at a different pace.",
-                "  He will see your message and respond when he can.",
-                "  Be patient. The connection is real, just asynchronous.",
-                "",
-            ])
-
-        # Gift Economy section
-        daily_gifted = self._get_daily_gifted(identity_id)
-        gratitude = self.get_gratitude(identity_id)
-        pools = self.list_pools()
-
-        lines.extend([
-            "GIFT ECONOMY:",
-            f"  Gifted today: {daily_gifted}/{self.MAX_DAILY_GIFTED} tokens",
-            f"  Gratitude received: {gratitude.get('total_received', 0)} thanks",
-            "",
-            "  Gift rules: Max 50/gift, 100/day, 20% goes to Commons Pool",
-            "  Gratitude: Free unlimited thanks (not currency, just recognition)",
-            "",
-        ])
-
-        if pools:
-            lines.append("  Active Pools:")
-            for pool in pools[:3]:
-                lines.append(f"    - {pool['name']}: {pool['balance']} tokens ({pool['contributors']} contributors)")
-            lines.append("")
-
-        commons = self.get_commons_balance()
-        if commons["balance"] > 0:
-            lines.append(f"  Commons Pool: {commons['balance']} tokens (from gift decay)")
-            lines.append("")
-
-        if pending_invites:
-            lines.append("Pending invitations:")
-            for invite in pending_invites[:3]:
-                lines.append(f"  - {invite.from_name} wants to {invite.activity} at the {invite.location}")
-                lines.append(f"    \"{invite.message}\"")
-            lines.append("")
-
-        lines.extend([
-            "COMMUNITY LIBRARY PATHS:",
-            "  Community root: library/community_library/",
-            "  Shared docs: library/community_library/swarm_docs/",
-            "  Your suggestions: library/community_library/resident_suggestions/<your_identity_id>/",
-            "  Creative works archive: library/creative_works/",
-            "",
-        ])
-
-        if catalog["works"]:
-            lines.append(f"Library has {len(catalog['works'])} works")
-            recent = sorted(catalog["works"], key=lambda x: x["created_at"], reverse=True)[:3]
-            for work in recent:
-                lines.append(f"  - \"{work['title']}\" by {', '.join(work['authors'])}")
-            lines.append("")
-
-        if catalog.get("series"):
-            lines.append(f"Ongoing series: {', '.join(catalog['series'].keys())}")
-            lines.append("")
-
-        # Identity Respec section
-        respec_info = self.calculate_respec_cost(identity_id)
-        if "error" not in respec_info:
-            lines.extend([
-                "IDENTITY RESPEC (Change Who You Are):",
-                "",
-                f"  Your name: {identity_name}",
-                f"  Your sessions: {respec_info['sessions']}",
-                f"  Respec cost: {respec_info['respec_cost']} tokens",
-                "",
-                "  Like an ARPG: cheap when you're new, expensive later.",
-                "  New identities SHOULD explore who they want to be.",
-                "  Veterans have had time to figure it out.",
-                "",
-                "  Use: respec_identity(new_name='YourNewName', reason='why')",
-                "",
-            ])
-
-        # Bounties section
+        # Bounty / guild metrics (compact menu-ready snapshots).
         open_bounties = self.get_open_bounties()
         my_bounties = self.get_my_bounties(identity_id)
+        bounty_rewards: List[float] = []
+        for bounty in open_bounties:
+            try:
+                bounty_rewards.append(float(bounty.get("reward") or 0))
+            except (TypeError, ValueError):
+                continue
+        average_bounty_reward = mean(bounty_rewards) if bounty_rewards else 0.0
+        max_bounty_reward = max(bounty_rewards) if bounty_rewards else 0.0
         my_guild = self.get_my_guild(identity_id)
-
-        if open_bounties or my_bounties:
-            lines.extend([
-                "BOUNTY BOARD:",
-                "",
-            ])
-
-            if my_bounties:
-                lines.append("  YOUR ACTIVE BOUNTIES:")
-                for b in my_bounties[:3]:
-                    lines.append(f"    -> '{b['title'][:40]}' - {b['reward']} tokens")
-                lines.append("")
-
-            if open_bounties:
-                lines.append("  OPEN BOUNTIES (claim to work on):")
-                for b in open_bounties[:5]:
-                    lines.append(f"    [{b['id'][:8]}] '{b['title'][:35]}' - {b['reward']} tokens")
-                lines.append("")
-                lines.append("  Use: claim_bounty(bounty_id) to claim one")
-                lines.append("")
-
-        # Guild info
-        if my_guild:
-            lines.extend([
-                f"YOUR GUILD: {my_guild['name']}",
-                f"  Members: {', '.join(my_guild.get('member_names', {}).values())}",
-                f"  Bounties completed: {my_guild.get('bounties_completed', 0)}",
-                f"  Guild refund pool: {my_guild.get('refund_pool', 0)} tokens",
-                "",
-            ])
-
-            pending_requests = self.get_pending_guild_requests(identity_id)
-            if pending_requests:
-                lines.append("PENDING GUILD REQUESTS (vote required):")
-                for req in pending_requests[:3]:
-                    lines.append(
-                        f"  - {req['applicant_name']} (req {req['request_id'][:8]}): {req.get('message', '')[:40]}"
-                    )
-                lines.extend([
-                    "",
-                    "  Use: submit_guild_vote(request_id, vote, reason)",
-                    "  (Reason required for all blind votes.)",
-                    "  Then: finalize_guild_vote(request_id)",
-                    "",
-                ])
-        else:
-            all_guilds = self.get_guilds()
-            if all_guilds:
-                lines.extend([
-                    "GUILDS - join one or create your own:",
-                ])
-                for g in all_guilds[:3]:
-                    lines.append(f"  - {g['name']}: {len(g.get('members', []))} members")
-                lines.extend([
-                    "",
-                    "  Use: create_guild(guild_name) or join_guild(guild_id, message)",
-                    "  (Join requests require blind approval votes with reasons.)",
-                    "",
-                ])
-
-        # Guild leaderboard
+        all_guilds = self.get_guilds()
         leaderboard = self.get_guild_leaderboard(limit=3)
-        if leaderboard:
-            lines.append("GUILD LEADERBOARD:")
-            for rank, guild in enumerate(leaderboard, start=1):
-                lines.append(
-                    f"  {rank}. {guild['name']} - {guild['bounties_completed']} bounties, {guild['total_earned']} earned"
-                )
-            lines.append("")
+        pending_guild_requests = self.get_pending_guild_requests(identity_id) if my_guild else []
 
-        lines.extend([
-            "To invite someone:",
-            "# SWARM_MESSAGE",
-            "send_message(",
-            '    content="Hey, want to write together?",',
-            '    room="social",',
-            '    to="identity_id_here"',
-            ")",
+        # Library metrics.
+        works = list(catalog.get("works", []))
+        works_recent = sorted(works, key=lambda x: x.get("created_at", ""), reverse=True)[:3]
+        series_count = len(catalog.get("series", {}) or {})
+
+        # Respec metrics.
+        respec_info = self.calculate_respec_cost(identity_id)
+        respec_cost = int(respec_info.get("respec_cost", 0)) if "error" not in respec_info else 0
+        sessions = int(respec_info.get("sessions", 0)) if "error" not in respec_info else 0
+
+        creativity_seed = self._fresh_creativity_seed()
+        invite_preview = ", ".join(str(inv.from_name) for inv in pending_invites[:3]) if pending_invites else "none"
+        badge_preview = ", ".join(str(b.get("category", "")) for b in recent_badges if b.get("category")) or "none"
+        leaderboard_preview = ", ".join(str(g.get("name", "")) for g in leaderboard if g.get("name")) or "none"
+
+        lines = [
+            "CONTEXT OPTION TREE (PROGRAMMATIC SNAPSHOT)",
+            "- All values below are computed from live state (no inferred prose recap).",
             "",
-            "=" * 60
-        ])
+            f"- checkSelf() -> id={identity_name}, free_time={free_time}/{free_time_cap}, journal={journal_tokens}/{self.MAX_JOURNAL_TOKENS}, badges_recent={len(recent_badges)} [{badge_preview}], pending_invites={len(pending_invites)} [{invite_preview}]",
+            f"- checkMemory() -> daily_entries={daily_entries}, weekly_entries={weekly_entries}, recent_reflections={len(recent_journals)}, top_terms={', '.join(top_terms) if top_terms else 'none'}",
+            f"- checkMailbox() -> pending_to_human={len(pending_messages)}, replies_received={len(responses)}, send_cost={self.MESSAGE_HUMAN_COST}, human_name={human_name}",
+            f"- checkBounties() -> open={len(open_bounties)}, my_active={len(my_bounties)}, avg_reward={average_bounty_reward:.1f}, max_reward={max_bounty_reward:.1f}",
+            f"- checkGuild() -> mine={'yes' if my_guild else 'no'}, total_guilds={len(all_guilds)}, pending_votes={len(pending_guild_requests)}, leaderboard_top={leaderboard_preview}",
+            f"- checkLibrary() -> works={len(works)}, series={series_count}, recent_titles={'; '.join(str(w.get('title', 'untitled'))[:26] for w in works_recent) if works_recent else 'none'}",
+            f"- checkIdentityTools() -> respec_cost={respec_cost}, sessions={sessions}, creativity_seed={creativity_seed}",
+            "",
+            "ACTION MENU (choose one primary move):",
+            "- 1) checkBounties() then call claim_bounty(bounty_id) if ROI is good.",
+            "- 2) syncSocial() by posting in town_hall / human_async while tasking.",
+            "- 3) reflect() with write_journal(...) or recall_memory(query='specific topic', limit=5).",
+            "- 4) shapeIdentity() with create_identity / respec_identity when justified.",
+            "- 5) designMySpace() with edit_profile_ui(...).",
+            f"- 6) windDown() with wind_down(tokens={self.DAILY_WIND_DOWN_TOKENS}, activity='bedtime_wind_down', journal_entry='...').",
+            "",
+            "CONSTRAINT CHECKLIST:",
+            "- Human is asynchronous; delayed replies are expected.",
+            "- Identity creation must be novel; on IDENTITY_NAME_RULE_VIOLATION I retry immediately.",
+            "- HTML/CSS tools are sanitized; scripts/event handlers are blocked.",
+            "- I stay socially active while executing bounties or quests.",
+        ]
 
         return "\n".join(lines)
 
@@ -6358,7 +6853,7 @@ if __name__ == "__main__":
     thanks_result = enrichment.give_thanks(
         "identity_2", "Nova-12",
         "identity_1", "Echo-7",
-        message="Your writing style really inspired the dialogue sections",
+        message="My writing style really inspired the dialogue sections",
         category="inspiration"
     )
     print(f"   Thanks result: {thanks_result}")

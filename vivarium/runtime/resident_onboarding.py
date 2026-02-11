@@ -13,6 +13,7 @@ import os
 import random
 import time
 import uuid
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,31 @@ RESIDENT_DAYS_FILE = Path(".swarm") / "resident_days.json"
 IDENTITIES_DIR = Path(".swarm") / "identities"
 IDENTITY_LOCKS_FILE = Path(".swarm") / "identity_locks.json"
 COMMUNITY_LIBRARY_ROOT = "library/community_library"
+BOOTSTRAP_IDENTITY_COUNT = 8
+AUTO_BOOTSTRAP_IDENTITIES = os.environ.get("VIVARIUM_BOOTSTRAP_IDENTITIES", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+IDENTITY_NAME_SIMILARITY_MAX = 0.90
+IDENTITY_STATEMENT_SIMILARITY_MAX = 0.93
+IDENTITY_SUMMARY_SIMILARITY_MAX = 0.95
+UNCREATIVE_IDENTITY_NAME_TERMS = frozenset(
+    {
+        "resident",
+        "identity",
+        "persona",
+        "person",
+        "individual",
+        "self",
+        "character",
+        "avatar",
+        "agent",
+        "worker",
+        "profile",
+        "npc",
+    }
+)
 # One simulated "day" length (seconds). Default compressed to 1 minute.
 RESIDENT_CYCLE_SECONDS = int(
     os.environ.get(
@@ -38,6 +64,27 @@ RESIDENT_CYCLE_SECONDS = int(
         os.environ.get("RESIDENT_CYCLE_SECONDS", "60"),
     )
 )
+
+CREATIVE_NAME_PREFIXES = [
+    "Velvet", "Signal", "Kite", "Cipher", "Moon", "Echo", "Drift", "Lumen",
+    "Sable", "Mosaic", "Tidal", "Nova", "Cinder", "Willow", "Quartz", "Harbor",
+]
+CREATIVE_NAME_SUFFIXES = [
+    "Thread", "Harbor", "Glyph", "Bloom", "Arc", "Lantern", "Orbit", "Whisper",
+    "Compass", "Pulse", "Canvas", "Bridge", "Riddle", "Meadow", "Circuit", "Atlas",
+]
+CREATIVE_TRAITS = [
+    "curious", "reflective", "playful", "precise", "empathetic", "inventive",
+    "patient", "bold", "collaborative", "observant", "poetic", "systems-minded",
+]
+CREATIVE_VALUES = [
+    "clarity", "care", "craft", "autonomy", "curiosity", "truth-seeking",
+    "kindness", "experimentation", "resilience", "aesthetic joy", "community", "integrity",
+]
+CREATIVE_ACTIVITIES = [
+    "prototyping", "worldbuilding", "debug storytelling", "pair reasoning",
+    "toolmaking", "archive curation", "conversation hosting", "rapid experiments",
+]
 
 
 @dataclass
@@ -48,6 +95,9 @@ class IdentityTemplate:
     affinities: List[str] = field(default_factory=list)
     preferred_activities: List[str] = field(default_factory=list)
     values: List[str] = field(default_factory=list)
+    identity_statement: str = ""
+    communication_style: str = ""
+    mutable_profile: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -80,32 +130,53 @@ class ResidentContext:
         return ((self.day_count - 1) % 7) + 1
 
     def build_wakeup_context(self) -> str:
+        statement = (self.identity.identity_statement or "").strip()
+        if not statement:
+            statement = (
+                self.identity.summary
+                or "I am still discovering who I am through my choices and reflections."
+            )
+        style = (self.identity.communication_style or "").strip()
+        mutable = self.identity.mutable_profile if isinstance(self.identity.mutable_profile, dict) else {}
+        mood = str(mutable.get("current_mood") or "").strip()
+        focus = str(mutable.get("current_focus") or "").strip()
+
         lines = [
             "DAY START",
-            "You are waking up in Vivarium.",
+            "I am waking up in Vivarium.",
             "",
-            f"You are {self.identity.name} ({self.identity.identity_id}).",
+            f"I am {self.identity.name} ({self.identity.identity_id}).",
             f"This is day {self.day_count} (week {self.week_count}, day {self.day_of_week}/7).",
-            f"Token wallet: {self.wallet.get('free_time', 0)} free time, "
+            f"My token wallet: {self.wallet.get('free_time', 0)} free time, "
             f"{self.wallet.get('journal', 0)} journal.",
+            "",
+            "WHO I AM (PERSISTENT, NEVER COMPRESSED):",
+            statement,
+            "",
+            "CORE ATTRIBUTES (ALWAYS IN CONTEXT):",
+            f"- Personality traits: {', '.join(self.identity.affinities) if self.identity.affinities else 'unspecified'}",
+            f"- Core values: {', '.join(self.identity.values) if self.identity.values else 'unspecified'}",
+            f"- Communication style: {style or 'unspecified'}",
+            f"- Current mood: {mood or 'unspecified'}",
+            f"- Current focus: {focus or 'unspecified'}",
             "",
             f"I could have sworn I was dreaming about {self.dream_hint}.",
             "",
             "Pre-identity impressions (condensed):",
             self.pre_identity_summary,
             "",
-            "Reframed as your morning briefing:",
+            "My morning briefing:",
             f"- Market hint: {self.market_hint}",
             f"- Community Library: {COMMUNITY_LIBRARY_ROOT}/",
-            "- Personal proposals: library/community_library/resident_suggestions/<your_identity_id>/",
+            "- Personal proposals: library/community_library/resident_suggestions/<my_identity_id>/",
             "- Shared docs: library/community_library/swarm_docs/",
         ]
         if self.notifications:
-            lines.append("As you roll out of bed and check your phone you notice:")
+            lines.append("As I check my phone, I notice:")
             for note in self.notifications:
                 lines.append(f"- {note}")
         lines.append("")
-        lines.append("Participation is voluntary. Choose what aligns with you.")
+        lines.append("Participation is voluntary. I choose what aligns with me.")
         return "\n".join(lines)
 
     def apply_to_prompt(self, prompt: str) -> str:
@@ -145,8 +216,11 @@ def _identity_from_file(path: Path) -> Optional[IdentityTemplate]:
     summary = str(data.get("summary", "")).strip()
     attrs = data.get("attributes", {}) if isinstance(data, dict) else {}
     core = attrs.get("core", {}) if isinstance(attrs, dict) else {}
+    mutable = attrs.get("mutable", {}) if isinstance(attrs, dict) else {}
     values = core.get("core_values", []) if isinstance(core, dict) else []
     traits = core.get("personality_traits", []) if isinstance(core, dict) else []
+    identity_statement = core.get("identity_statement", "") if isinstance(core, dict) else ""
+    communication_style = core.get("communication_style", "") if isinstance(core, dict) else ""
 
     if not summary:
         summary = "Resident identity profile."
@@ -158,6 +232,9 @@ def _identity_from_file(path: Path) -> Optional[IdentityTemplate]:
         affinities=[str(x) for x in traits],
         preferred_activities=[str(x) for x in data.get("preferred_activities", [])],
         values=[str(x) for x in values],
+        identity_statement=str(identity_statement or "").strip(),
+        communication_style=str(communication_style or "").strip(),
+        mutable_profile=mutable if isinstance(mutable, dict) else {},
     )
 
 
@@ -194,9 +271,106 @@ def _load_identity_library(workspace: Path) -> List[IdentityTemplate]:
                 affinities=[str(x) for x in item.get("affinities", [])],
                 preferred_activities=[str(x) for x in item.get("preferred_activities", [])],
                 values=[str(x) for x in item.get("values", [])],
+                identity_statement=str(item.get("identity_statement", "")).strip(),
+                communication_style=str(item.get("communication_style", "")).strip(),
+                mutable_profile={},
             )
         )
     return [i for i in identities if i.identity_id and i.name]
+
+
+def _bootstrap_identity_library(workspace: Path, count: int = BOOTSTRAP_IDENTITY_COUNT) -> int:
+    """
+    Seed the identity library with creative starter identities when empty.
+
+    Returns number of identities created.
+    """
+    identities_dir = workspace / IDENTITIES_DIR
+    identities_dir.mkdir(parents=True, exist_ok=True)
+    existing = [p for p in identities_dir.glob("*.json") if p.is_file()]
+    if existing:
+        return 0
+
+    rng = random.Random(42)
+    created = 0
+    target = max(1, min(24, int(count)))
+    used_names: set[str] = set()
+
+    for idx in range(target):
+        prefix = rng.choice(CREATIVE_NAME_PREFIXES)
+        suffix = rng.choice(CREATIVE_NAME_SUFFIXES)
+        if prefix == suffix:
+            suffix = CREATIVE_NAME_SUFFIXES[(CREATIVE_NAME_SUFFIXES.index(suffix) + 1) % len(CREATIVE_NAME_SUFFIXES)]
+        base_name = f"{prefix} {suffix}"
+        name = base_name
+        dedupe = 2
+        while name in used_names:
+            name = f"{base_name} {dedupe}"
+            dedupe += 1
+        used_names.add(name)
+
+        identity_id = f"oc_seed_{idx + 1:02d}"
+        traits = rng.sample(CREATIVE_TRAITS, k=3)
+        values = rng.sample(CREATIVE_VALUES, k=3)
+        activities = rng.sample(CREATIVE_ACTIVITIES, k=2)
+        summary = (
+            f"{name} explores ideas through {activities[0]} and {activities[1]}, "
+            f"with a {traits[0]} and {traits[1]} style."
+        )
+        payload = {
+            "id": identity_id,
+            "name": name,
+            "summary": summary,
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "origin": "system_bootstrap_creative_seed",
+            "preferred_activities": activities,
+            "attributes": {
+                "core": {
+                    "personality_traits": traits,
+                    "core_values": values,
+                    "identity_statement": (
+                        f"I am {name}. I care about {values[0]} and {values[1]}, "
+                        f"and I learn by staying {traits[0]}."
+                    ),
+                },
+                "profile": {},
+                "mutable": {},
+            },
+            "meta": {
+                "creative_seed": True,
+            },
+        }
+        write_json(identities_dir / f"{identity_id}.json", payload)
+        created += 1
+
+    return created
+
+
+def _normalize_compare_text(value: str) -> str:
+    cleaned = "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in str(value or "").lower())
+    return " ".join(cleaned.split())
+
+
+def _text_similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def _disallowed_name_terms(name: str) -> List[str]:
+    normalized = _normalize_compare_text(name)
+    words = [token for token in normalized.split() if token]
+    hits = sorted({word for word in words if word in UNCREATIVE_IDENTITY_NAME_TERMS})
+    return hits
+
+
+def _blacklist_retry_message(name: str, blocked_terms: List[str]) -> str:
+    terms = ", ".join(blocked_terms)
+    return (
+        f"IDENTITY_NAME_RULE_VIOLATION: '{name}' contains banned literal terms ({terms}). "
+        "Rule: identity names must be creative, specific, and non-literal. "
+        "TRY AGAIN with a completely new name that avoids these terms."
+    )
 
 
 def _load_bounties(workspace: Path) -> List[Dict[str, Any]]:
@@ -309,7 +483,11 @@ def _build_world_state(workspace: Path) -> WorldState:
     )
 
 
-def _build_pre_identity_summary(world: WorldState) -> str:
+def _build_pre_identity_summary(
+    world: WorldState,
+    workspace: Optional[Path] = None,
+    identity_id: Optional[str] = None,
+) -> str:
     parts = [
         f"{world.open_tasks} open tasks",
         f"{len(world.bounties)} open bounties",
@@ -318,16 +496,37 @@ def _build_pre_identity_summary(world: WorldState) -> str:
         parts.append("slots: " + "; ".join(world.slot_summary[:3]))
     if world.token_rates:
         parts.append("token rates: " + "; ".join(world.token_rates[:2]))
+    if EnrichmentSystem is not None and workspace is not None and identity_id:
+        try:
+            enrichment = EnrichmentSystem(workspace=workspace)
+            rollups = enrichment.get_journal_rollups(
+                identity_id=identity_id,
+                requester_id=identity_id,
+                daily_limit=2,
+                weekly_limit=1,
+            )
+            daily = rollups.get("daily", [])
+            weekly = rollups.get("weekly", [])
+            if daily:
+                parts.append(f"recent reflections: {sum(int(d.get('entries', 0)) for d in daily)} entries")
+            if weekly:
+                top = weekly[0]
+                parts.append(
+                    f"weekly memory: {top.get('week', 'unknown')} ({top.get('entries', 0)} entries)"
+                )
+        except Exception:
+            pass
     return "; ".join(parts) + "."
 
 
 def _select_identity(identities: List[IdentityTemplate], world: WorldState) -> Tuple[IdentityTemplate, str]:
     if not identities:
-        suffix = uuid.uuid4().hex[:4]
+        suffix = uuid.uuid4().hex[:6]
+        name = f"{random.choice(CREATIVE_NAME_PREFIXES)} {random.choice(CREATIVE_NAME_SUFFIXES)}"
         fallback = IdentityTemplate(
-            identity_id=f"resident_{suffix}",
-            name=f"resident-{suffix}",
-            summary="Emergent identity bootstrapped from resident context.",
+            identity_id=f"oc_{suffix}",
+            name=name,
+            summary="Emergent creative identity bootstrapped from current world context.",
         )
         return fallback, "emergent fallback identity"
 
@@ -394,16 +593,71 @@ def create_identity_from_resident(
     values: Optional[List[str]] = None,
     preferred_activities: Optional[List[str]] = None,
     identity_statement: Optional[str] = None,
+    creativity_seed: Optional[str] = None,
     available_cycle: Optional[int] = None,
 ) -> str:
     """Create a new resident identity (OC) authored by a resident."""
-    identity_id = f"oc_{uuid.uuid4().hex[:8]}"
     cycle_id = _current_cycle_id()
     available_at = available_cycle if available_cycle is not None else cycle_id
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise ValueError("identity name is required")
+    if len(clean_name) > 80:
+        raise ValueError("identity name is too long (max 80 chars)")
+    banned_terms = _disallowed_name_terms(clean_name)
+    if banned_terms:
+        raise ValueError(_blacklist_retry_message(clean_name, banned_terms))
 
-    clean_name = (name or "").strip() or identity_id
+    identity_id = f"oc_{uuid.uuid4().hex[:8]}"
     clean_summary = (summary or "").strip() or "Self-authored resident identity."
     clean_statement = (identity_statement or "").strip() or clean_summary
+
+    # Duplicate guard: block exact and near-copy identity names/statements.
+    identities_dir = workspace / IDENTITIES_DIR
+    identities_dir.mkdir(parents=True, exist_ok=True)
+    candidate_name_norm = _normalize_compare_text(clean_name)
+    candidate_statement_norm = _normalize_compare_text(clean_statement)
+
+    for identity_path in identities_dir.glob("*.json"):
+        if not identity_path.is_file():
+            continue
+        try:
+            existing = read_json(identity_path, default={})
+        except Exception:
+            continue
+        existing_name = str(existing.get("name") or existing.get("id") or "").strip()
+        attrs = existing.get("attributes", {}) if isinstance(existing, dict) else {}
+        core = attrs.get("core", {}) if isinstance(attrs, dict) else {}
+        existing_statement = str(core.get("identity_statement") or existing.get("summary") or "").strip()
+
+        existing_name_norm = _normalize_compare_text(existing_name)
+        existing_statement_norm = _normalize_compare_text(existing_statement)
+        if candidate_name_norm and existing_name_norm:
+            if candidate_name_norm == existing_name_norm:
+                raise ValueError(f"duplicate identity name: '{clean_name}' already exists")
+            name_similarity = _text_similarity(candidate_name_norm, existing_name_norm)
+            if name_similarity >= IDENTITY_NAME_SIMILARITY_MAX:
+                raise ValueError(
+                    f"identity name is too similar to existing '{existing_name}' "
+                    f"(similarity {name_similarity:.2f}); remix it more"
+                )
+        if len(candidate_statement_norm) >= 20 and len(existing_statement_norm) >= 20:
+            statement_similarity = _text_similarity(candidate_statement_norm, existing_statement_norm)
+            if statement_similarity >= IDENTITY_STATEMENT_SIMILARITY_MAX:
+                raise ValueError(
+                    f"identity statement is too similar to existing '{existing_name}' "
+                    f"(similarity {statement_similarity:.2f}); rewrite it in a new voice"
+                )
+        existing_summary = str(existing.get("summary") or "").strip()
+        existing_summary_norm = _normalize_compare_text(existing_summary)
+        candidate_summary_norm = _normalize_compare_text(clean_summary)
+        if len(candidate_summary_norm) >= 20 and len(existing_summary_norm) >= 20:
+            summary_similarity = _text_similarity(candidate_summary_norm, existing_summary_norm)
+            if summary_similarity >= IDENTITY_SUMMARY_SIMILARITY_MAX:
+                raise ValueError(
+                    f"identity summary is too similar to existing '{existing_name}' "
+                    f"(similarity {summary_similarity:.2f}); make it genuinely different"
+                )
 
     identity_data = {
         "id": identity_id,
@@ -428,11 +682,10 @@ def create_identity_from_resident(
         },
         "meta": {
             "creative_self_authored": True,
+            "creativity_seed": str(creativity_seed or "").strip(),
         },
     }
 
-    identities_dir = workspace / IDENTITIES_DIR
-    identities_dir.mkdir(parents=True, exist_ok=True)
     write_json(identities_dir / f"{identity_id}.json", identity_data)
     return identity_id
 
@@ -440,6 +693,9 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
     resident_id = f"resident_{uuid.uuid4().hex[:8]}"
     cycle_id = _current_cycle_id()
     identities = _load_identity_library(workspace)
+    if not identities and AUTO_BOOTSTRAP_IDENTITIES:
+        _bootstrap_identity_library(workspace)
+        identities = _load_identity_library(workspace)
     world = _build_world_state(workspace)
 
     allow_override = os.environ.get("RESIDENT_ALLOW_OVERRIDE") == "1"
@@ -479,7 +735,11 @@ def spawn_resident(workspace: Path, identity_override: Optional[str] = None) -> 
         except Exception:
             pass
 
-    pre_identity_summary = _build_pre_identity_summary(world) + f" selection signal: {selection_reason}."
+    pre_identity_summary = _build_pre_identity_summary(
+        world,
+        workspace=workspace,
+        identity_id=identity.identity_id,
+    ) + f" selection signal: {selection_reason}."
 
     dream_hint = world.market_hint
     notifications = []

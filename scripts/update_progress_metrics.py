@@ -4,12 +4,16 @@ import os
 from datetime import datetime
 
 PROGRESS_MD = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "PROGRESS.md"))
-GRIND_LOGS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "grind_logs"))
+ACTIVITY_LOGS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "activity_logs"))
+LEGACY_GRIND_LOGS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "grind_logs"))
 LEARNED_LESSONS_JSON = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "learned_lessons.json"))
 
 
 def collect_metrics():
-    log_files = glob.glob(os.path.join(GRIND_LOGS_DIR, "*.json"))
+    # Prefer neutral naming, but keep legacy fallback for older runs.
+    log_files = glob.glob(os.path.join(ACTIVITY_LOGS_DIR, "*.json"))
+    if not log_files:
+        log_files = glob.glob(os.path.join(LEGACY_GRIND_LOGS_DIR, "*.json"))
     total_sessions = len(log_files)
     successes = 0
     failures_by_category = {}

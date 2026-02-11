@@ -83,3 +83,6 @@ htmlcov/
 
 /vivarium/meta/security/*
 !/vivarium/meta/security/.gitkeep
+
+# Local UI defaults (persisted across sessions, machine-local)
+/config/local_ui_settings.json

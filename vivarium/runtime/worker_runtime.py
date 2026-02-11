@@ -7,6 +7,9 @@ Lock Protocol from: EXECUTION_SWARM_SYSTEM.md (legacy orchestrator spec)
 Target API: http://127.0.0.1:8420 (Vivarium)
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import os
 import sys
@@ -105,6 +108,7 @@ QUEUE_FILE: Path = MUTABLE_QUEUE_FILE
 LOCKS_DIR: Path = MUTABLE_LOCKS_DIR
 EXECUTION_LOG: Path = AUDIT_ROOT / "execution_log.jsonl"
 PHASE5_REWARD_LEDGER: Path = MUTABLE_SWARM_DIR / "phase5_reward_ledger.json"
+MVP_ARTIFACT_FINGERPRINTS_FILE: Path = MUTABLE_SWARM_DIR / "artifact_fingerprints.json"
 
 API_REQUEST_TIMEOUT: float = API_TIMEOUT_SECONDS
 WORKER_CHECK_INTERVAL: float = 2.0  # Delay between queue checks in seconds
@@ -113,6 +117,10 @@ DEFAULT_INTENSITY: str = "medium"
 DEFAULT_TASK_TYPE: str = "cycle"
 CYCLE_EXECUTION_ENDPOINT: str = "/cycle"
 DEFAULT_MIN_SCORE: float = float(os.environ.get("RESIDENT_MIN_SCORE", "0"))
+ENRICHMENT_RECALL_MAX_CHARS: int = 600
+ENRICHMENT_RECALL_LIMIT: int = 4
+ENRICHMENT_RECALL_DISPLAY_LIMIT: int = 4
+DISCUSSION_REPLY_LOOKBACK_LIMIT: int = 8
 FOCUS_HAT_MAP = {
     "strategy": "Strategist",
     "build": "Builder",
@@ -299,7 +307,10 @@ WORKER_ENRICHMENT = _init_worker_enrichment()
 WORKER_MUTABLE_VCS = _init_mutable_version_control()
 
 
-def _build_enrichment_prompt_context(resident_ctx: Optional["ResidentContext"]) -> Optional[str]:
+def _build_enrichment_prompt_context(
+    resident_ctx: Optional["ResidentContext"],
+    task_prompt: Optional[str] = None,
+) -> Optional[str]:
     """Build optional social/economic context for the active resident."""
     if resident_ctx is None or WORKER_ENRICHMENT is None:
         return None
@@ -335,6 +346,26 @@ def _build_enrichment_prompt_context(resident_ctx: Optional["ResidentContext"]) 
     except Exception as exc:
         _log("WARN", f"Failed to load enrichment context for {identity_id}: {exc}")
 
+    # Add a compact, task-scoped memory recall block to reduce context bloat.
+    try:
+        if hasattr(WORKER_ENRICHMENT, "recall_memory"):
+            recall = WORKER_ENRICHMENT.recall_memory(
+                identity_id=identity_id,
+                query=task_prompt or "",
+                limit=ENRICHMENT_RECALL_LIMIT,
+                max_chars=ENRICHMENT_RECALL_MAX_CHARS,
+            )
+            hits = recall.get("hits", []) if isinstance(recall, dict) else []
+            if hits:
+                recall_lines = [
+                    "TARGETED MEMORY RECALL (token-efficient):",
+                ]
+                for item in hits[:ENRICHMENT_RECALL_DISPLAY_LIMIT]:
+                    recall_lines.append(f"- {item}")
+                sections.append("\n".join(recall_lines))
+    except Exception as exc:
+        _log("WARN", f"Failed to recall memory for {identity_id}: {exc}")
+
     if not sections:
         return None
     return "\n\n".join(sections)
@@ -365,6 +396,9 @@ def _publish_task_update_to_discussion(
         return
 
     room = str(task.get("discussion_room") or "town_hall").strip() or "town_hall"
+    dm_target = str(task.get("recipient_identity_id") or task.get("dm_to") or "").strip()
+    if not dm_target and room.lower().startswith("dm:"):
+        dm_target = room.split(":", 1)[1].strip()
     summary_line = _truncate_single_line(result_summary or "Task completed.", 240)
     focus_line = _truncate_single_line(
         _resolve_task_prompt(task) or task.get("task") or task.get("command") or "",
@@ -377,7 +411,7 @@ def _publish_task_update_to_discussion(
     reply_to = None
     try:
         if hasattr(WORKER_ENRICHMENT, "get_discussion_messages"):
-            recent = WORKER_ENRICHMENT.get_discussion_messages(room, limit=8)
+            recent = WORKER_ENRICHMENT.get_discussion_messages(room, limit=DISCUSSION_REPLY_LOOKBACK_LIMIT)
             for message in reversed(recent):
                 author_id = str(message.get("author_id") or "").strip()
                 if author_id and author_id != identity_id:
@@ -387,15 +421,25 @@ def _publish_task_update_to_discussion(
         reply_to = None
 
     try:
-        WORKER_ENRICHMENT.post_discussion_message(
-            identity_id=identity_id,
-            identity_name=identity_name,
-            content=content,
-            room=room,
-            mood="focused",
-            importance=3,
-            reply_to=reply_to,
-        )
+        if dm_target and dm_target != identity_id and hasattr(WORKER_ENRICHMENT, "post_direct_message"):
+            WORKER_ENRICHMENT.post_direct_message(
+                sender_id=identity_id,
+                sender_name=identity_name,
+                recipient_id=dm_target,
+                content=content,
+                importance=3,
+                reply_to=reply_to,
+            )
+        else:
+            WORKER_ENRICHMENT.post_discussion_message(
+                identity_id=identity_id,
+                identity_name=identity_name,
+                content=content,
+                room=room,
+                mood="focused",
+                importance=3,
+                reply_to=reply_to,
+            )
     except Exception as exc:
         _log("WARN", f"Failed to publish discussion update for {task_id}: {exc}")
 
@@ -471,6 +515,51 @@ def _format_markdown_record(
     return "\n".join(lines)
 
 
+def _normalize_artifact_text(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _compute_artifact_fingerprint(identity_id: str, prompt: str, result_text: str) -> str:
+    payload = "\n".join(
+        [
+            _normalize_artifact_text(identity_id),
+            _normalize_artifact_text(prompt),
+            _normalize_artifact_text(result_text),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_artifact_fingerprints() -> Dict[str, Any]:
+    data = read_json(MVP_ARTIFACT_FINGERPRINTS_FILE, default={})
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _record_artifact_fingerprint(
+    fingerprint: str,
+    *,
+    identity_id: str,
+    task_id: str,
+    journal_path: str,
+    doc_path: Optional[str],
+) -> None:
+    ledger = _load_artifact_fingerprints()
+    entries = ledger.get("entries")
+    if not isinstance(entries, dict):
+        entries = {}
+    entries[fingerprint] = {
+        "identity_id": identity_id,
+        "task_id": task_id,
+        "journal_path": journal_path,
+        "doc_path": doc_path,
+        "recorded_at": get_timestamp(),
+    }
+    ledger["entries"] = entries
+    write_json(MVP_ARTIFACT_FINGERPRINTS_FILE, ledger)
+
+
 def _persist_mvp_markdown_artifacts(
     task: Dict[str, Any],
     result_summary: str,
@@ -490,6 +579,18 @@ def _persist_mvp_markdown_artifacts(
     identity = getattr(resident_ctx, "identity", None) if resident_ctx else None
     identity_id = str(getattr(identity, "identity_id", "")).strip() or "resident_unknown"
     identity_name = str(getattr(identity, "name", "")).strip() or identity_id
+    fingerprint = _compute_artifact_fingerprint(identity_id=identity_id, prompt=prompt, result_text=result_text)
+    existing_entries = _load_artifact_fingerprints().get("entries", {})
+    existing_entry = existing_entries.get(fingerprint) if isinstance(existing_entries, dict) else None
+    if isinstance(existing_entry, dict):
+        return {
+            "enabled": True,
+            "written": False,
+            "reason": "duplicate_artifact_payload_blocked",
+            "existing_journal_path": existing_entry.get("journal_path"),
+            "existing_doc_path": existing_entry.get("doc_path"),
+        }
+
     identity_slug = _slugify_token(identity_id, fallback="resident")
     task_slug = _slugify_token(task_id, fallback="task")
     stamp = now.strftime("%Y%m%d-%H%M%S")
@@ -561,6 +662,17 @@ def _persist_mvp_markdown_artifacts(
             "doc_target_error": target_error,
         }
 
+    try:
+        _record_artifact_fingerprint(
+            fingerprint,
+            identity_id=identity_id,
+            task_id=task_id,
+            journal_path=str(journal_path),
+            doc_path=doc_path,
+        )
+    except Exception as exc:
+        _log("WARN", f"Failed to record artifact fingerprint for {task_id}: {exc}")
+
     return {
         "enabled": True,
         "written": True,
@@ -626,9 +738,9 @@ def read_execution_log() -> Dict[str, Any]:
     if task_index:
         return {"tasks": task_index}
 
-    # Legacy fallback: JSON execution log
+    # Legacy fallback: JSON execution log (optional)
     legacy_path = WORKSPACE / "execution_log.json"
-    legacy_log = read_json(legacy_path, default=None)
+    legacy_log = read_json(legacy_path, default={})
     if legacy_log and isinstance(legacy_log, dict):
         legacy_tasks = legacy_log.get("tasks", {})
         if isinstance(legacy_tasks, dict):
@@ -735,6 +847,45 @@ def is_task_done(task_id: str, execution_log: Dict[str, Any]) -> bool:
     """Check if a task is already completed or failed."""
     task_status = execution_log.get("tasks", {}).get(task_id, {}).get("status")
     return task_status in ("completed", "approved", "ready_for_merge", "failed")
+
+
+def _apply_queue_outcome(task_id: str, final_status: str) -> None:
+    """
+    Keep queue.json aligned with execution outcomes.
+
+    - approved/completed/ready_for_merge -> move from open tasks to completed
+    - failed -> move from open tasks to failed
+    - requeue/pending_review/etc -> keep task in open queue
+    """
+    try:
+        queue = read_queue()
+        tasks = list(queue.get("tasks", []))
+        task_index = None
+        for idx, task in enumerate(tasks):
+            if task.get("id") == task_id:
+                task_index = idx
+                break
+        if task_index is None:
+            return
+
+        task = dict(tasks.pop(task_index))
+        terminal_success = {"completed", "approved", "ready_for_merge"}
+        terminal_failure = {"failed"}
+
+        if final_status in terminal_success:
+            task["status"] = "completed"
+            queue.setdefault("completed", []).append(task)
+        elif final_status in terminal_failure:
+            task["status"] = "failed"
+            queue.setdefault("failed", []).append(task)
+        else:
+            task["status"] = "pending" if final_status == "requeue" else final_status
+            tasks.insert(task_index, task)
+
+        queue["tasks"] = tasks
+        write_json(QUEUE_FILE, normalize_queue(queue))
+    except Exception as exc:
+        _log("WARN", f"Failed to sync queue outcome for {task_id}: {exc}")
 
 
 def _task_shard(task_id: str, shard_count: int) -> int:
@@ -1758,10 +1909,17 @@ def execute_task(
             },
         }
 
-    min_budget = task.get("min_budget", DEFAULT_MIN_BUDGET)
-    max_budget = task.get("max_budget", DEFAULT_MAX_BUDGET)
+    min_budget = _safe_float(task.get("min_budget"), DEFAULT_MIN_BUDGET)
+    max_budget = _safe_float(task.get("max_budget"), DEFAULT_MAX_BUDGET)
+    if min_budget < 0:
+        min_budget = 0.0
+    if max_budget < 0:
+        max_budget = 0.0
+    if max_budget and min_budget > max_budget:
+        min_budget = max_budget
     intensity = task.get("intensity", DEFAULT_INTENSITY)
     prompt = _resolve_task_prompt(task)
+    recall_query = prompt
     command = task.get("command") or task.get("shell")
     mode = (task.get("mode") or "").lower().strip() or None
     model = task.get("model")
@@ -1855,7 +2013,7 @@ def execute_task(
 
     if resident_ctx and prompt:
         prompt = resident_ctx.apply_to_prompt(prompt)
-        enrichment_prompt = _build_enrichment_prompt_context(resident_ctx)
+        enrichment_prompt = _build_enrichment_prompt_context(resident_ctx, task_prompt=recall_query)
         if enrichment_prompt:
             prompt = f"{prompt}\n\n{enrichment_prompt}"
         if MVP_DOCS_ONLY_MODE:
@@ -2162,6 +2320,7 @@ def find_and_execute_task(
                     **identity_fields,
                 )
 
+            _apply_queue_outcome(task_id, final_status)
             _log("INFO", f"Completed task {task_id} - {final_status}")
         finally:
             release_lock(task_id)
@@ -2218,14 +2377,15 @@ def worker_loop(max_iterations: Optional[int] = None) -> None:
                     idle_count = 0
                 else:
                     idle_count += 1
-                    if idle_count >= MAX_IDLE_CYCLES:
+                    max_idle = MAX_IDLE_CYCLES if os.environ.get("VIVARIUM_WORKER_DAEMON") not in ("1", "true", "yes") else None
+                    if max_idle is not None and idle_count >= max_idle:
                         _log("INFO", f"No tasks available after {MAX_IDLE_CYCLES} checks. Exiting.")
                         break
                     wait_seconds = _resolve_idle_wait_seconds(idle_count)
                     _log(
                         "INFO",
                         f"No tasks available, waiting {wait_seconds:.2f}s... "
-                        f"({idle_count}/{MAX_IDLE_CYCLES})",
+                        f"({idle_count}/{MAX_IDLE_CYCLES if max_idle else '∞'})",
                     )
                     time.sleep(wait_seconds)
             except KeyboardInterrupt:

@@ -10,6 +10,7 @@ Routing hierarchy:
 4. Fast LLM routing decision -> select pattern (CHEAP)
 5. Full LLM generation -> create + store tool (EXPENSIVE)
 """
+from __future__ import annotations
 
 import json
 import time

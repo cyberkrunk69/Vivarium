@@ -20,7 +20,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from vivarium.runtime.config import (
     DEFAULT_GROQ_MODEL,
@@ -46,6 +46,18 @@ os.environ.setdefault("VIVARIUM_API_AUDIT_LOG", str(AUDIT_ROOT / "api_audit.log"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 app = FastAPI(title="Vivarium", version="1.0")
+
+
+@app.get("/")
+async def root() -> Dict[str, Any]:
+    """Root: confirm API is up and list main endpoints."""
+    return {
+        "service": "Vivarium",
+        "docs": "POST /cycle (execute), GET /status (queue), POST /plan (scan & queue)",
+        "openapi": "/openapi.json",
+    }
+
+
 WORKSPACE = MUTABLE_ROOT
 QUEUE_FILE = MUTABLE_QUEUE_FILE
 
@@ -198,6 +210,20 @@ class CycleRequest(BaseModel):
     max_budget: Optional[float] = None
     intensity: Optional[str] = None
     task_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_budget_bounds(self) -> "CycleRequest":
+        if self.min_budget is not None and self.min_budget < 0:
+            raise ValueError("min_budget must be >= 0")
+        if self.max_budget is not None and self.max_budget < 0:
+            raise ValueError("max_budget must be >= 0")
+        if (
+            self.min_budget is not None
+            and self.max_budget is not None
+            and self.min_budget > self.max_budget
+        ):
+            raise ValueError("min_budget cannot exceed max_budget")
+        return self
 
 
 class CycleResponse(BaseModel):
@@ -542,6 +568,25 @@ async def _run_groq_task(
         "completion_tokens": result.get("output_tokens", 0),
     }
     budget_used = result.get("cost")
+    if (
+        req.max_budget is not None
+        and isinstance(budget_used, (int, float))
+        and budget_used > req.max_budget
+    ):
+        SECURE_API_WRAPPER.auditor.log({
+            "event": "TASK_BUDGET_EXCEEDED_ACTUAL",
+            "task_id": req.task_id,
+            "model": model,
+            "actual_cost": budget_used,
+            "task_max_budget": req.max_budget,
+        })
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Actual cost ${budget_used:.6f} exceeded task max budget "
+                f"${req.max_budget:.6f}"
+            ),
+        )
 
     return CycleResponse(
         status="completed",

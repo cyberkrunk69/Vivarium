@@ -1,5 +1,5 @@
 """
-Mathematical utility functions for the grind system.
+Mathematical utility functions for the swarm system.
 Consolidates duplicate math operations across modules.
 """
 
