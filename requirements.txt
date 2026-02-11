@@ -1,5 +1,6 @@
 # Core API and HTTP client dependencies
 fastapi
+hypothesis
 uvicorn
 httpx
 python-dotenv
