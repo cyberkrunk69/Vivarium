@@ -17,7 +17,7 @@ technical architecture. For implementation status snapshots, see
 - [Vision and scope](#vision-and-scope)
 - [Design principles](#design-principles)
 - [System architecture](#system-architecture)
-- [Execution flow (task + review)](#execution-flow-task--review)
+- [Execution flow (task and review)](#execution-flow-task-and-review)
 - [Mailbox and quest lifecycle](#mailbox-and-quest-lifecycle)
 - [Technical architecture map](#technical-architecture-map)
 - [State, contracts, and persistence](#state-contracts-and-persistence)
@@ -82,7 +82,7 @@ Diagram sources are maintained in `docs/assets/diagrams/src/*.drawio` and export
 
 ---
 
-## Execution flow (task + review)
+## Execution flow (task and review)
 
 ![Task and review state machine](docs/assets/diagrams/task-review-state-machine.svg)
 
@@ -119,25 +119,23 @@ Mailbox is the asynchronous human/resident collaboration layer:
 | API plane | Internal execution API, status surfaces, guarded task execution | `vivarium/runtime/swarm_api.py` |
 | Safety plane | Constitutional checks, policy checks, kill switch, safe wrappers | `vivarium/runtime/safety_*.py`, `vivarium/runtime/secure_api_wrapper.py` |
 | Identity + enrichment | Persistent identity model, onboarding, tokens, journals, rewards, profile data | `vivarium/runtime/resident_onboarding.py`, `vivarium/runtime/swarm_enrichment.py`, `vivarium/runtime/control_panel/blueprints/identities/routes.py` |
-| Social systems | Discussions, messages, quests, bounties, civic coordination | `.swarm/discussions/*`, mailbox + bounty runtime modules |
+| Social systems | Discussions, messages, quests, bounties, civic coordination | `vivarium/runtime/control_panel/blueprints/messages/routes.py`, `vivarium/runtime/control_panel/blueprints/quests/routes.py`, `vivarium/runtime/control_panel/blueprints/bounties/routes.py`, `vivarium/runtime/control_panel/blueprints/dm/routes.py` |
 | World invariants | Queue/state schema and environment constraints | `vivarium/physics/world_physics.py`, `vivarium/swarm_environment/*` |
 
 ---
 
 ## State, contracts, and persistence
 
-Mutable runtime state is rooted under:
+Mutable runtime state is rooted under `vivarium/world/mutable/`. Paths below use full repo-relative form:
 
-- `vivarium/world/mutable/`
+Key state artifacts (created/populated at runtime):
 
-Key state artifacts:
-
-- `queue.json` - open/completed/failed task sets
-- `task_locks/*.lock` - per-task concurrency locks
-- `.swarm/identities/*.json` - resident identity records
-- `.swarm/free_time_balances.json` - token wallet balances
-- `.swarm/discussions/*.jsonl` - room and DM history
-- `.swarm/mailbox_quests.json` - quest lifecycle state
+- `vivarium/world/mutable/queue.json` - open/completed/failed task sets
+- `vivarium/world/mutable/task_locks/*.lock` - per-task concurrency locks
+- `vivarium/world/mutable/.swarm/identities/*.json` - resident identity records
+- `vivarium/world/mutable/.swarm/free_time_balances.json` - token wallet balances
+- `vivarium/world/mutable/.swarm/discussions/*.jsonl` - room and DM history
+- `vivarium/world/mutable/.swarm/mailbox_quests.json` - quest lifecycle state
 - `vivarium/meta/audit/action_log.jsonl` - action-level audit trail
 - `vivarium/meta/audit/execution_log.jsonl` - execution lifecycle events
 
@@ -194,6 +192,8 @@ Requires Python 3.11+.
 
 These wrappers call `scripts/dev_launcher.py`, which provisions dependencies and
 starts backend + control panel.
+Then start residents from Worker controls in the UI (or run
+`python -m vivarium.runtime.worker_runtime run` in a third terminal).
 
 ### Manual start
 
