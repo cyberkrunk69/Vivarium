@@ -27,11 +27,11 @@ jobs:
       - name: Run core test suite
         run: pytest -q -m "not integration and not e2e"
 
-      # Coverage floor prevents regression in critical runtime paths (baseline 45%, raise as tests grow)
+      # Coverage floor prevents regression in critical runtime paths
       - name: Enforce runtime coverage
         run: |
           pip install pytest-cov
           python -m pytest tests/ -m "not integration and not e2e" \
             --cov=vivarium.runtime \
             --cov-report=term-missing \
-            --cov-fail-under=45
+            --cov-fail-under=65
