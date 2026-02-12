@@ -23,5 +23,6 @@ jobs:
         run: black --check .
       - name: Run Flake8
         run: flake8 .
+      # mypy guards against type entropy in swarm cognition
       - name: Run MyPy
-        run: mypy src tests
+        run: mypy vivarium tests

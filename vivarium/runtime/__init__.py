@@ -2,6 +2,8 @@
 Runtime modules for the canonical Vivarium execution path.
 """
 
+from __future__ import annotations
+
 from vivarium.runtime.runtime_contract import (
     KNOWN_EXECUTION_STATUSES,
     is_known_execution_status,

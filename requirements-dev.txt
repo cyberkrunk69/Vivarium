@@ -1,0 +1,8 @@
+# Extends base runtime deps for local/CI dev
+-r requirements.txt
+
+# Lint & type-check (mypy guards against type entropy in swarm cognition)
+black
+flake8
+mypy
+types-requests
