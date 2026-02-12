@@ -38,6 +38,7 @@ MUTABLE_CYCLE_LOGS_DIR = MUTABLE_ROOT / "cycle_logs"
 # Legacy alias retained for modules not yet migrated.
 MUTABLE_GRIND_LOGS_DIR = MUTABLE_CYCLE_LOGS_DIR
 MUTABLE_LOCKS_DIR = MUTABLE_ROOT / "task_locks"
+# ⚠️ .swarm/ is ephemeral runtime state — NEVER commit
 MUTABLE_SWARM_DIR = MUTABLE_ROOT / ".swarm"
 MUTABLE_LIBRARY_ROOT = MUTABLE_ROOT / "library"
 MUTABLE_COMMUNITY_LIBRARY_ROOT = MUTABLE_LIBRARY_ROOT / "community_library"

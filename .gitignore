@@ -69,6 +69,8 @@ tests/control_panel/coverage_html/
 # Vivarium scoped runtime data
 /vivarium/world/mutable/*
 !/vivarium/world/mutable/.gitkeep
+/vivarium/world/mutable/.swarm/
+!/vivarium/world/mutable/EXAMPLE_swarm_state/
 
 /vivarium/world/fresh_swarm/*
 !/vivarium/world/fresh_swarm/.gitkeep
