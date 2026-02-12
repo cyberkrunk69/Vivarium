@@ -4,5 +4,11 @@
 # dependencies, and "Recommended Deep Model Prompt" section.
 set -e
 
-cd "$(dirname "$0")/../.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=../_internal/common/utils.sh
+source "$SCRIPT_DIR/../_internal/common/utils.sh"
+load_dotenv "$REPO_ROOT"
+
+cd "$REPO_ROOT"
 python3 -m vivarium.scout.cli.brief "$@"
