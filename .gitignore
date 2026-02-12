@@ -91,3 +91,11 @@ tests/control_panel/coverage_html/
 
 # Local runtime workspace artifacts
 /.swarm/
+
+# Build artifacts
+# Swarm sheds its exoskeleton after each molt — no fossilized artifacts
+.swarm/
+!.swarm/README.md
+tests/control_panel/coverage_html/
+coverage.xml
+.coverage*
