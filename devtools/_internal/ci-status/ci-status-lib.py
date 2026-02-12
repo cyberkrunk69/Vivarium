@@ -76,8 +76,14 @@ def preprocess_log_for_ai(log_text):
 
 def estimate_cost_for_condensed_log(condensed_log):
     """Estimate USD cost for a single API call (no request made). Returns 0 if log too short."""
+    result = estimate_tokens_and_cost_for_condensed_log(condensed_log)
+    return result[2] if result else 0.0
+
+
+def estimate_tokens_and_cost_for_condensed_log(condensed_log):
+    """Estimate (input_tokens, output_tokens, cost_usd) for a single API call. Returns None if log too short."""
     if len(condensed_log) < 50:
-        return 0.0
+        return None
     prompt = f"""
     Analyze this condensed CI/CD failure log snippet and provide a concise summary with:
     1. Root cause (one sentence)
@@ -92,7 +98,8 @@ def estimate_cost_for_condensed_log(condensed_log):
     """
     input_tokens = rough_token_count(prompt)
     output_tokens = 150  # typical summary length
-    return estimate_cost("llama-3.1-8b-instant", input_tokens, output_tokens)
+    cost_usd = estimate_cost("llama-3.1-8b-instant", input_tokens, output_tokens)
+    return (input_tokens, output_tokens, cost_usd)
 
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"

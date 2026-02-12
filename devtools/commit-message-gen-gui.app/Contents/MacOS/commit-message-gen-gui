@@ -1,0 +1,40 @@
+#!/bin/bash
+# Commit Message Gen GUI — One-click wrapper for commit-message-gen.sh
+# Runs script, shows result in dialog, copies to clipboard.
+# App is at REPO_ROOT/devtools/commit-message-gen-gui.app
+
+set -e
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+[[ -z "$SCRIPT_PATH" ]] && SCRIPT_PATH="$0"
+APP_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+DEVTOOLS_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$APP_PATH")")")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$DEVTOOLS_ROOT")" && pwd)"
+
+COMMIT_MSG_SCRIPT="$REPO_ROOT/devtools/scripts/commit-message-gen.sh"
+
+# Run script (disable auto clipboard so we control it)
+output=""
+if ! output=$(cd "$REPO_ROOT" && COPY_CLIPBOARD=0 "$COMMIT_MSG_SCRIPT" 2>&1); then
+  osascript -e "display dialog \"Commit Message Gen Failed\" & return & return & \"$output\" buttons {\"OK\"} default button 1 with icon stop with title \"Commit Message Gen\""
+  exit 1
+fi
+
+# Extract the commit message (before the clipboard line if present)
+msg=$(echo "$output" | sed '/^📋 Copied to clipboard/d' | sed '/^$/d' | cat -s)
+
+# Copy to clipboard
+ [[ "$(uname -s)" == "Darwin" ]] && echo "$msg" | pbcopy 2>/dev/null || true
+
+# Show in dialog (truncate if very long; replace newlines for single-line display)
+display_msg=$(echo "$msg" | tr '\n' ' ' | sed 's/  */ /g')
+if [[ ${#display_msg} -gt 400 ]]; then
+  display_msg="${display_msg:0:397}..."
+fi
+
+# Escape for applescript (avoid breaking on quotes)
+display_msg_escaped=$(printf '%s' "$display_msg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+osascript -e "display dialog \"Generated commit message (copied to clipboard):\" & return & return & \"$display_msg_escaped\" buttons {\"OK\"} default button 1 with title \"Commit Message Gen\""

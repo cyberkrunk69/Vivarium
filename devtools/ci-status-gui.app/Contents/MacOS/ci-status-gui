@@ -1,0 +1,77 @@
+#!/bin/bash
+# CI Status GUI — One-click wrapper for ci-status dry-run + execute
+# Run dry-run, show cost in native dialog, on Yes open Terminal and run execute.
+# App is at REPO_ROOT/devtools/ci-status-gui.app
+
+set -e
+
+# Ensure PATH includes common install locations (Finder doesn't inherit shell profile)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# Resolve paths: executable is at .../ci-status-gui.app/Contents/MacOS/ci-status-gui
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+[[ -z "$SCRIPT_PATH" ]] && SCRIPT_PATH="$0"
+APP_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+# .../devtools/ci-status-gui.app/Contents/MacOS -> devtools is 3 levels up
+DEVTOOLS_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$APP_PATH")")")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$DEVTOOLS_ROOT")" && pwd)"
+
+DRY_RUN_SCRIPT="$REPO_ROOT/devtools/_internal/ci-status/ci-status-dry-run.sh"
+EXECUTE_SCRIPT="$REPO_ROOT/devtools/_internal/ci-status/ci-status-execute.sh"
+
+# Run dry-run and capture output
+dry_run_output=""
+if ! dry_run_output=$(cd "$REPO_ROOT" && "$DRY_RUN_SCRIPT" 2>&1); then
+  osascript -e "display dialog \"CI Status Dry Run Failed\" & return & return & \"$dry_run_output\" buttons {\"OK\"} default button 1 with icon stop with title \"CI Status\""
+  exit 1
+fi
+
+# Parse tokens and cost lines
+cost_message=""
+has_cost=false
+tokens_line=""
+cost_line=""
+while IFS= read -r line; do
+  if [[ "$line" == *"Estimated tokens:"* ]]; then
+    tokens_line="$line"
+  elif [[ "$line" == *"Estimated Groq API cost:"* ]]; then
+    cost_line="$line"
+    has_cost=true
+  elif [[ "$line" == *"No AI summarization needed"* ]]; then
+    cost_message="No API costs (no failed jobs or GROQ_API_KEY not set)."
+    has_cost=true
+    break
+  fi
+done <<< "$dry_run_output"
+
+if [[ -n "$cost_line" ]]; then
+  cost_message="${tokens_line:+$tokens_line
+}$cost_line"
+fi
+
+if [[ "$has_cost" != "true" ]]; then
+  if [[ "$dry_run_output" == *"❌"* ]]; then
+    osascript -e "display dialog \"CI Status Dry Run Failed\" & return & return & \"Could not parse output. Check for errors.\" buttons {\"OK\"} default button 1 with icon stop with title \"CI Status\""
+  else
+    osascript -e "display dialog \"CI Status Dry Run\" & return & return & \"Could not parse estimated cost from output.\" & return & return & \"Dry run may have completed. You can run the execute script manually from Terminal.\" buttons {\"OK\"} default button 1 with icon caution with title \"CI Status\""
+  fi
+  exit 1
+fi
+
+# Show confirmation dialog (pass message via file to avoid escaping issues)
+cost_file=$(mktemp)
+printf '%s' "$cost_message" > "$cost_file"
+reply=$(osascript -e "set costMsg to read (POSIX file \"$cost_file\") as «class utf8»" -e 'display dialog costMsg & return & return & "Execute with this cost?" buttons {"No", "Yes"} default button 2 cancel button 1 with icon 1 with title "CI Status"' -e 'return button returned of result' 2>/dev/null) || reply=""
+rm -f "$cost_file"
+
+if [[ "$reply" == "Yes" ]]; then
+  exec_script=$(mktemp)
+  # User confirmed in dialog; set VIVARIUM_CONFIRM_AI=1 so execute skips re-prompt
+  {
+    printf '#!/bin/bash\n'
+    printf 'cd %s && VIVARIUM_CONFIRM_AI=1 %s\n' "$(printf '%q' "$REPO_ROOT")" "$(printf '%q' "$EXECUTE_SCRIPT")"
+    printf 'rm -f "$0"\n'
+  } > "$exec_script"
+  chmod +x "$exec_script"
+  osascript -e "tell application \"Terminal\" to activate" -e "tell application \"Terminal\" to do script \"$(printf '%s' "$exec_script" | sed 's/\\/\\\\/g; s/"/\\"/g')\""
+fi

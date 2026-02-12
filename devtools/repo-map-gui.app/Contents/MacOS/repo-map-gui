@@ -1,0 +1,17 @@
+#!/bin/bash
+# Repo Map GUI — One-click wrapper for repo-map.sh
+# Opens Terminal and runs the script. App is at REPO_ROOT/devtools/repo-map-gui.app
+
+set -e
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+[[ -z "$SCRIPT_PATH" ]] && SCRIPT_PATH="$0"
+APP_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+DEVTOOLS_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$APP_PATH")")")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$DEVTOOLS_ROOT")" && pwd)"
+
+REPO_MAP_SCRIPT="$REPO_ROOT/devtools/scripts/repo-map.sh"
+
+osascript -e 'tell application "Terminal" to activate' -e "tell application \"Terminal\" to do script \"cd $(printf '%q' "$REPO_ROOT") && $(printf '%q' "$REPO_MAP_SCRIPT")\""

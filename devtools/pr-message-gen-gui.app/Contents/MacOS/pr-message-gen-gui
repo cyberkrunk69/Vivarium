@@ -1,0 +1,34 @@
+#!/bin/bash
+# PR Message Gen GUI — One-click wrapper for pr-message-gen.sh
+# Runs script, shows result in dialog, opens generated file.
+# App is at REPO_ROOT/devtools/pr-message-gen-gui.app
+
+set -e
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+[[ -z "$SCRIPT_PATH" ]] && SCRIPT_PATH="$0"
+APP_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+DEVTOOLS_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$APP_PATH")")")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$DEVTOOLS_ROOT")" && pwd)"
+
+PR_MSG_SCRIPT="$REPO_ROOT/devtools/scripts/pr-message-gen.sh"
+OUT_DIR="$REPO_ROOT/devtools/pr-message-gen"
+
+# Run script and capture output
+output=""
+if ! output=$(cd "$REPO_ROOT" && "$PR_MSG_SCRIPT" 2>&1); then
+  err_msg=$(echo "$output" | head -5 | tr '\n' ' ')
+  osascript -e "display dialog \"PR Message Gen Failed\" & return & return & \"$err_msg\" buttons {\"OK\"} default button 1 with icon stop with title \"PR Message Gen\""
+  exit 1
+fi
+
+# Find the generated file and open it
+LATEST=$(ls -t "$OUT_DIR"/PR_DESCRIPTION_*.md 2>/dev/null | head -1)
+if [[ -n "$LATEST" ]] && [[ -f "$LATEST" ]]; then
+  open "$LATEST"
+  osascript -e "display dialog \"PR description generated and opened in default editor.\" buttons {\"OK\"} default button 1 with title \"PR Message Gen\""
+else
+  osascript -e "display dialog \"PR description generated (see Terminal for path).\" buttons {\"OK\"} default button 1 with title \"PR Message Gen\""
+fi

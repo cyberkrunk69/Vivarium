@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # repo-map.sh — Pure structural inventory for Python/GitHub repos
-# Principle: "I collect data. I do NOT interpret risk. LLMs analyze later."
+# Principle: programmatic discovery first (find, grep, awk); LLM only if needed for interpretation.
 # Output: devtools/repo-map/repo-map_YYYY-MM-DD_HH-MM-SS.md — single consolidated markdown file
 
 set -euo pipefail
@@ -12,7 +12,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEVTOOLS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$DEVTOOLS_ROOT/.." && pwd)"
 cd "$REPO_ROOT"
 
 if [[ ! -f requirements.txt ]] || [[ ! -d .github/workflows ]]; then
@@ -20,13 +21,22 @@ if [[ ! -f requirements.txt ]] || [[ ! -d .github/workflows ]]; then
   exit 1
 fi
 
+# Source common utilities
+# shellcheck source=../_internal/common/utils.sh
+source "$DEVTOOLS_ROOT/_internal/common/utils.sh"
+ensure_path
+load_dotenv "$REPO_ROOT"
+
 # Exclusions (read-only; never modify)
 EXCLUDE=".git|venv|.venv|__pycache__|node_modules|.pytest_cache"
 
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-OUT_DIR="$SCRIPT_DIR/repo-map"
+OUT_DIR="$DEVTOOLS_ROOT/repo-map"
 OUT_FILE="$OUT_DIR/repo-map_${TIMESTAMP}.md"
 mkdir -p "$OUT_DIR"
+
+# Archive existing repo-map output files before generating new ones
+archive_devtools_output "$OUT_DIR" "repo-map_*.md"
 
 # --- DETECT SOURCE ROOT ---
 SRC_DIR=""
@@ -143,6 +153,16 @@ print(json.dumps({'file': f, 'imports': lines}))
   fi
   echo '```'
   echo ""
+  echo "### Import summary (top-level modules used)"
+  echo '```'
+  if [[ -d "$SRC_DIR" ]] && [[ "$SRC_DIR" != "." ]]; then
+    find "$SRC_DIR" -name "*.py" 2>/dev/null | grep -vE "$EXCLUDE" | while read -r f; do
+      grep -h -E '^import |^from ' "$f" 2>/dev/null | sed 's/^[[:space:]]*//' | \
+        sed -E 's/^(import|from) +([A-Za-z0-9_]+).*/\2/' | sort -u || true
+    done 2>/dev/null | sort | uniq -c | sort -rn | head -30 || true
+  fi
+  echo '```'
+  echo ""
 
   # --- TESTS ---
   echo "## Tests"
@@ -247,5 +267,7 @@ print(json.dumps({'file': f, 'imports': lines}))
 [[ "$(uname -s)" == "Darwin" ]] && pbcopy < "$OUT_FILE" 2>/dev/null || true
 
 # --- FINAL MESSAGE ---
+echo ""
 echo "✅ Repo map generated at $OUT_FILE"
+[[ ${archived_count:-0} -gt 0 ]] && echo "   Archived: $archived_count previous output file(s) to $OUT_DIR/archive"
 echo "   Copied to clipboard. Feed to your LLM for debt synthesis."
