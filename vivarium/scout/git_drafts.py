@@ -309,7 +309,7 @@ def assemble_commit_message(repo_root: Path, staged_files: List[Path]) -> str:
         if draft_path.exists():
             try:
                 content = draft_path.read_text(encoding="utf-8", errors="replace").strip()
-                sections.append(content)
+                sections.append(content if content else f"[{path.name}]: No draft available")
             except OSError:
                 sections.append(f"[{path.name}]: No draft available")
         else:

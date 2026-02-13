@@ -18,7 +18,9 @@ fi
 
 HOOKS_DIR=".git/hooks"
 PRE_COMMIT="$HOOKS_DIR/pre-commit"
+POST_COMMIT="$HOOKS_DIR/post-commit"
 PRE_PUSH="$HOOKS_DIR/pre-push"
+PREPARE_COMMIT_MSG="$HOOKS_DIR/prepare-commit-msg"
 
 if [[ ! -d "$HOOKS_DIR" ]]; then
   echo "Error: .git/hooks not found. Run from repo root." >&2
@@ -69,17 +71,52 @@ if [[ -d vivarium ]]; then
 fi
 '
 
+# Post-commit: proactive echo — invalidate dependency graph for changed files (<100ms)
+POST_COMMIT_CONTENT='#!/bin/bash
+# Installed by scout-autonomy enable
+cd "$(git rev-parse --show-toplevel)"
+if [[ -d vivarium ]]; then
+  export PYTHONPATH="$(pwd)"
+  python3 -c "
+from pathlib import Path
+from vivarium.scout.git_analyzer import get_files_in_last_commit
+from vivarium.scout.router import on_git_commit
+changed = get_files_in_last_commit()
+if changed:
+    on_git_commit(changed)
+" || true
+fi
+'
+
+# Prepare-commit-msg: gate + draft generation (populate message from scout)
+PREPARE_COMMIT_MSG_CONTENT='#!/bin/bash
+# Installed by scout-autonomy enable-commit
+msg_file="${1:?}"
+cd "$(git rev-parse --show-toplevel)"
+if [[ -d vivarium ]]; then
+  python3 -m vivarium.scout prepare-commit-msg "$msg_file" || true
+fi
+'
+
 case "${1:-}" in
   enable)
     enable_hook "$PRE_COMMIT" "$PRE_COMMIT_CONTENT" "pre-commit (doc-sync changed)"
+    enable_hook "$POST_COMMIT" "$POST_COMMIT_CONTENT" "post-commit (invalidate cascade)"
     enable_hook "$PRE_PUSH" "$PRE_PUSH_CONTENT" "pre-push (validate + PR draft)"
     echo ""
     echo "Scout autonomy enabled. Hooks will:"
-    echo "  pre-commit: sync docs for changed files (budget \$0.10)"
-    echo "  pre-push:   validate no stale docs, then write PR draft"
+    echo "  pre-commit:  sync docs for changed files (budget \$0.10)"
+    echo "  post-commit: invalidate dependency graph for changed files"
+    echo "  pre-push:    validate no stale docs, then write PR draft"
+    ;;
+  enable-commit)
+    enable_hook "$PREPARE_COMMIT_MSG" "$PREPARE_COMMIT_MSG_CONTENT" "prepare-commit-msg (gate + whimsy)"
+    echo ""
+    echo "Scout autonomy enabled for commits. Gate will run on every commit message generation."
+    echo "  Set SCOUT_WHIMSY=1 for whimsy output (gate activation, cost, [GAP] markers)."
     ;;
   disable)
-    for h in "$PRE_COMMIT" "$PRE_PUSH"; do
+    for h in "$PRE_COMMIT" "$POST_COMMIT" "$PRE_PUSH" "$PREPARE_COMMIT_MSG"; do
       if [[ -f "$h" ]] && grep -q "scout-autonomy" "$h" 2>/dev/null; then
         rm -f "$h"
         echo "Removed $h"
@@ -87,9 +124,10 @@ case "${1:-}" in
     done
     ;;
   *)
-    echo "Usage: $0 enable|disable"
-    echo "  enable  - Install pre-commit and pre-push hooks"
-    echo "  disable - Remove scout-autonomy hooks"
+    echo "Usage: $0 enable|enable-commit|disable"
+    echo "  enable        - Install pre-commit, post-commit, pre-push hooks (doc-sync, validate, PR draft)"
+    echo "  enable-commit - Install prepare-commit-msg hook (gate + draft generation at commit time)"
+    echo "  disable       - Remove scout-autonomy hooks"
     exit 1
     ;;
 esac

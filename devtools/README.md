@@ -13,12 +13,14 @@ devtools/
 ├── commit-message-gen.sh
 ├── pr-message-gen.sh
 ├── repo-map.sh
+├── scout                        # scout "user input" — nat-lang, no flags (at repo root)
 ├── scout-nav                   # Scout navigation CLI (find code in 2s)
 ├── scout-index                 # Local code search (ctags + SQLite, zero LLM)
 ├── scout-brief                 # Scout investigation plan CLI (briefing for expensive models)
 ├── scout-doc-sync              # Doc sync (generate .tldr.md / .deep.md via LLM)
 ├── scout-commit                # Scout commit CLI (assemble message from docs/drafts/*.commit.txt)
 ├── scout-pr                    # Scout PR CLI (assemble description from docs/drafts/*.pr.md)
+├── scout-ship                  # Scout ship pipeline (doc-sync → gate → commit → push → PR draft)
 ├── scout-status                # Scout workflow dashboard (doc-sync, drafts, spend, hooks)
 ├── scout-ci-guard              # CI validation (.tldr coverage, confidence, spend)
 ├── scout-smoke-test.sh         # End-to-end smoke test for draft system (works offline)
@@ -30,7 +32,7 @@ devtools/
 ├── commit-message-gen-gui.app
 ├── pr-message-gen-gui.app
 ├── scripts/                    # CLI/script utilities (helpers, find_python, etc.)
-├── hooks/                      # Git hooks (post-commit, prepare-commit-msg)
+├── git-hooks/                  # Git hooks (post-commit, prepare-commit-msg)
 ├── ci/                         # CI-specific runners (scout-ci-guard, run_tests, lint)
 ├── gui/                        # Optional: GUI asset bundlers
 ├── _internal/                  # Internal logic, shared libs, supporting files
@@ -43,34 +45,32 @@ devtools/
 
 ## Usage
 
-**One-click execution:** Double-click the `.app` files in Finder:
+**Scout (one command, no flags):**
 
-- `ci-status-gui.app` — CI/CD status (native dialog for cost confirmation)
-- `branch-status-gui.app` — Branch status, PR info, diff-stat
-- `repo-map-gui.app` — Structural inventory for Python/GitHub repos
-- `commit-message-gen-gui.app` — Generate conventional commit message from staged changes
-- `pr-message-gen-gui.app` — Generate PR description from branch, CI, and repo map
+```bash
+# Setup (once)
+pip install -e . && pip install -r requirements-groq.txt
+# Scout needs GEMINI_API_KEY for natural-language interpretation
+export GEMINI_API_KEY=your_key   # or add to .env
 
-**Command line:** Run the scripts in `devtools/`:
+# Run (venv active)
+scout "refresh the docs"
+scout "find where we handle auth"
+scout "what can you do"
+```
 
-- `./devtools/ci-status.sh` or `CI_STATUS_BRANCH=main ./devtools/ci-status.sh`
-- `./devtools/branch-status.sh` or `BASE_BRANCH=main ./devtools/branch-status.sh`
-- `./devtools/repo-map.sh`
-- `./devtools/commit-message-gen.sh` — requires staged files (`git add` first)
-- `./devtools/pr-message-gen.sh`
-- `./devtools/scout-nav --task "fix auth timeout bug"` — Scout navigation (uses scout-index when possible, else GROQ_API_KEY)
-- `./devtools/scout-index build` — Build local code index (ctags + SQLite)
-- `./devtools/scout-index query "auth token"` — Search symbols (no API calls)
-- `./devtools/scout-brief --task "fix race condition in token refresh"` — Investigation plan (requires GROQ_API_KEY)
-- `./devtools/scout-doc-sync generate -t vivarium/scout/` — Generate docs (.tldr.md, .deep.md, module briefs)
-- `./devtools/scout-commit` — Commit using assembled drafts from docs/drafts/*.commit.txt
-- `./devtools/scout-commit --preview` — Preview assembled message (no commit)
-- `./devtools/scout-pr` — PR description from docs/drafts/*.pr.md (stdout)
-- `./devtools/scout-pr --preview` — Preview PR description (no browser)
-- `./devtools/scout-status` — Workflow dashboard (doc-sync, drafts, spend, accuracy, hooks)
-- `./devtools/scout-ci-guard` — CI validation (exits 0 if pass, 1 if fail)
-- `./devtools/scout-roast --today` — Efficiency report (today/week/month, optional --compare)
-- `./devtools/scout-roast -t vivarium/scout/router.py` — Impact-aware critique using living docs
+If `scout` isn't in PATH, run from repo root: `./scout "message"`.
+
+Scout interprets natural language and routes to the right tool. Big brain decides; no heuristics. Caveman mode: `SCOUT_CAVEMAN=1`.
+
+**Via natural language:** index search, query docs, sync docs, nav, brief, status, help.
+
+**Other devtools:** Double-click `.app` files in Finder, or run scripts in `devtools/`:
+
+- `./devtools/ci-status.sh`, `./devtools/branch-status.sh`, `./devtools/repo-map.sh`
+- `./devtools/commit-message-gen.sh`, `./devtools/pr-message-gen.sh`
+
+**Direct scout tools (flags):** `scout-nav`, `scout-index`, `scout-brief`, `scout-doc-sync`, `scout-commit`, `scout-pr`, `scout-ship`, `scout-status`, `scout-ci-guard`, `scout-roast`. Use when scripting or when you need a specific tool.
 
 ## Testing the Draft System
 
@@ -85,19 +85,16 @@ Smoke test works offline (no API key needed). When `GROQ_API_KEY` is set, it als
 
 ## Python Environment
 
-Scout scripts (`scout-nav`, `scout-brief`, `scout-doc-sync`, `scout-commit`, `scout-pr`, `scout-status`, `scout-ci-guard`, `scout-index`, `scout-roast`) automatically use a project virtualenv when present:
-
-- If `./venv/` or `./.venv/` exists in the repo root, the script uses that Python interpreter
-- Otherwise, it falls back to `python3` from `PATH`
-
-No manual activation needed. Create a venv and install dependencies:
+Run `pip install -e .` so `scout` is in PATH (when venv is active). Scout scripts auto-detect `./venv/` or `./.venv/` and use that Python; otherwise they fall back to `python3` from PATH.
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # optional — scripts auto-detect venv
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e . && pip install -r requirements-groq.txt
-./devtools/scout-doc-sync generate -t vivarium/scout/
+# Scout needs GEMINI_API_KEY for natural-language interpretation
+scout "what can you do"
 ```
+
+**Without pip install:** Run `./scout "message"` from repo root; it uses the project venv automatically.
 
 If you see `ModuleNotFoundError` or import errors, ensure the vivarium package and dependencies (e.g. `httpx`) are installed in the interpreter being used (venv or system).
 
@@ -198,10 +195,10 @@ Scout commit CLI — assembles commit message from existing `docs/drafts/*.commi
 Install the prepare-commit-msg hook to auto-populate commit messages from scout-generated drafts when you run `git commit` (without `-m`):
 
 ```bash
-cp devtools/hooks/prepare-commit-msg .git/hooks/prepare-commit-msg && chmod +x .git/hooks/prepare-commit-msg
+./devtools/scout-autonomy enable-commit
 ```
 
-When you run `git commit`, the hook: gets staged .py files, runs `_process_file` (generates drafts if needed), assembles `assemble_commit_message`, and writes to `.git/COMMIT_EDITMSG`. Respects `enable_commit_drafts` and `enable_pr_snippets` in config. Does not block commit on failure.
+When you run `git commit`, the hook: gets staged .py files, runs draft generation (commit + PR snippets), assembles the message, and writes to `.git/COMMIT_EDITMSG`. Set `SCOUT_WHIMSY=1` for gate whimsy output. Respects `enable_commit_drafts` and `enable_pr_snippets` in config. Does not block commit on failure.
 
 ## scout-pr
 
@@ -216,6 +213,88 @@ Scout PR CLI — assembles PR description from existing `docs/drafts/*.pr.md` (o
 
 **Output:** Markdown PR description to stdout
 
+## scout-ship
+
+Scout ship pipeline — full flow: doc-sync → gate (confidence calibration + gap declaration) → commit → push → PR draft. The gate runs at ship time, not commit time. Commits use pre-generated drafts (cheap, fast); PRs trigger the full gate (safe, gap-aware).
+
+**Usage:**
+- `./devtools/scout-ship` — Run full pipeline (requires staged files)
+- `./devtools/scout-ship --dry-run` — Preview steps without executing
+- `./devtools/scout-ship --dry-run-full` — Run doc-sync + gate + drafts + PR, but do not commit or push (for demos and validation)
+- `./devtools/scout-ship --no-push` — Commit but do not push
+
+**Requirements:** Staged .py files (`git add` first). `GEMINI_API_KEY` for gate/whimsy (Big Brain). Set `SCOUT_WHIMSY=1` for whimsy output (gate activation, cost, [GAP] markers). For `git commit` (without `-m`) to use the gate: run `./devtools/scout-autonomy enable-commit`.
+
+**Output:** Commits, pushes, writes `.github/pr-draft.md` — or preview/dry-run output.
+
+## Scout Ship Demo
+
+Scout separates **cheap commits** from **safe shipping**. The architecture is intentional:
+
+| Layer | Purpose | Why It Matters |
+|-------|---------|----------------|
+| Drafts (`docs/drafts/*.commit.txt`) | Pre-generated, deterministic commit messages | Cheap, fast, no LLM at commit time |
+| Ship pipeline (`scout-ship`) | Full gate flow (confidence calibration + gap declaration) | Runs before PR — catches stale docs, missing context |
+
+The gate does not run at commit time — it runs at ship time. Commits should be cheap/fast; PRs should be gated/safe.
+
+### Corrected One-Command Demo (Safe — No Real Commits)
+
+```bash
+# 1. Make safe change + stage it
+echo "# Scout: truth-preserving funnel" >> vivarium/scout/middle_manager.py
+git add vivarium/scout/middle_manager.py
+
+# 2. Run FULL ship pipeline (gate + whimsy + gap declaration) — no commit/push
+export SCOUT_WHIMSY=1
+./devtools/scout-ship --dry-run-full 2>&1 | grep -E "✨|🤨|👯|📈|😎|PASS|ESCALATE|\[GAP\]|cost:|\$0\.|✅ Dry-run"
+
+# 3. Clean up
+git checkout vivarium/scout/middle_manager.py
+git restore --staged vivarium/scout/middle_manager.py
+```
+
+### Full Ship Flow (Commit + Push + PR)
+
+For real commits (with or without scout-ship), install the prepare-commit-msg hook so the gate runs at commit time:
+
+```bash
+./devtools/scout-autonomy enable-commit
+```
+
+Then stage changes and run `./devtools/scout-ship` (or `git commit` without `-m`). The gate activates during commit message generation.
+
+### What You'll See When Big Brain Works
+
+```
+✨ 🤨 76% → 👯 context.py → 📈 +9% → 😎 PASS (4¢)
+❓ [GAP] documentation freshness not verified
+✅ Dry-run-full complete — would commit/push next
+```
+
+- Gate activated (🤨 76% → 👯 context.py → 📈 +9%)
+- Gap declaration ([GAP] documentation freshness not verified)
+- Honest cost (4¢ = real token count)
+- No commit/push (`--dry-run-full` = safe)
+
+### Demo Narrative
+
+> Scout separates cheap commits from safe shipping. Commits use pre-generated drafts — fast and deterministic. PRs trigger the full gate flow — confidence calibration, gap declaration, and stale-doc detection.
+>
+> Watch this — I made a trivial comment change and ran the ship pipeline. The gate activated (76% confidence), fetched missing context (context.py), boosted confidence (+9%), and declared a gap (documentation freshness not verified).
+>
+> Most systems would hide that uncertainty. Scout declares it explicitly — and that's how you build real trust.
+
+### Fix Big Brain Dependency
+
+If you see `No module named 'google'`:
+
+```bash
+pip install -U google-generativeai
+```
+
+Then re-run the demo — you'll see the full whimsy output (✨ 🤨 76% → 👯 ...).
+
 ## scout-status
 
 Scout workflow dashboard — git status–style view of doc-sync, drafts, spend, accuracy, and hooks.
@@ -223,7 +302,7 @@ Scout workflow dashboard — git status–style view of doc-sync, drafts, spend,
 **Usage:**
 - `./devtools/scout-status`
 
-**Output:** Doc-sync status (last .tldr.md/.deep.md mtime per staged file), missing commit drafts, hourly LLM spend, accuracy (last 24h), git hook status (prepare-commit-msg, post-commit).
+**Output:** Doc-sync status (last .tldr.md/.deep.md mtime per staged file), missing commit drafts, hourly LLM spend, accuracy (last 24h), git hook status (prepare-commit-msg, post-commit). Install prepare-commit-msg via `./devtools/scout-autonomy enable-commit`.
 
 ## scout-ci-guard
 

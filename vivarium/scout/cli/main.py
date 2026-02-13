@@ -5,13 +5,17 @@ Scout CLI — Configuration management.
 from __future__ import annotations
 
 import argparse
+
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-from vivarium.scout.config import ScoutConfig
+from vivarium.scout.config import EnvLoader, ScoutConfig
+
+# TICKET-17: Auto-load .env for CLI
+EnvLoader.load(Path.cwd() / ".env")
 from vivarium.scout.router import TriggerRouter
 
 
@@ -28,18 +32,21 @@ def _cmd_config(args: argparse.Namespace) -> int:
         return 0
 
     if args.set:
-        parts = args.set.split(maxsplit=1)
-        if len(parts) != 2:
-            print("Usage: --set KEY VALUE", file=sys.stderr)
-            return 1
-        key, value_str = parts[0], parts[1]
-        # Try to parse as number
-        try:
-            value = float(value_str)
-        except ValueError:
-            value = value_str
+        key, value_str = args.set[0], args.set[1]
+        # TICKET-20: whimsy → ui.whimsy
+        if key == "whimsy":
+            key = "ui.whimsy"
+            value = value_str.lower() in ("true", "1", "yes", "on")
+        else:
+            try:
+                value = float(value_str)
+            except ValueError:
+                value = value_str
         if config.set(key, value):
-            print(f"Set {key} = {value}")
+            if key == "ui.whimsy":
+                print(f"✅ Whimsy mode {'ON' if value else 'OFF'} — cave man CEO {'approved' if value else 'disabled'}")
+            else:
+                print(f"Set {key} = {value}")
             return 0
         print(f"Failed to set {key}", file=sys.stderr)
         return 1
@@ -125,7 +132,8 @@ def main() -> int:
     )
     config_parser.add_argument(
         "--set",
-        metavar="KEY VALUE",
+        nargs=2,
+        metavar=("KEY", "VALUE"),
         help="Set value (e.g. limits.hourly_budget 2.00)",
     )
     config_parser.add_argument(

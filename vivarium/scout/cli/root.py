@@ -236,7 +236,7 @@ def _cmd_ship(args: argparse.Namespace) -> int:
         if not message or "No staged" in message or len(message) < 10:
             print(
                 "No commit message generated (or too short). "
-                "Check docs/drafts/*.commit.txt. Run scout-autonomy enable for prepare-commit-msg hook.",
+                "Check docs/drafts/*.commit.txt. If hourly budget exhausted: python -m vivarium.scout config --set limits.hourly_budget 1.0",
                 file=sys.stderr,
             )
             return 1
