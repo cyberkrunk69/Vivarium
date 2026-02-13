@@ -705,7 +705,9 @@ Respond with JSON only:
 
     async def _generate_commit_draft(self, file: Path, session_id: str) -> None:
         """Generate conventional commit message draft for staged changes."""
+        import os
         from vivarium.scout.git_analyzer import get_diff_for_file
+        from vivarium.scout.big_brain import call_big_brain_async
         from vivarium.scout.llm import call_groq_async
 
         # Ensure session_id is valid (audit uses _get_session_id fallback, but we pass explicitly)
@@ -746,12 +748,20 @@ Diff:
 Current documentation for changed symbols:
 {symbol_docs or "(none)"}
 """
-            response = await call_groq_async(
-                prompt,
-                model="llama-3.1-8b-instant",
-                system="You are a documentation assistant. Output only the commit message, no preamble.",
-                max_tokens=256,
-            )
+            if os.environ.get("GEMINI_API_KEY"):
+                response = await call_big_brain_async(
+                    prompt,
+                    system="You are a documentation assistant. Output only the commit message, no preamble.",
+                    max_tokens=256,
+                    task_type="commit_draft",
+                )
+            else:
+                response = await call_groq_async(
+                    prompt,
+                    model="llama-3.1-8b-instant",
+                    system="You are a documentation assistant. Output only the commit message, no preamble.",
+                    max_tokens=256,
+                )
             draft_dir = self.repo_root / "docs" / "drafts"
             draft_dir.mkdir(parents=True, exist_ok=True)
             try:
@@ -765,7 +775,7 @@ Current documentation for changed symbols:
             self.audit.log(
                 "commit_draft",
                 cost=response.cost_usd,
-                model="llama-3.1-8b-instant",
+                model=response.model,
                 files=[str(file)],
                 session_id=eff_session_id,
             )
@@ -784,7 +794,9 @@ Current documentation for changed symbols:
 
     async def _generate_pr_snippet(self, file: Path, session_id: str) -> None:
         """Generate PR description snippet for the changed file."""
+        import os
         from vivarium.scout.git_analyzer import get_diff_for_file
+        from vivarium.scout.big_brain import call_big_brain_async
         from vivarium.scout.llm import call_groq_async
 
         diff = get_diff_for_file(file, staged_only=True, repo_root=self.repo_root)
@@ -801,12 +813,20 @@ Current documentation for changed symbols:
 {symbol_docs or "(none)"}
 
 Output only the snippet, no preamble."""
-        response = await call_groq_async(
-            prompt,
-            model="llama-3.1-8b-instant",
-            system="You are a documentation assistant. Be concise and accurate.",
-            max_tokens=256,
-        )
+        if os.environ.get("GEMINI_API_KEY"):
+            response = await call_big_brain_async(
+                prompt,
+                system="You are a documentation assistant. Be concise and accurate.",
+                max_tokens=256,
+                task_type="pr_snippet",
+            )
+        else:
+            response = await call_groq_async(
+                prompt,
+                model="llama-3.1-8b-instant",
+                system="You are a documentation assistant. Be concise and accurate.",
+                max_tokens=256,
+            )
         draft_dir = self.repo_root / "docs" / "drafts"
         draft_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -819,14 +839,16 @@ Output only the snippet, no preamble."""
         self.audit.log(
             "pr_snippet",
             cost=response.cost_usd,
-            model="llama-3.1-8b-instant",
+            model=response.model,
             files=[str(file)],
             session_id=session_id,
         )
 
     async def _generate_impact_summary(self, file: Path, session_id: str) -> None:
         """Generate impact analysis summary for the changed file."""
+        import os
         from vivarium.scout.git_analyzer import get_diff_for_file
+        from vivarium.scout.big_brain import call_big_brain_async
         from vivarium.scout.llm import call_groq_async
 
         diff = get_diff_for_file(file, staged_only=True, repo_root=self.repo_root)
@@ -843,12 +865,20 @@ Current documentation for changed symbols:
 {symbol_docs or "(none)"}
 
 Provide a brief impact analysis (2-5 bullet points): What could break? Who is affected? Configuration changes? Output only the analysis, no preamble."""
-        response = await call_groq_async(
-            prompt,
-            model="llama-3.1-8b-instant",
-            system="You are a documentation assistant. Be concise and accurate.",
-            max_tokens=256,
-        )
+        if os.environ.get("GEMINI_API_KEY"):
+            response = await call_big_brain_async(
+                prompt,
+                system="You are a documentation assistant. Be concise and accurate.",
+                max_tokens=256,
+                task_type="impact_summary",
+            )
+        else:
+            response = await call_groq_async(
+                prompt,
+                model="llama-3.1-8b-instant",
+                system="You are a documentation assistant. Be concise and accurate.",
+                max_tokens=256,
+            )
         draft_dir = self.repo_root / "docs" / "drafts"
         draft_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -861,7 +891,7 @@ Provide a brief impact analysis (2-5 bullet points): What could break? Who is af
         self.audit.log(
             "impact_analysis",
             cost=response.cost_usd,
-            model="llama-3.1-8b-instant",
+            model=response.model,
             files=[str(file)],
             session_id=session_id,
         )

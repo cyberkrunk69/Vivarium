@@ -23,6 +23,7 @@ from vivarium.scout.adapters.registry import get_adapter_for_path
 from vivarium.scout.audit import AuditLog
 from vivarium.scout.config import ScoutConfig
 from vivarium.scout.ignore import IgnorePatterns
+from vivarium.scout.big_brain import call_big_brain_async
 from vivarium.scout.llm import call_groq_async
 
 logger = logging.getLogger(__name__)
@@ -1402,24 +1403,35 @@ Output a concise Markdown overview with ## headings:
 3. ## Key Invariants — Constraints from the code (e.g. plain-text Git workflow, no external deps).
 Use only facts from the traced roles and summaries. No speculation."""
 
+    system = "You are a documentation assistant. Be concise and accurate."
+    use_big_brain = bool(os.environ.get("GEMINI_API_KEY"))
     try:
-        response = await call_groq_async(
-            prompt,
-            model=_resolve_doc_model("tldr"),
-            system="You are a documentation assistant. Be concise and accurate.",
-            max_tokens=800,
-        )
+        if use_big_brain:
+            response = await call_big_brain_async(
+                prompt,
+                system=system,
+                max_tokens=800,
+                task_type="module_brief",
+            )
+        else:
+            response = await call_groq_async(
+                prompt,
+                model=_resolve_doc_model("tldr"),
+                system=system,
+                max_tokens=800,
+            )
     except Exception as e:
         logger.warning("Module brief LLM failed for %s: %s", package_dir, e)
         return False
 
-    audit = AuditLog()
-    audit.log(
-        "module_brief",
-        cost=response.cost_usd,
-        model=response.model,
-        package=str(rel),
-    )
+    if not use_big_brain:
+        audit = AuditLog()
+        audit.log(
+            "module_brief",
+            cost=response.cost_usd,
+            model=response.model,
+            package=str(rel),
+        )
 
     content = response.content.strip()
     module_md_name = "__init__.py.module.md"
@@ -1893,27 +1905,38 @@ Be concise, professional, and insightful. Do not list files—group by theme.
 Technical summaries:
 {raw_summaries}"""
 
+    system = "You are a senior staff engineer. Write concise, professional PR descriptions."
+    use_big_brain = bool(os.environ.get("GEMINI_API_KEY"))
     try:
-        response = await call_groq_async(
-            prompt,
-            model=_resolve_doc_model("pr_synthesis") or _resolve_doc_model("tldr"),
-            system="You are a senior staff engineer. Write concise, professional PR descriptions.",
-            max_tokens=1200,
-        )
+        if use_big_brain:
+            response = await call_big_brain_async(
+                prompt,
+                system=system,
+                max_tokens=1200,
+                task_type="pr_synthesis",
+            )
+        else:
+            response = await call_groq_async(
+                prompt,
+                model=_resolve_doc_model("pr_synthesis") or _resolve_doc_model("tldr"),
+                system=system,
+                max_tokens=1200,
+            )
     except Exception as e:
         if fallback_template:
             logger.warning("PR synthesis LLM failed, falling back to raw: %s", e)
             return raw_summaries
         raise
 
-    audit = AuditLog()
-    audit.log(
-        "pr_synthesis",
-        cost=response.cost_usd,
-        model=response.model,
-        input_t=response.input_tokens,
-        output_t=response.output_tokens,
-    )
+    if not use_big_brain:
+        audit = AuditLog()
+        audit.log(
+            "pr_synthesis",
+            cost=response.cost_usd,
+            model=response.model,
+            input_t=response.input_tokens,
+            output_t=response.output_tokens,
+        )
 
     content = response.content.strip()
     return content if content else raw_summaries
