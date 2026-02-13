@@ -3,6 +3,8 @@ Scout configuration — YAML + env vars + hard caps.
 
 User-controlled chaos with non-negotiable safety ceilings.
 Load order: ~/.scout/config.yaml < .scout/config.yaml < env vars < hard caps.
+
+TICKET-17: EnvLoader auto-loads .env for all Scout execution paths (tests, CLI).
 """
 
 from __future__ import annotations
@@ -14,6 +16,40 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+class EnvLoader:
+    """
+    Auto-loads .env once, safely, idempotently.
+
+    TICKET-17: Ensures GROQ_API_KEY etc. are available for pytest and CLI
+    without manual 'source .env'. Uses setdefault — never overwrites existing
+    env vars (cloud/deployment env > .env).
+    """
+
+    _loaded = False
+
+    @classmethod
+    def load(cls, path: Optional[Path] = None) -> None:
+        if cls._loaded:
+            return
+
+        path = path or Path(".env")
+        if not path.exists():
+            cls._loaded = True
+            return  # No .env = no problem (cloud env vars still work)
+
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    key, _, value = line.partition("=")
+                    key, value = key.strip(), value.strip()
+                    # Strip quotes if present
+                    value = value.strip('"').strip("'")
+                    os.environ.setdefault(key, value)
+
+        cls._loaded = True
 
 
 def _path_matches(path: Path, pattern: str) -> bool:
@@ -102,6 +138,9 @@ DEFAULT_CONFIG = {
     },
     "doc_generation": {
         "generate_eliv": True,  # Set to False during large syncs to skip .eliv.md
+    },
+    "ui": {
+        "whimsy": False,  # TICKET-20: Cave man CEO mode (SCOUT_WHIMSY=1 overrides)
     },
 }
 
@@ -333,6 +372,7 @@ class ScoutConfig:
             "limits": dict(self._raw.get("limits", {})),
             "models": dict(self._raw.get("models", {})),
             "notifications": dict(self._raw.get("notifications", {})),
+            "ui": dict(self._raw.get("ui", {})),
             "hard_caps": {
                 "max_cost_per_event": HARD_MAX_COST_PER_EVENT,
                 "hourly_budget": HARD_MAX_HOURLY_BUDGET,
@@ -347,6 +387,13 @@ class ScoutConfig:
     def get_project_config_path(self) -> Path:
         """Path to project local config."""
         return Path.cwd() / ".scout" / "config.yaml"
+
+    @property
+    def whimsy_mode(self) -> bool:
+        """TICKET-20: Cave man CEO mode. SCOUT_WHIMSY=1 or config ui.whimsy: true."""
+        if os.environ.get("SCOUT_WHIMSY", "0") == "1":
+            return True
+        return bool(self.get("ui.whimsy"))
 
     def get(self, key_path: str) -> Optional[Any]:
         """Get value by dot path, e.g. 'triggers.default'."""
