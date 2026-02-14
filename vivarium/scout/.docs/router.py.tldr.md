@@ -47,86 +47,43 @@ Orchestrates triggers, respects limits, prevents infinite loops, and cascades do
 
 ## Methods
 - `__init__(self, config: ScoutConfig=None, audit: AuditLog=None, validator: Validator=None, repo_root: Path=None, notify: Callable[[str], None]=None)`: 
-  Orchestrates triggers, respects limits, prevents infinite loops, and cascades doc updates safely.
 - `should_trigger(self)`: 
-  (no description)
 - `_quick_token_estimate(self)`: 
-  (no description)
 - `estimate_cascade_cost(self)`: 
-  (no description)
 - `on_file_save(self)`: 
-  (no description)
 - `on_git_commit(self)`: 
-  (no description)
 - `prepare_commit_msg(self)`: 
-  (no description)
 - `estimate_task_nav_cost(self)`: 
-  (no description)
 - `_list_python_files(self)`: 
-  (no description)
 - `_parse_nav_json(self)`: 
-  (no description)
 - `navigate_task(self)`: 
-  (no description)
 - `on_manual_trigger(self)`: 
-  (no description)
 - `_quick_parse(self)`: 
-  (no description)
 - `_scout_nav(self)`: 
-  (no description)
 - `_affects_module_boundary(self)`: 
-  (no description)
 - `_is_public_api(self)`: 
-  (no description)
 - `_detect_module(self)`: 
-  (no description)
 - `_critical_path_files(self)`: 
-  (no description)
 - `_generate_symbol_doc(self)`: 
-  (no description)
 - `_write_draft(self)`: 
-  (no description)
 - `_update_module_brief(self)`: 
-  (no description)
 - `_create_human_ticket(self)`: 
-  (no description)
 - `_create_pr_draft(self)`: 
-  (no description)
 - `_generate_commit_draft(self)`: 
-  (no description)
 - `_generate_pr_snippet(self)`: 
-  (no description)
 - `_generate_impact_summary(self)`: 
-  (no description)
 - `_process_file(self)`: 
-  (no description)
 
 # _notify_user
 Notify user (stub — override for testing or real UI).
 
-## Constants
-- (none)
-
-## Methods
-- `_notify_user(self, message: str) -> None`: 
-  Notify user (stub — override for testing or real UI).
+## Signature
+- `def _notify_user(message: str) -> None`: 
 
 # check_budget_with_message
 Check if operation can proceed within hourly budget.
 
-## Constants
-- (none)
+    Returns True if OK, False if blocked (and prints actionable error to stderr).
 
-## Methods
-- `check_budget_with_message(self, config: ScoutConfig, estimated_cost: float=0.01, audit: Optional[AuditLog]=None) -> bool`: 
-  Check if operation can proceed within hourly budget.
-
-# on_git_commit
-Proactive echo: invalidate dependency graph for changed files. Called by post-commit hook — runs in <100ms, no LLM cost.
-
-## Constants
-- (none)
-
-## Methods
-- `on_git_commit(self, changed_files: List[Path], repo_root: Optional[Path]=None) -> None`: 
-  Proactive echo: invalidate dependency graph for changed files. Called by post-commit hook — runs in <100ms, no LLM cost.
+## Signature
+- `def check_budget_with_message(config: ScoutConfig, estimated_cost: float=0.01, audit: Optional[AuditLog]=None) -> bool`:

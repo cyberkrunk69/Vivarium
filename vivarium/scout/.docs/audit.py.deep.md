@@ -11,11 +11,12 @@ This module provides activity logging.
   * Used at lines: 70
 * `EVENT_TYPES`: `frozenset({'nav', 'brief', 'cascade', 'validation_fail', 'budget', 'skip', 'trigger', 'tldr', 'tldr_auto_generated', 'deep', 'doc_sync', 'commit_draft', 'pr_snippet', 'impact_analysis', 'module_brief', 'pr_synthesis', 'roast_with_docs'})`
   * Used at lines: (none)
-* `FSYNC_EVERY_N_LINES`: 10
+* `FSYNC_EVERY_N_LINES`: `10`
   * Used at lines: 126
-* `FSYNC_INTERVAL_SEC`: 1.0
+* `FSYNC_INTERVAL_SEC`: `1.0`
   * Used at lines: 127
-* `ROTATION_SIZE_BYTES`: 10MB
+* `ROTATION_SIZE_BYTES`: `10 * 1024 * 1024`
+  * Docstring: 10MB
   * Used at lines: 97
 
 ### Implementation Constants
@@ -26,12 +27,6 @@ This module provides activity logging.
 * `_SESSION_LOCK`: `threading.Lock()`
   * Used at lines: 52
 
-### Logging Constants
-
-* `logger`: `logging.getLogger(__name__)`
-  * Purpose hint: audit logging
-  * Used at lines: 231
-
 ## Methods
 
 ### AuditLog Class Methods
@@ -40,52 +35,36 @@ This module provides activity logging.
   * Semantic role: implementation
   * Used at lines: (none)
 * `_ensure_open`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `_maybe_rotate`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `_close_file`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `_fsync_if_needed`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `log`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `_iter_lines`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `_parse_line`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `query`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `hourly_spend`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `last_events`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `accuracy_metrics`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `gate_metrics`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `flush`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `close`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `__enter__`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 * `__exit__`: (no docstring)
-  * Semantic role: implementation
   * Used at lines: (none)
 
 ### Functions
