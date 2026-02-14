@@ -172,27 +172,6 @@ class ModuleFacts:
         return hashlib.sha256(self.to_json().encode()).hexdigest()
 
 
-def validate_facts_complete(facts: ModuleFacts) -> None:
-    """TICKET-100: Fail fast if critical facts missing before LLM synthesis.
-    Ensures 100% truth guarantee — no synthesis with incomplete signatures.
-    """
-    for name, fact in facts.symbols.items():
-        if fact.type == "function":
-            if not fact.signature or not fact.signature.strip():
-                raise ValueError(
-                    f"Function '{name}' missing signature in {facts.path.name} — "
-                    "refusing synthesis (100% truth guarantee)"
-                )
-        elif fact.type == "class" and not getattr(fact, "is_enum", False):
-            method_sigs = getattr(fact, "method_signatures", None) or {}
-            for m in fact.methods:
-                if m not in method_sigs or not method_sigs[m].strip():
-                    raise ValueError(
-                        f"Method '{fact.name}.{m}' missing signature in {facts.path.name} — "
-                        "refusing synthesis (100% truth guarantee)"
-                    )
-
-
 class ASTFactExtractor:
     """100% deterministic fact extraction — zero LLM, zero hallucination."""
 
@@ -613,5 +592,4 @@ class ASTFactExtractor:
             fact.purpose_hint = self._infer_purpose(name, fact)
             fact.semantic_role = self._infer_semantic_role(name, fact)
 
-        validate_facts_complete(facts)
         return facts

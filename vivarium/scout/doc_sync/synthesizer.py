@@ -17,49 +17,6 @@ from vivarium.scout.doc_sync.ast_facts import ModuleFacts
 logger = logging.getLogger(__name__)
 
 
-def _generate_eliv_minimal_truth(facts: ModuleFacts) -> str:
-    """TRUE minimal truth: ONLY generic templates + symbol-derived booleans.
-
-    NO explanatory phrases in code beyond the 3 allowed. NO lookup tables.
-    """
-    symbol_names = " ".join(s.lower() for s in facts.symbols.keys())
-    has_routing = any(
-        kw in symbol_names for kw in ["route", "dispatch", "triage", "queue"]
-    )
-    has_budget = any(
-        kw in symbol_names for kw in ["budget", "cost", "limit", "ceiling", "max"]
-    )
-    has_logging = any(
-        kw in symbol_names for kw in ["log", "audit", "record", "track"]
-    )
-
-    parts = []
-    if has_routing:
-        parts.append("work coordination")
-    if has_budget:
-        parts.append("resource limits")
-    if has_logging:
-        parts.append("activity logging")
-
-    if parts:
-        return f"This module provides {', '.join(parts)}."
-    return (
-        "This module coordinates specialized helpers with awareness of "
-        "constraints and activity."
-    )
-
-
-def _ensure_eliv_section(prose: str, facts: ModuleFacts) -> str:
-    """Replace or inject # ELIV section with minimal truth from symbol patterns."""
-    eliv_text = _generate_eliv_minimal_truth(facts)
-    if "# ELIV" in prose:
-        pattern = r"(^# ELIV\s*\n)(.*?)(?=^# |\Z)"
-        return re.sub(
-            pattern, r"\g<1>" + eliv_text + "\n\n", prose, flags=re.MULTILINE | re.DOTALL
-        )
-    return f"# ELIV\n{eliv_text}\n\n{prose}"
-
-
 # TICKET-50: Gate constants that must NOT appear in docs unless defined in this module
 _CROSS_MODULE_HALLUCINATION_BLOCKLIST = frozenset({
     "DEFAULT_CONFIDENCE_THRESHOLD",
@@ -190,7 +147,6 @@ OUTPUT (prose only — no JSON, no disclaimers):"""
         if not _validate_output_against_facts(prose, facts):
             prose = self._fallback_from_facts(facts)
 
-        prose = _ensure_eliv_section(prose, facts)
         checksum = facts.checksum()
         return f"<!-- FACT_CHECKSUM: {checksum} -->\n\n{prose}", resp.cost_usd
 
@@ -222,7 +178,6 @@ For each constant, list exact line numbers where used. Never say "not used" if l
         prose = resp.content.strip()
         if not _validate_output_against_facts(prose, facts):
             prose = self._fallback_from_facts(facts)
-        prose = _ensure_eliv_section(prose, facts)
         checksum = facts.checksum()
         return f"<!-- FACT_CHECKSUM: {checksum} -->\n\n{prose}", resp.cost_usd
 
@@ -317,7 +272,6 @@ REWRITTEN (fluent prose WITH semantic precision):"""
         if not _validate_output_against_facts(phase2, facts):
             phase2 = self._fallback_from_facts(facts)
 
-        phase2 = _ensure_eliv_section(phase2, facts)
         checksum = facts.checksum()
         return f"<!-- FACT_CHECKSUM: {checksum} -->\n\n{phase2}", cost
 
@@ -393,7 +347,7 @@ class ReasoningDocSynthesizer(ConstrainedDocSynthesizer):
                 facts.path.name,
             )
             checksum = facts.checksum()
-            prose = _ensure_eliv_section(self._sparse_module_fallback(facts), facts)
+            prose = self._sparse_module_fallback(facts)
             return f"<!-- FACT_CHECKSUM: {checksum} -->\n\n{prose}", 0.0
 
         facts_md = self._facts_to_markdown_rich(facts)
@@ -435,7 +389,6 @@ class ReasoningDocSynthesizer(ConstrainedDocSynthesizer):
             logger.warning("Fact validation failed — falling back to Phase 1")
             phase2 = phase1
 
-        phase2 = _ensure_eliv_section(phase2, facts)
         checksum = facts.checksum()
         return f"<!-- FACT_CHECKSUM: {checksum} -->\n\n{phase2}", cost1 + cost2
 
