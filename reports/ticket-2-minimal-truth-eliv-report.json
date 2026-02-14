@@ -5,5 +5,5 @@
   "hallucination_check_exit_code": 0,
   "behavioral_test_exit_code": 0,
   "honesty_pledge": "I did not force analogies or hallucinate purpose",
-  "commit_sha": "8ba2b75"
+  "commit_sha": "4ed9cfc"
 }
