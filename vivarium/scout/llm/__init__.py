@@ -2,6 +2,7 @@
 Scout LLM client — Groq API for navigation.
 
 Pluggable for testing; uses GROQ_API_KEY from env or runtime config.
+TICKET-40: Uses real cost estimation from pricing module.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from vivarium.scout.config import get_global_semaphore
-from vivarium.utils.llm_cost import estimate_cost
+from vivarium.scout.llm.pricing import estimate_cost_usd
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ async def call_groq_async(
     model: str = "llama-3.1-8b-instant",
     system: Optional[str] = None,
     max_tokens: int = 500,
+    temperature: Optional[float] = None,
     llm_client: Optional[Callable] = None,
 ) -> NavResponse:
     """
@@ -94,7 +96,7 @@ async def call_groq_async(
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.1,
+        "temperature": temperature if temperature is not None else 0.1,
         "max_tokens": max_tokens,
     }
 
@@ -119,6 +121,13 @@ async def call_groq_async(
             resp = await _do_request(current_model)
 
         if resp.status_code != 429:
+            if resp.status_code >= 400:
+                try:
+                    body = resp.json()
+                    err_msg = body.get("error", {}).get("message", resp.text[:200])
+                except Exception:
+                    err_msg = resp.text[:200] if resp.text else str(resp.status_code)
+                raise RuntimeError(f"Groq API {resp.status_code}: {err_msg}")
             resp.raise_for_status()
             break
 
@@ -167,7 +176,7 @@ async def call_groq_async(
         or 0
     )
 
-    cost = estimate_cost(current_model, input_t, output_t)
+    cost = estimate_cost_usd(current_model, input_t, output_t)
     # If cost is 0 but we received content, the API was called (e.g. usage omitted).
     # Use a small epsilon so the audit log distinguishes "call made" from "no call".
     if cost == 0.0 and content:
