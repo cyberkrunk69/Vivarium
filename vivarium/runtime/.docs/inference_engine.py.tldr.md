@@ -1,15 +1,10 @@
-<!-- FACT_CHECKSUM: b5d992ce6457e3625337ebfb0ee96897fd655c4a90e06c6bfbb74c4e206a5ec4 -->
+<!-- FACT_CHECKSUM: 31301cabac224d96b96fa75a179548a506ae40858939d0dbf4b5a74915a1cd94 -->
 
-## Module Constants
-- `logger`: (used at lines 76, 81, 83, 84)
-- `_COMPLEXITY_KEYWORDS`: ['algorithm', 'optimize', 'refactor', 'benchmark', 'scale', 'performance', 'thread', 'process', 'async', 'concurrency', 'distributed', 'pipeline', 'sql', 'database', 'api', 'authentication', 'encryption', 'docker', 'kubernetes', 'microservice', 'cache', 'index', 'migration'] (used at lines 66)
+# ELIV
+This module coordinates specialized helpers with awareness of constraints and activity.
 
-# EngineType
-Class representing engine type.
+# Module Summary
 
-## Constants
-- `name`: (used at lines 76, 81, 83, 84)
-
-## Methods
-- `estimate_complexity() -> None`: 
-- `get_engine_type_from_env() -> EngineType`:
+- `EngineType`: class with methods 
+- `_COMPLEXITY_KEYWORDS`: constant (used at lines 66)
+  Value: ['algorithm', 'optimize', 'refactor', 'benchmark', 'scale', 'performance', 'thread', 'process', 'async', 'concurrency', 'distributed', 'pipeline', 'sql', 'database', 'api', 'authentication', 'encryption', 'docker', 'kubernetes', 'microservice', 'cache', 'index', 'migration']
