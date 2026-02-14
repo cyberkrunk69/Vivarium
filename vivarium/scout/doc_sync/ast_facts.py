@@ -44,6 +44,10 @@ class SymbolFact:
     purpose_hint: Optional[str] = None  # inferred from naming (e.g. "logger" → "audit logging")
     # TICKET-45: Semantic role — prevents threshold vs output conflation
     semantic_role: Optional[SemanticRole] = None
+    # TICKET-95: Full param/return extraction — method name -> full signature (params, types, defaults)
+    method_signatures: Dict[str, str] = field(default_factory=dict)
+    # TICKET-95: Enum classes have no methods — module-level functions must not be misattributed
+    is_enum: bool = False
 
 
 @dataclass
@@ -95,6 +99,8 @@ class ModuleFacts:
                 signature=v.get("signature"),
                 purpose_hint=v.get("purpose_hint"),
                 semantic_role=v.get("semantic_role"),
+                method_signatures=v.get("method_signatures", {}),
+                is_enum=v.get("is_enum", False),
             )
         control_flow = {}
         for k, v in data.get("control_flow", {}).items():
@@ -164,6 +170,27 @@ class ModuleFacts:
     def checksum(self) -> str:
         """SHA256 of normalized JSON for FACT_CHECKSUM embedding."""
         return hashlib.sha256(self.to_json().encode()).hexdigest()
+
+
+def validate_facts_complete(facts: ModuleFacts) -> None:
+    """TICKET-100: Fail fast if critical facts missing before LLM synthesis.
+    Ensures 100% truth guarantee — no synthesis with incomplete signatures.
+    """
+    for name, fact in facts.symbols.items():
+        if fact.type == "function":
+            if not fact.signature or not fact.signature.strip():
+                raise ValueError(
+                    f"Function '{name}' missing signature in {facts.path.name} — "
+                    "refusing synthesis (100% truth guarantee)"
+                )
+        elif fact.type == "class" and not getattr(fact, "is_enum", False):
+            method_sigs = getattr(fact, "method_signatures", None) or {}
+            for m in fact.methods:
+                if m not in method_sigs or not method_sigs[m].strip():
+                    raise ValueError(
+                        f"Method '{fact.name}.{m}' missing signature in {facts.path.name} — "
+                        "refusing synthesis (100% truth guarantee)"
+                    )
 
 
 class ASTFactExtractor:
@@ -276,7 +303,7 @@ class ASTFactExtractor:
                     methods = []
                     fields = []
                     for item in node.body:
-                        if isinstance(item, ast.FunctionDef):
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                             methods.append(item.name)
                         elif isinstance(item, ast.Assign):
                             for t in item.targets:
@@ -289,10 +316,13 @@ class ASTFactExtractor:
                         defined_at=node.lineno,
                         methods=methods,
                         fields=fields,
+                        is_enum=self._is_enum_class(node),
                     )
-            elif isinstance(node, ast.FunctionDef):
-                parent = self._get_parent_class(tree, node)
-                if not parent and node.name not in imported_names:
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # TICKET-100: Only module-level functions. Methods are in ClassDef; nested
+                # functions (inside methods) must not be documented as module-level.
+                direct_parent = parents.get(node)
+                if direct_parent is tree and node.name not in imported_names:
                     symbols[node.name] = SymbolFact(
                         name=node.name,
                         type="function",
@@ -300,6 +330,15 @@ class ASTFactExtractor:
                     )
 
         return symbols
+
+    def _is_enum_class(self, node: ast.ClassDef) -> bool:
+        """True if class inherits from Enum (Enum members only — no methods to attribute)."""
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id == "Enum":
+                return True
+            if isinstance(base, ast.Attribute) and base.attr == "Enum":
+                return True
+        return False
 
     def _get_parent_class(self, tree: ast.AST, node: ast.AST) -> Optional[str]:
         """Find if node is inside a ClassDef. Returns class name or None."""
@@ -432,7 +471,7 @@ class ASTFactExtractor:
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name == name and sym_type == "class":
                 return node
-            if isinstance(node, ast.FunctionDef) and node.name == name:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
                 if sym_type == "function":
                     if not self._get_parent_class(tree, node):
                         return node
@@ -479,27 +518,42 @@ class ASTFactExtractor:
         return None
 
     def _extract_signature_from_node(self, node: ast.AST) -> Optional[str]:
-        """Extract signature from FunctionDef (args, return type). For ClassDef, use __init__."""
+        """Extract full signature: params (types, defaults), *args, **kwargs, return type.
+        TICKET-95: Use ast.unparse for complete fidelity (≥95% accuracy gate).
+        """
         if isinstance(node, ast.ClassDef):
             for item in node.body:
                 if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                     return self._extract_signature_from_node(item)
             return None
-        if not isinstance(node, ast.FunctionDef):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             return None
         try:
-            args = node.args
-            arg_names = []
-            for a in args.args:
-                arg_names.append(a.arg)
-            if args.vararg:
-                arg_names.append(f"*{args.vararg.arg}")
-            if args.kwarg:
-                arg_names.append(f"**{args.kwarg.arg}")
-            sig = f"{node.name}({', '.join(arg_names)})"
-            if node.returns:
-                sig += f" -> {ast.unparse(node.returns)}"
-            return sig
+            # ast.unparse produces full signature: def foo(x: int = 1, *args, **kwargs) -> bool
+            fake = (
+                ast.AsyncFunctionDef(
+                    name=node.name,
+                    args=node.args,
+                    body=[ast.Pass()],
+                    decorator_list=[],
+                    returns=node.returns,
+                )
+                if isinstance(node, ast.AsyncFunctionDef)
+                else ast.FunctionDef(
+                    name=node.name,
+                    args=node.args,
+                    body=[ast.Pass()],
+                    decorator_list=[],
+                    returns=node.returns,
+                )
+            )
+            ast.copy_location(fake, node)
+            unparsed = ast.unparse(fake)
+            # Strip body: "def foo(...): pass" -> "def foo(...)"
+            idx = unparsed.find(":\n")
+            if idx != -1:
+                return unparsed[:idx].rstrip()
+            return unparsed.replace(": pass", "").rstrip()
         except Exception:
             return None
 
@@ -532,6 +586,7 @@ class ASTFactExtractor:
     def extract_documentable_facts(self, path: Path) -> ModuleFacts:
         """Extract facts filtered to documentable symbols, enriched with docstrings/signatures.
         TICKET-44: Filtered fact schema for rich prose synthesis.
+        TICKET-95: Full param/return extraction; method signatures; Enum attribution fix.
         """
         facts = self.extract(path)
         source = path.read_text(encoding="utf-8", errors="replace")
@@ -548,7 +603,15 @@ class ASTFactExtractor:
                 fact.signature = self._extract_signature_from_node(node)
                 if fact.type == "constant" and not fact.docstring:
                     fact.docstring = self._extract_inline_comment(node, source)
+                # TICKET-95: Per-method signatures for classes (excludes Enum — methods=[])
+                if fact.type == "class" and isinstance(node, ast.ClassDef):
+                    for item in node.body:
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            sig = self._extract_signature_from_node(item)
+                            if sig:
+                                fact.method_signatures[item.name] = sig
             fact.purpose_hint = self._infer_purpose(name, fact)
             fact.semantic_role = self._infer_semantic_role(name, fact)
 
+        validate_facts_complete(facts)
         return facts
