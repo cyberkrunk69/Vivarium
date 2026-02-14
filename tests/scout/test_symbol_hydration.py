@@ -34,26 +34,29 @@ def test_truncate_to_tokens():
 
 
 def test_hydrate_middle_manager_gate_only():
-    """Hydrate MiddleManagerGate: .tldr.md only, bounded, deps included."""
+    """Hydrate gate-related module: .tldr.md only, bounded, deps included.
+
+    Uses router.py (has committed .tldr.md); middle_manager lacks docs in repo.
+    """
     repo_root = Path(__file__).resolve().parent.parent.parent
     graph = DependencyGraph(repo_root)
     symbols = [
-        SymbolRef(Path("vivarium/scout/middle_manager.py"), "MiddleManagerGate")
+        SymbolRef(Path("vivarium/scout/router.py"), "TriggerRouter")
     ]
 
     context = asyncio.run(hydrate_symbols(
         symbols, graph, repo_root, max_depth=1, max_tokens=4000
     ))
 
-    # Should contain .tldr.md for MiddleManagerGate
-    assert "MiddleManagerGate" in context
-    assert "confidence" in context.lower()
+    # Should contain .tldr.md for TriggerRouter
+    assert "TriggerRouter" in context
+    assert "budget" in context.lower() or "cost" in context.lower()
 
     # Should NOT contain entire file contents (.deep.md skipped)
     assert len(context) < 5000  # Reasonable size for 1-2 symbols
 
-    # Should contain direct dependencies or related symbols (BriefParser, GateDecision)
-    assert "BriefParser" in context or "GateDecision" in context
+    # Should contain related symbols from router
+    assert "NavResult" in context or "SymbolDoc" in context or "logger" in context
 
 
 def test_hydrate_context_bounded():

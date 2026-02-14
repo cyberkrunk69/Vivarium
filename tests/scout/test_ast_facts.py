@@ -24,7 +24,7 @@ def test_max_expanded_context_value_and_usage() -> None:
     """MAX_EXPANDED_CONTEXT value and usage must be correctly extracted."""
     facts = ASTFactExtractor().extract(Path("vivarium/scout/middle_manager.py"))
     assert "MAX_EXPANDED_CONTEXT" in facts.symbols
-    assert facts.symbols["MAX_EXPANDED_CONTEXT"].value == "10000"
+    assert facts.symbols["MAX_EXPANDED_CONTEXT"].value == "40000"
     assert len(facts.symbols["MAX_EXPANDED_CONTEXT"].used_at) > 0
 
 
