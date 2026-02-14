@@ -1,24 +1,27 @@
-# Scout: Autonomous Dev Partner
+# Scout
 
-## Origin
+Scout is a Git-native, text-first context and drafting layer for AI-assisted
+development workflows.
 
-Born from a single pain point: "Hey this sucks—write me a tool that'll gen a repo map for the big LLM."
+This file is the quick entry point. The complete docs set is:
 
-## Evolution
+- Vision (what Scout is aiming to be):
+  - `../../docs/scout/README_VISION.md`
+- Technical (what Scout is currently and how it works):
+  - `../../docs/scout/README_TECHNICAL.md`
+- Current-state white paper:
+  - `../../.github/PR_WHITEPAPER.md`
 
-Grew into a self-documenting, self-explaining, self-critiquing dev loop through iterative refinement:
+Supporting references:
 
-- Symbol-level living docs → commit/PR drafts → Git hooks → CI guardrails → full auditability
+- Configuration:
+  - `../../docs/scout/CONFIGURATION.md`
+- Audit event schema:
+  - `../../docs/scout/AUDIT_SCHEMA.md`
 
-## Philosophy
+At a glance, Scout currently focuses on:
 
-- **Agnostic**: Works in any editor, with any LLM
-- **Auditable**: Every decision logged, costed, and confidence-scored
-- **Autonomous**: Drafts generated pre-commit; human-in-the-loop for final approval
-
-## Key Components
-
-- `router.py`: Orchestrates doc generation, draft assembly, and Git integration
-- `doc_generation.py`: Generates `.tldr.md`, `.deep.md`, `.eliv.md` from AST + LLM
-- `git_drafts.py`: Assembles commit/PR messages from staged diffs + living docs
-- `audit.py`: Tracks cost, confidence, and validation across all events
+- living docs generated from source (`.tldr.md`, `.deep.md`, `.eliv.md`),
+- draft generation and assembly for commit/PR workflows,
+- scoped navigation/indexing/briefing tooling,
+- explicit cost and event auditability.
