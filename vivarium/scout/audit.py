@@ -148,6 +148,7 @@ class AuditLog:
         confidence: int = None,
         duration_ms: int = None,
         config: Dict[str, Any] = None,
+        raw_brief_path: str = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -192,6 +193,8 @@ class AuditLog:
             event["duration_ms"] = duration_ms
         if config is not None:
             event["config"] = config
+        if raw_brief_path is not None:
+            event["raw_brief_path"] = raw_brief_path
 
         for k, v in kwargs.items():
             if k not in event and v is not None:
@@ -303,6 +306,62 @@ class AuditLog:
             "total_nav": total_nav,
             "validation_fail_count": fail_count,
             "accuracy_pct": round(accuracy, 2),
+        }
+
+    def gate_metrics(
+        self,
+        since: Optional[datetime] = None,
+        last_n: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Gate health from gate_compress and gate_escalate events.
+
+        Returns: pass_count, escalate_count, total, pass_rate_pct, avg_confidence,
+        escalate_rate_pct, last_queries (list of {outcome, reason}).
+        """
+        events = self.query(since=since) if since else self.query()
+        gate_compress = [e for e in events if e.get("event") == "gate_compress"]
+        gate_escalate = [e for e in events if e.get("event") == "gate_escalate"]
+
+        # Pass: gate_compress with confidence, no reason (or not parse_fail/api_error/stale_cascade)
+        passes = [
+            e for e in gate_compress
+            if e.get("confidence") is not None
+            and e.get("reason") not in ("parse_fail", "api_error", "stale_cascade")
+        ]
+        # Escalate: gate_compress stale_cascade + gate_escalate
+        escalates_stale = [e for e in gate_compress if e.get("reason") == "stale_cascade"]
+        escalates_other = gate_escalate
+
+        pass_count = len(passes)
+        escalate_count = len(escalates_stale) + len(escalates_other)
+        total = pass_count + escalate_count
+
+        confidences = [e.get("confidence", 0) / 100.0 for e in passes if e.get("confidence") is not None]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+
+        pass_rate_pct = round(100.0 * pass_count / total, 1) if total else 0.0
+        escalate_rate_pct = round(100.0 * escalate_count / total, 1) if total else 0.0
+
+        # Last N queries: pass + escalate in chronological order
+        last_queries: List[Dict[str, Any]] = []
+        all_outcomes = (
+            [("pass", None, e) for e in passes]
+            + [("escalate", "stale_cache", e) for e in escalates_stale]
+            + [("escalate", "low_confidence", e) for e in escalates_other]
+        )
+        all_outcomes.sort(key=lambda x: x[2].get("ts", ""))
+        for outcome, reason, ev in all_outcomes[-last_n:]:
+            last_queries.append({"outcome": outcome, "reason": reason})
+
+        return {
+            "pass_count": pass_count,
+            "escalate_count": escalate_count,
+            "total": total,
+            "pass_rate_pct": pass_rate_pct,
+            "avg_confidence": round(avg_confidence, 2),
+            "escalate_rate_pct": escalate_rate_pct,
+            "last_queries": last_queries,
         }
 
     def flush(self) -> None:

@@ -1,76 +1,97 @@
 """
-Scout tools — dependency resolution and utilities for doc generation.
+Scout tools registry — Single source of truth for available tools.
 
-Provides query_for_deps for use by doc_sync and doc_generation.
+Passed to big brain as data. No hardcoded capability strings in prompts.
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Any
 
 
-def _module_to_path(repo_root: Path, mod: str) -> Optional[str]:
-    """Resolve module name to repo-relative path if file exists."""
-    if not mod or mod.startswith("."):
-        return None
-    path_str = mod.replace(".", "/")
-    for candidate in [
-        repo_root / f"{path_str}.py",
-        repo_root / path_str / "__init__.py",
-    ]:
-        if candidate.exists():
-            try:
-                return str(candidate.relative_to(repo_root))
-            except ValueError:
-                pass
-    return None
+def get_tools() -> list[dict[str, Any]]:
+    """Return tool definitions. desc=deep for big brain. eliv=small words for user."""
+    return [
+        {
+            "name": "index",
+            "params": ["query"],
+            "cost": "free",
+            "speed": "instant",
+            "desc": "Search code symbols (functions, classes, etc.) by name. Uses ctags+SQLite. No LLM. Use when user asks to find, search, or locate code by symbol name.",
+            "eliv": "find code by name, no cost",
+        },
+        {
+            "name": "query",
+            "params": ["scope", "include_deep", "copy_to_clipboard", "output_path"],
+            "cost": "free",
+            "speed": "fast",
+            "desc": "Read existing .tldr and .deep documentation for a package scope. Does not generate docs. Use when user asks about how something works, what a module does, or to read docs. Optional output_path: write the assembled markdown to this file (relative to repo root).",
+            "eliv": "read docs we have",
+        },
+        {
+            "name": "export",
+            "params": ["scope", "output_path", "include_deep"],
+            "cost": "free",
+            "speed": "fast",
+            "desc": "Collect .tldr (and optionally .deep) docs for a scope and write them to a single .md file. Use when user asks to write, export, or save docs to a file. Requires output_path (relative to repo root).",
+            "eliv": "write docs to file",
+        },
+        {
+            "name": "sync",
+            "params": ["scope", "changed_only"],
+            "cost": "expensive",
+            "speed": "slow",
+            "desc": "Regenerate documentation via LLM. Use only when docs are stale, missing, or user explicitly asks to generate/refresh docs.",
+            "eliv": "make new docs, costs money",
+        },
+        {
+            "name": "nav",
+            "params": ["task"],
+            "cost": "free_or_llm",
+            "speed": "fast",
+            "desc": "Find where in the codebase to implement or change something. Tries index first, then LLM. Use when user asks where to add/fix/implement something.",
+            "eliv": "find where to change things",
+        },
+        {
+            "name": "brief",
+            "params": ["task"],
+            "cost": "llm",
+            "speed": "medium",
+            "desc": "Create an investigation plan for a task. Use when user needs a structured plan before coding.",
+            "eliv": "plan before you code",
+        },
+        {
+            "name": "status",
+            "params": [],
+            "cost": "free",
+            "speed": "instant",
+            "desc": "Scout workflow dashboard: doc-sync state, drafts, spend, hooks. Use when user asks about scout's status, what's in progress, or workflow overview.",
+            "eliv": "see scout workflow",
+        },
+        {
+            "name": "branch_status",
+            "params": [],
+            "cost": "free",
+            "speed": "fast",
+            "desc": "Git branch status: current branch, commits ahead of base, PR info (if gh installed), diff stat. Use when user asks about branch status, what's on this branch, PR status, commits, or diff vs main/master.",
+            "eliv": "branch info, commits, PR",
+        },
+        {
+            "name": "help",
+            "params": [],
+            "cost": "llm",
+            "speed": "medium",
+            "desc": "List scout capabilities and suggest what to try based on repo state. Use when user asks what scout can do, or is unsure how to proceed.",
+            "eliv": "ask what I do",
+        },
+    ]
 
 
-def _parse_imports(content: str, repo_root: Path) -> List[str]:
-    """Extract import targets and resolve to repo paths where possible."""
-    import_re = re.compile(
-        r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))\s"
-    )
-    results: List[str] = []
-    seen: set = set()
-    for line in content.splitlines():
-        m = import_re.match(line)
-        if m:
-            mod = (m.group(1) or m.group(2) or "").split()[0]
-            if not mod or mod.startswith("."):
-                continue
-            path = _module_to_path(repo_root, mod)
-            if path and path not in seen:
-                seen.add(path)
-                results.append(path)
-    return results[:15]
+def get_valid_tool_names() -> set[str]:
+    """Tool names that can be dispatched."""
+    return {t["name"] for t in get_tools()}
 
 
-def query_for_deps(path: Path) -> List[str]:
-    """
-    Resolve dependencies for a Python file path.
-
-    Returns a list of repo-relative paths that the given file imports.
-    Used by doc_generation for dependency-aware documentation.
-
-    Args:
-        path: Absolute path to a Python file.
-
-    Returns:
-        List of repo-relative dependency paths.
-    """
-    repo_root = Path.cwd().resolve()
-    try:
-        target_file = str(path.resolve().relative_to(repo_root))
-    except ValueError:
-        return []
-    fp = repo_root / target_file
-    if not fp.exists() or not fp.is_file() or fp.suffix != ".py":
-        return []
-    try:
-        content = fp.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    return _parse_imports(content, repo_root)
+def get_tools_minimal() -> list[dict[str, str]]:
+    """Minimal tool list for routing (name + desc only). Keeps Groq under context limits."""
+    return [{"name": t["name"], "desc": t["desc"]} for t in get_tools()]
