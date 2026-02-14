@@ -27,6 +27,9 @@ jobs:
       - name: Run core test suite
         run: pytest -q -m "not integration and not e2e"
 
+      - name: Scout Smoke Tests
+        run: ./devtools/scout-smoke-test.sh
+
       # Coverage floor prevents regression in critical runtime paths
       - name: Enforce runtime coverage
         run: |
