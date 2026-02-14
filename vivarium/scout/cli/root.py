@@ -22,6 +22,12 @@ from vivarium.scout.config import EnvLoader
 # TICKET-17: Auto-load .env for commit/pr/ship (no manual source required)
 EnvLoader.load(Path.cwd() / ".env")
 
+from vivarium.scout.config import ScoutConfig
+from vivarium.scout.router import (
+    BudgetExhaustedError,
+    DRAFT_COST_PER_FILE,
+    check_budget_with_message,
+)
 from vivarium.scout.doc_generation import (
     find_stale_files,
     get_downstream_impact,
@@ -143,7 +149,10 @@ def _cmd_ship_dry_run_full(
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
         msg_path = Path(f.name)
     try:
-        router.prepare_commit_msg(msg_path)
+        try:
+            router.prepare_commit_msg(msg_path)
+        except BudgetExhaustedError:
+            return 2  # TICKET-86: distinct exit code for budget exhaustion
         message = msg_path.read_text(encoding="utf-8").strip()
     finally:
         msg_path.unlink(missing_ok=True)
@@ -195,6 +204,12 @@ def _cmd_ship(args: argparse.Namespace) -> int:
         print("No staged .py/.js files. Run: git add <files>", file=sys.stderr)
         return 1
 
+    # TICKET-86: Pre-flight hourly budget check before any LLM calls
+    config = ScoutConfig()
+    estimated_cost = budget + len(py_files) * DRAFT_COST_PER_FILE
+    if not check_budget_with_message(config, estimated_cost=estimated_cost):
+        return 2
+
     steps = [
         ("doc-sync", f"scout-doc-sync generate -t vivarium -r --changed-only --staged --budget {budget}"),
         ("drafts", "router.prepare_commit_msg (generate commit + PR drafts)"),
@@ -231,7 +246,10 @@ def _cmd_ship(args: argparse.Namespace) -> int:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
         msg_path = Path(f.name)
     try:
-        router.prepare_commit_msg(msg_path)
+        try:
+            router.prepare_commit_msg(msg_path)
+        except BudgetExhaustedError:
+            return 2  # TICKET-86: distinct exit code for budget exhaustion
         message = msg_path.read_text(encoding="utf-8").strip()
         if not message or "No staged" in message or len(message) < 10:
             print(

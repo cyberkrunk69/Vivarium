@@ -2,13 +2,17 @@
 # devtools/scout-doc-sync — Documentation sync tool for Python files
 # Generates .tldr.md and .deep.md using LLM. Requires GROQ_API_KEY.
 set -e
-# Load .env if present
-if [ -f "$PWD/.env" ]; then
-  export $(grep -v '^#' "$PWD/.env" | xargs)
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# TICKET-17: Load .env from repo root before any Python runs
+if [ -f "$REPO_ROOT/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  . "$REPO_ROOT/.env"
+  set +a
+fi
 # shellcheck source=_internal/common/utils.sh
 source "$SCRIPT_DIR/_internal/common/utils.sh"
 load_dotenv "$REPO_ROOT"

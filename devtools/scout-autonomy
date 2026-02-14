@@ -55,17 +55,21 @@ enable_hook() {
 PRE_COMMIT_CONTENT='#!/bin/bash
 # Installed by scout-autonomy enable
 set -e
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+source "$REPO_ROOT/devtools/_internal/common/utils.sh"
+cd "$REPO_ROOT"
 if [[ -d vivarium ]]; then
   ./devtools/scout-doc-sync generate --target vivarium --recursive --changed-only --staged --budget 0.10 -q || true
 fi
 '
 
-# Pre-push: validate stale + PR draft
+# Pre-push: validate stale + PR draft (scout-doc-sync validate --stale is correct)
 PRE_PUSH_CONTENT='#!/bin/bash
 # Installed by scout-autonomy enable
 set -e
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+source "$REPO_ROOT/devtools/_internal/common/utils.sh"
+cd "$REPO_ROOT"
 if [[ -d vivarium ]]; then
   ./devtools/scout-doc-sync validate --stale && ./devtools/scout-pr --auto-draft
 fi
@@ -74,11 +78,13 @@ fi
 # Post-commit: proactive echo — invalidate dependency graph for changed files (<100ms)
 POST_COMMIT_CONTENT='#!/bin/bash
 # Installed by scout-autonomy enable
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+source "$REPO_ROOT/devtools/_internal/common/utils.sh"
+cd "$REPO_ROOT"
 if [[ -d vivarium ]]; then
-  export PYTHONPATH="$(pwd)"
-  python3 -c "
-from pathlib import Path
+  export PYTHONPATH="$REPO_ROOT"
+  PYTHON=$(find_python "$REPO_ROOT")
+  "$PYTHON" -c "
 from vivarium.scout.git_analyzer import get_files_in_last_commit
 from vivarium.scout.router import on_git_commit
 changed = get_files_in_last_commit()
@@ -92,9 +98,11 @@ fi
 PREPARE_COMMIT_MSG_CONTENT='#!/bin/bash
 # Installed by scout-autonomy enable-commit
 msg_file="${1:?}"
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+source "$REPO_ROOT/devtools/_internal/common/utils.sh"
+cd "$REPO_ROOT"
 if [[ -d vivarium ]]; then
-  python3 -m vivarium.scout prepare-commit-msg "$msg_file" || true
+  $(find_python "$REPO_ROOT") -m vivarium.scout prepare-commit-msg "$msg_file" || true
 fi
 '
 

@@ -7,6 +7,21 @@ ensure_path() {
   export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 }
 
+# Prefer venv python, else python3. Used by scout-doc-sync, scout-commit, scout-pr, scout-ship, scout-query, scout-nav, scout-brief, scout-index, scout-roast.
+# Priority: ./venv/bin/python > ./.venv/bin/python > python3 from PATH
+find_python() {
+  local repo_root="${1:-.}"
+  if [[ -x "$repo_root/venv/bin/python" ]]; then
+    echo "$repo_root/venv/bin/python"
+  elif [[ -x "$repo_root/.venv/bin/python" ]]; then
+    echo "$repo_root/.venv/bin/python"
+  elif command -v python3 &>/dev/null; then
+    echo "python3"
+  else
+    echo "python"
+  fi
+}
+
 # Load .env from repo root if present (for API keys, etc.)
 # Usage: load_dotenv "$REPO_ROOT"
 load_dotenv() {

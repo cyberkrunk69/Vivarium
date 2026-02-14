@@ -19,13 +19,35 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+from vivarium.scout.config import EnvLoader
 
-load_dotenv()
+# TICKET-17: Auto-load .env for query (GEMINI_API_KEY)
+EnvLoader.load(Path.cwd() / ".env")
 
 
 def _repo_root() -> Path:
     return Path.cwd().resolve()
+
+
+def validate_scope_path(scope: str, repo_root: str) -> Path:
+    """
+    Validate that scope path:
+    1. Exists
+    2. Is under repo_root (no directory traversal)
+    3. Is a directory (for module queries) or file
+    """
+    scope_path = Path(scope).resolve()
+    repo_path = Path(repo_root).resolve()
+
+    try:
+        scope_path.relative_to(repo_path)
+    except ValueError:
+        raise ValueError(f"Scope path {scope} is outside repository root")
+
+    if not scope_path.exists():
+        raise ValueError(f"Scope path {scope} does not exist")
+
+    return scope_path
 
 
 def _collect_docs(
@@ -158,16 +180,20 @@ def _copy_to_clipboard(text: str) -> bool:
     return False
 
 
-async def run_query_async(query: str) -> tuple[str, Path]:
+async def run_query_async(
+    query: str,
+    scope_override: str | None = None,
+) -> tuple[str, Path, bool]:
     """
     Interpret natural language via big brain, then run scout backend.
-    Returns (markdown_content, output_file_path).
+    Returns (markdown_content, output_file_path, did_copy).
+    When scope_override is provided, limits search to that subtree.
     """
     from vivarium.scout.big_brain import interpret_query_async
 
     repo_root = _repo_root()
     spec = await interpret_query_async(query)
-    scope = spec.get("scope", "vivarium/scout")
+    scope = scope_override if scope_override is not None else spec.get("scope", "vivarium/scout")
     include_deep = spec.get("include_deep", False)
     copy_to_clipboard = spec.get("copy_to_clipboard", True)
 
@@ -198,6 +224,11 @@ def main() -> int:
         description="Natural language repo search. Big brain interprets your request; outputs to clipboard and docs/temp/.",
     )
     parser.add_argument(
+        "--scope",
+        metavar="PATH",
+        help="Limit query to specific module/directory",
+    )
+    parser.add_argument(
         "query",
         nargs="+",
         metavar="Q",
@@ -210,7 +241,21 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    md, out_path, did_copy = asyncio.run(run_query_async(query))
+    scope_override: str | None = None
+    if args.scope is not None:
+        repo_root = _repo_root()
+        try:
+            validated = validate_scope_path(args.scope, str(repo_root))
+            scope_override = str(validated.relative_to(repo_root)).replace("\\", "/")
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    try:
+        md, out_path, did_copy = asyncio.run(run_query_async(query, scope_override=scope_override))
+    except (EnvironmentError, RuntimeError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     if not out_path:
         print(md, file=sys.stderr)

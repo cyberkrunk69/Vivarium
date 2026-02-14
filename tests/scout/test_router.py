@@ -11,7 +11,12 @@ import pytest
 from vivarium.scout.audit import AuditLog
 from vivarium.scout.config import ScoutConfig, HARD_MAX_COST_PER_EVENT, HARD_MAX_HOURLY_BUDGET
 from vivarium.scout.ignore import IgnorePatterns
-from vivarium.scout.router import TriggerRouter, NavResult
+from vivarium.scout.router import (
+    BudgetExhaustedError,
+    TriggerRouter,
+    NavResult,
+    check_budget_with_message,
+)
 from vivarium.scout.validator import Validator, ValidationResult, validate_location
 
 
@@ -156,6 +161,34 @@ def test_hourly_budget_enforcement(tmp_repo, audit_path):
     should = config.should_process(0.1, hourly_spend=spend)
     assert not should
     audit.close()
+
+
+def test_check_budget_with_message_exhausted(capsys, tmp_repo, audit_path):
+    """TICKET-86: check_budget_with_message returns False and prints actionable error."""
+    config = ScoutConfig(search_paths=[])
+    config._raw.setdefault("limits", {})["hourly_budget"] = 0.01
+    mock_audit = AuditLog(path=audit_path)
+    for _ in range(5):
+        mock_audit.log("nav", cost=0.005)  # Total 0.025 > 0.01 limit
+    result = check_budget_with_message(config, estimated_cost=0.01, audit=mock_audit)
+    mock_audit.close()
+    assert result is False
+    captured = capsys.readouterr()
+    assert "ERROR: Hourly budget exhausted" in captured.err
+    assert "Options:" in captured.err
+    assert "Wait for next hour" in captured.err
+    assert "limits.hourly_budget" in captured.err
+    assert "--no-ai or --offline" in captured.err
+
+
+def test_check_budget_with_message_ok(tmp_repo, audit_path):
+    """check_budget_with_message returns True when budget available."""
+    config = ScoutConfig(search_paths=[])
+    config._raw.setdefault("limits", {})["hourly_budget"] = 1.0
+    audit = AuditLog(path=audit_path)
+    result = check_budget_with_message(config, estimated_cost=0.01, audit=audit)
+    audit.close()
+    assert result is True
 
 
 # --- Session ID ---

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # repo-map.sh — Pure structural inventory for Python/GitHub repos
 # Principle: programmatic discovery first (find, grep, awk); LLM only if needed for interpretation.
-# Output: devtools/repo-map/repo-map_YYYY-MM-DD_HH-MM-SS.md — single consolidated markdown file
+# Output: devtools/outputs/repo-map/repo-map_YYYY-MM-DD_HH-MM-SS.md — single consolidated markdown file
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEVTOOLS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEVTOOLS_ROOT="$SCRIPT_DIR"
 REPO_ROOT="$(cd "$DEVTOOLS_ROOT/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -22,7 +22,7 @@ if [[ ! -f requirements.txt ]] || [[ ! -d .github/workflows ]]; then
 fi
 
 # Source common utilities
-# shellcheck source=../_internal/common/utils.sh
+# shellcheck source=_internal/common/utils.sh
 source "$DEVTOOLS_ROOT/_internal/common/utils.sh"
 ensure_path
 load_dotenv "$REPO_ROOT"
@@ -31,7 +31,7 @@ load_dotenv "$REPO_ROOT"
 EXCLUDE=".git|venv|.venv|__pycache__|node_modules|.pytest_cache"
 
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-OUT_DIR="$DEVTOOLS_ROOT/repo-map"
+OUT_DIR="$DEVTOOLS_ROOT/outputs/repo-map"
 OUT_FILE="$OUT_DIR/repo-map_${TIMESTAMP}.md"
 mkdir -p "$OUT_DIR"
 

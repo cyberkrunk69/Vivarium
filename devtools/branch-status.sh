@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # branch-status.sh — Branch status, unmerged commits, PR info, diff-stat vs master
-# Output: devtools/branch-status/branch-status_YYYY-MM-DD_HH-MM-SS.md (single artifact, lean)
+# Output: devtools/outputs/branch-status/branch-status_YYYY-MM-DD_HH-MM-SS.md (single artifact, lean)
 # READ-ONLY: Never modifies repo state.
 
 set -euo pipefail
@@ -9,19 +9,19 @@ MAX_COMMITS=50
 MAX_SUBJECT_LEN=65
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEVTOOLS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEVTOOLS_ROOT="$SCRIPT_DIR"
 REPO_ROOT="$(cd "$DEVTOOLS_ROOT/.." && pwd)"
 [[ -f "$REPO_ROOT/requirements.txt" ]] || { echo "❌ Not a Vivarium repo root (requirements.txt missing)"; exit 1; }
 cd "$REPO_ROOT"
 
 # Source common utilities
-# shellcheck source=../_internal/common/utils.sh
+# shellcheck source=_internal/common/utils.sh
 source "$DEVTOOLS_ROOT/_internal/common/utils.sh"
 ensure_path
 load_dotenv "$REPO_ROOT"
 
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-OUT_DIR="$DEVTOOLS_ROOT/branch-status"
+OUT_DIR="$DEVTOOLS_ROOT/outputs/branch-status"
 OUT_FILE="$OUT_DIR/branch-status_${TIMESTAMP}.md"
 mkdir -p "$OUT_DIR"
 

@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# scout-reset — Scout Factory Reset Utility
+# Purges Scout-generated artifacts for "fresh clone" testing.
+# Dry-run by default; use --confirm to delete.
+# Outputs: devtools/outputs/scout-reset/reset_YYYYMMDD_HHMMSS.log
+# Exit: 0 = success/nothing to do, 1 = error, 2 = user cancelled
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEVTOOLS_ROOT="$SCRIPT_DIR"
+REPO_ROOT="$(cd "$DEVTOOLS_ROOT/.." && pwd)"
+[[ -f "$REPO_ROOT/requirements.txt" ]] || { echo "❌ Not a Vivarium repo root"; exit 1; }
+
+# shellcheck source=_internal/common/utils.sh
+source "$SCRIPT_DIR/_internal/common/utils.sh"
+ensure_path
+# shellcheck source=_internal/scout-reset/scout-reset-lib.sh
+source "$SCRIPT_DIR/_internal/scout-reset/scout-reset-lib.sh"
+
+CONFIRM=0
+FULL=0
+DOCS_ONLY=0
+DRAFTS_ONLY=0
+CACHE_ONLY=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --confirm) CONFIRM=1; shift ;;
+    --full) FULL=1; shift ;;
+    --docs-only) DOCS_ONLY=1; shift ;;
+    --drafts-only) DRAFTS_ONLY=1; shift ;;
+    --cache-only) CACHE_ONLY=1; shift ;;
+    -h|--help)
+      echo "scout-reset — Purge Scout-generated artifacts"
+      echo ""
+      echo "Usage: ./devtools/scout-reset [options]"
+      echo "  (default)     Dry-run: show what would be deleted"
+      echo "  --confirm     Actually delete"
+      echo "  --full        Include audit.jsonl and config files"
+      echo "  --docs-only   Only living docs (.docs/, docs/livingDoc/)"
+      echo "  --drafts-only Only docs/drafts/*.commit.txt, *.pr.md, *.pr.txt"
+      echo "  --cache-only  Only index, deps graph, raw_briefs, call_graph"
+      echo ""
+      echo "Exit: 0=success, 1=error, 2=cancelled"
+      exit 0
+      ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+# Discover artifacts
+if [[ "$FULL" == "1" ]]; then
+  discover_scout_artifacts "$REPO_ROOT" "full"
+else
+  discover_scout_artifacts "$REPO_ROOT" ""
+fi
+
+# Apply category filter if requested
+if [[ "$DOCS_ONLY" == "1" ]]; then
+  filter_by_category "$REPO_ROOT" "docs-only"
+elif [[ "$DRAFTS_ONLY" == "1" ]]; then
+  filter_by_category "$REPO_ROOT" "drafts-only"
+elif [[ "$CACHE_ONLY" == "1" ]]; then
+  filter_by_category "$REPO_ROOT" "cache-only"
+fi
+
+calculate_impact
+
+# Recompute count of valid (non-empty, existing) paths
+VALID_COUNT=0
+for p in "${DISCOVERED_PATHS[@]:-}"; do
+  [[ -n "$p" ]] && [[ -f "$p" ]] && ((VALID_COUNT++)) || true
+done
+
+if [[ "$VALID_COUNT" -eq 0 ]]; then
+  echo "Nothing to delete. Scout artifacts are clean."
+  exit 0
+fi
+
+SIZE_STR=$(format_size "$ARTIFACT_SIZE_BYTES")
+echo "=== Scout Reset ==="
+echo "Found $VALID_COUNT generated file(s) (~${SIZE_STR})"
+echo ""
+echo "Would delete:"
+for p in "${DISCOVERED_PATHS[@]:-}"; do
+  [[ -n "$p" ]] && [[ -f "$p" ]] && echo "  $p"
+done
+echo ""
+
+if [[ "$CONFIRM" == "0" ]]; then
+  echo "[DRY-RUN] Use --confirm to actually delete."
+  exit 0
+fi
+
+# --confirm: optional interactive prompt (pipe "y" for non-interactive)
+echo -n "Delete these $VALID_COUNT file(s)? [y/N] "
+read -r reply || reply=""
+reply_lower=$(echo "$reply" | tr '[:upper:]' '[:lower:]')
+if [[ "$reply_lower" != "y" ]] && [[ "$reply_lower" != "yes" ]]; then
+  echo "Cancelled."
+  exit 2
+fi
+
+# Setup log and perform reset
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+OUT_DIR="$DEVTOOLS_ROOT/outputs/scout-reset"
+mkdir -p "$OUT_DIR"
+LOG_FILE="$OUT_DIR/reset_${TIMESTAMP}.log"
+export LOG_FILE REPO_ROOT
+
+reset_scout
+echo ""
+echo "Log: $LOG_FILE"
+echo "Done. Scout artifacts purged."
+exit 0

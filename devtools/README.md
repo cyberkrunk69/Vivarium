@@ -16,6 +16,7 @@ devtools/
 ├── scout                        # scout "user input" — nat-lang, no flags (at repo root)
 ├── scout-nav                   # Scout navigation CLI (find code in 2s)
 ├── scout-index                 # Local code search (ctags + SQLite, zero LLM)
+├── scout-query                 # Natural language repo search via living docs
 ├── scout-brief                 # Scout investigation plan CLI (briefing for expensive models)
 ├── scout-doc-sync              # Doc sync (generate .tldr.md / .deep.md via LLM)
 ├── scout-commit                # Scout commit CLI (assemble message from docs/drafts/*.commit.txt)
@@ -25,21 +26,29 @@ devtools/
 ├── scout-ci-guard              # CI validation (.tldr coverage, confidence, spend)
 ├── scout-smoke-test.sh         # End-to-end smoke test for draft system (works offline)
 ├── scout-roast                 # Scout Roast CLI (efficiency reports + impact-aware critique)
+├── paste-runner                # Execute paste blocks with preview + confirmation
+├── paste-runner-gui.app       # One-click launcher for paste-runner
 ├── ci-status.command           # One-click launcher (double-click in Finder)
 ├── ci-status-gui.app           # GUI launchers (one-click from Finder)
 ├── branch-status-gui.app
 ├── repo-map-gui.app
 ├── commit-message-gen-gui.app
 ├── pr-message-gen-gui.app
-├── scripts/                    # CLI/script utilities (helpers, find_python, etc.)
 ├── git-hooks/                  # Git hooks (post-commit, prepare-commit-msg)
 ├── ci/                         # CI-specific runners (scout-ci-guard, run_tests, lint)
 ├── gui/                        # Optional: GUI asset bundlers
 ├── _internal/                  # Internal logic, shared libs, supporting files
 │   ├── ci-status/              # Dry-run + execute split, ci-status-lib.py
+│   ├── paste-runner/           # paste-runner-lib.sh (clean, preview, execute)
 │   ├── common/                 # utils.sh, api-confirm.sh
 │   ├── commit-message-gen/     # commit-message-lib.py
 │   └── pr-message-gen/         # pr-message-lib.py
+├── outputs/                    # All generated artifacts (gitignored)
+│   ├── ci-status/
+│   ├── branch-status/
+│   ├── repo-map/
+│   ├── pr-message-gen/
+│   └── paste-runner/
 └── README.md
 ```
 
@@ -65,12 +74,14 @@ Scout interprets natural language and routes to the right tool. Big brain decide
 
 **Via natural language:** index search, query docs, sync docs, nav, brief, status, help.
 
+**Paste Runner:** Execute paste blocks from `paste_block.txt` with preview and confirmation. Use `./devtools/paste-runner` (or `--dry-run`), or double-click `paste-runner-gui.app`.
+
 **Other devtools:** Double-click `.app` files in Finder, or run scripts in `devtools/`:
 
 - `./devtools/ci-status.sh`, `./devtools/branch-status.sh`, `./devtools/repo-map.sh`
 - `./devtools/commit-message-gen.sh`, `./devtools/pr-message-gen.sh`
 
-**Direct scout tools (flags):** `scout-nav`, `scout-index`, `scout-brief`, `scout-doc-sync`, `scout-commit`, `scout-pr`, `scout-ship`, `scout-status`, `scout-ci-guard`, `scout-roast`. Use when scripting or when you need a specific tool.
+**Direct scout tools (flags):** `scout-nav`, `scout-index`, `scout-query`, `scout-brief`, `scout-doc-sync`, `scout-commit`, `scout-pr`, `scout-ship`, `scout-status`, `scout-ci-guard`, `scout-roast`. Use when scripting or when you need a specific tool.
 
 ## Testing the Draft System
 
@@ -82,6 +93,16 @@ pytest tests/scout/test_draft_*.py -v
 ```
 
 Smoke test works offline (no API key needed). When `GROQ_API_KEY` is set, it also exercises scout-doc-sync and prepare-commit-msg draft generation.
+
+## Smoke Testing
+
+Verify hardening requirements on fresh clone:
+
+```bash
+./devtools/scout-smoke-test.sh
+```
+
+Covers: wrapper executables, find_python helper, git hooks, module entrypoints, and doc_sync repair exit code. Exit 0 = all critical paths work.
 
 ## Python Environment
 
@@ -111,7 +132,7 @@ Scripts that may incur API costs (e.g., ci-status with Groq) use a consistent co
 
 Branch status, unmerged commits, PR info, and diff-stat vs base (master). Lean output (~10KB).
 
-**Output:** `devtools/branch-status/branch-status_YYYY-MM-DD_HH-MM-SS.md`
+**Output:** `devtools/outputs/branch-status/branch-status_YYYY-MM-DD_HH-MM-SS.md`
 
 ## commit-message-gen
 
@@ -127,7 +148,7 @@ Generate a draft conventional commit message from staged changes. Uses programma
 
 Generate a draft PR description from branch commits, CI status, and repo map. Runs `branch-status.sh`, `ci-status.sh`, and `repo-map.sh` to gather data, then formats a Markdown template with Summary, Affected Areas, CI Status, Testing checklist, and Related Issues. Uses programmatic parsing only — no LLM.
 
-**Output:** `devtools/pr-message-gen/PR_DESCRIPTION_YYYYMMDD_HHMMSS.md` (and clipboard on macOS)
+**Output:** `devtools/outputs/pr-message-gen/PR_DESCRIPTION_YYYYMMDD_HHMMSS.md` (and clipboard on macOS)
 
 **Requirements:** `gh` optionally for CI status and related issues. Repo map requires macOS.
 
@@ -147,6 +168,18 @@ Local code search — zero LLM calls. Uses ctags + ripgrep + SQLite FTS5 for ins
 **Requirements:** `ctags` (Universal Ctags recommended: `brew install universal-ctags`). Optional: `rg` (ripgrep) for content search.
 
 **Output:** Index stored in `.scout/index.db`. scout-nav uses it when confidence ≥80% (free); otherwise falls back to LLM ($0.002).
+
+## scout-query
+
+Natural language repo search via living docs. Big brain (Gemini) interprets the query and collects relevant .tldr.md and .deep.md. Outputs to clipboard and `docs/temp/<timestamp>.md` (gitignored).
+
+**Usage:**
+- `./devtools/scout-query "get me everything about scout at a deep level"`
+- `./devtools/scout-query "scout router and nav"`
+
+**Requirements:** `GEMINI_API_KEY` (env or .env), `vivarium`
+
+**Output:** Clipboard + `docs/temp/<timestamp>.md`
 
 ## scout-nav
 
@@ -339,13 +372,13 @@ Scout Roast CLI — efficiency reports and impact-aware code critique. "Big AI h
 
 Pure structural inventory for Python/GitHub repos. Uses programmatic discovery (find, grep, awk) — no LLM. Output includes file tree, dependencies, workflows, imports, tests, docs, git signals, and markers (TODO/FIXME).
 
-**Output:** `devtools/repo-map/repo-map_YYYY-MM-DD_HH-MM-SS.md`
+**Output:** `devtools/outputs/repo-map/repo-map_YYYY-MM-DD_HH-MM-SS.md`
 
 ## ci-status
 
 CI/CD status for current branch (workflows, jobs, runs). Compact summaries for passing jobs; full details (workflow, job, conclusion, timestamps, failure logs) for failed jobs.
 
-**Output:** `devtools/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.md`
+**Output:** `devtools/outputs/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.md`
 
 Requires `gh` CLI (authenticated). Uses `gh run list` and `gh run view`.
 

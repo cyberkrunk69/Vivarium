@@ -122,6 +122,10 @@ Answer with JSON only:
     )
 
     parsed = _parse_nav_json(response.content)
+    if isinstance(parsed, list) and parsed:
+        parsed = parsed[0]
+    elif not isinstance(parsed, dict):
+        parsed = {}
     suggestion = {
         "file": parsed.get("file", rel),
         "line": parsed.get("line"),

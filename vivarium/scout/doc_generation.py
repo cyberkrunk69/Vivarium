@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from vivarium.scout.adapters.base import SymbolTree
 from vivarium.scout.adapters.registry import get_adapter_for_path
@@ -516,6 +516,55 @@ def _fallback_template_content(symbol: SymbolTree, kind: str) -> str:
     return f"{header}{symbol.name}"
 
 
+def validate_no_placeholders(content: str, filepath: str) -> Tuple[bool, List[str]]:
+    """
+    Check for GAP/FALLBACK placeholders in generated content.
+
+    Returns:
+        (is_valid, list_of_found_markers).
+    """
+    forbidden = ["[FALLBACK]", "[GAP]", "[PLACEHOLDER]"]
+    found: List[str] = []
+    for marker in forbidden:
+        if marker in content:
+            found.append(marker)
+    return (len(found) == 0, found)
+
+
+def validate_content_for_placeholders(
+    target_path: Path,
+    *,
+    recursive: bool = True,
+) -> Tuple[bool, List[Tuple[str, List[str]]]]:
+    """
+    Scan all .tldr.md, .deep.md, .eliv.md files under target for placeholders.
+
+    Returns:
+        (all_clean, list of (filepath, list_of_markers) for violations).
+    """
+    target_path = Path(target_path).resolve()
+    violations: List[Tuple[str, List[str]]] = []
+
+    patterns = ["**/*.tldr.md", "**/*.deep.md", "**/*.eliv.md"] if recursive else ["*.tldr.md", "*.deep.md", "*.eliv.md"]
+    for pattern in patterns:
+        for f in target_path.glob(pattern):
+            if not f.is_file() or "__pycache__" in str(f):
+                continue
+            try:
+                content = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            is_valid, found = validate_no_placeholders(content, str(f))
+            if not is_valid:
+                try:
+                    rel = str(f.relative_to(Path.cwd().resolve()))
+                except ValueError:
+                    rel = str(f)
+                violations.append((rel, found))
+
+    return (len(violations) == 0, violations)
+
+
 def validate_generated_docs(
     symbol: SymbolTree | Dict[str, Any],
     tldr_content: str,
@@ -932,11 +981,11 @@ def _rel_path_for_display(path: Path) -> str:
         return str(path)
 
 
-def _trace_file(
+async def _trace_file(
     target_path: Path,
     *,
     language_override: Optional[str] = None,
-    dependencies_func: Optional[Callable[[Path], List[str]]] = None,
+    dependencies_func: Optional[Callable[[Path], Union[List[str], Awaitable[List[str]]]]] = None,
     slot_id: Optional[int] = None,
     shared_display: Optional[Dict[str, Any]] = None,
 ) -> TraceResult:
@@ -951,7 +1000,11 @@ def _trace_file(
 
     dependencies: List[str] = []
     if dependencies_func:
-        dependencies = dependencies_func(target_path) or []
+        result = dependencies_func(target_path)
+        if asyncio.iscoroutine(result):
+            dependencies = (await result) or []
+        else:
+            dependencies = result or []
 
     symbols_to_doc: List[SymbolTree] = []
     for child in root_tree.children:
@@ -1107,6 +1160,7 @@ async def process_single_file_async(
     shared_display: Optional[Dict[str, Any]] = None,
     progress_callback: Optional[Callable[[float], None]] = None,
     fallback_template: bool = False,
+    no_fallback: bool = False,
     versioned_mirror_dir: Optional[Path] = None,
 ) -> FileProcessResult:
     """
@@ -1152,7 +1206,7 @@ async def process_single_file_async(
 
     # Phase 1: pure static analysis — instant, no LLM
     try:
-        trace = _trace_file(
+        trace = await _trace_file(
             target_path,
             language_override=language_override,
             dependencies_func=dependencies_func,
@@ -1203,6 +1257,28 @@ async def process_single_file_async(
             progress_callback=progress_callback,
         )
     )
+
+    # TICKET-89: Validate no GAP/FALLBACK placeholders before writing
+    for label, content in [
+        ("tldr", tldr_agg_content),
+        ("deep", deep_agg_content),
+        ("eliv", eliv_agg_content),
+    ]:
+        if content:
+            is_valid, found = validate_no_placeholders(content, str(target_path))
+            if not is_valid:
+                if no_fallback:
+                    raise ValueError(
+                        f"Placeholder(s) {found} found in {target_path} ({label}); "
+                        "refusing to write (--no-fallback). Remove flag to allow placeholders."
+                    )
+                for marker in found:
+                    logger.warning(
+                        "Placeholder %s found in %s (%s); writing anyway",
+                        marker,
+                        target_path,
+                        label,
+                    )
 
     if not tldr_agg_content.strip() and not deep_agg_content.strip():
         msg = (
@@ -1473,6 +1549,7 @@ async def _process_file_with_semaphore(
     slot_queue: Optional[asyncio.Queue] = None,
     shared_display: Optional[Dict[str, Any]] = None,
     fallback_template: bool = False,
+    no_fallback: bool = False,
     versioned_mirror_dir: Optional[Path] = None,
 ) -> FileProcessResult:
     """Process a single file with semaphore for concurrency control."""
@@ -1497,6 +1574,7 @@ async def _process_file_with_semaphore(
                 shared_display=shared_display,
                 progress_callback=_progress_cb,
                 fallback_template=fallback_template,
+                no_fallback=no_fallback,
                 versioned_mirror_dir=versioned_mirror_dir,
             )
         finally:
@@ -1536,6 +1614,7 @@ async def process_directory_async(
     force: bool = False,
     changed_files: Optional[List[Path]] = None,
     fallback_template: bool = False,
+    no_fallback: bool = False,
     versioned_mirror_dir: Optional[Path] = None,
 ) -> None:
     """
@@ -1732,6 +1811,7 @@ async def process_directory_async(
                 slot_queue=slot_queue,
                 shared_display=shared_display,
                 fallback_template=fallback_template,
+                no_fallback=no_fallback,
                 versioned_mirror_dir=versioned_mirror_dir,
             )
         except (ValueError, OSError) as e:
@@ -1844,6 +1924,7 @@ def process_directory(
     force: bool = False,
     changed_files: Optional[List[Path]] = None,
     fallback_template: bool = False,
+    no_fallback: bool = False,
     versioned_mirror_dir: Optional[Path] = None,
 ) -> None:
     """
@@ -1878,6 +1959,7 @@ def process_directory(
             force=force,
             changed_files=changed_files,
             fallback_template=fallback_template,
+            no_fallback=no_fallback,
             versioned_mirror_dir=versioned_mirror_dir,
         )
     )

@@ -13,7 +13,7 @@ APP_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 DEVTOOLS_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$APP_PATH")")")" && pwd)"
 REPO_ROOT="$(cd "$(dirname "$DEVTOOLS_ROOT")" && pwd)"
 
-COMMIT_MSG_SCRIPT="$REPO_ROOT/devtools/scripts/commit-message-gen.sh"
+COMMIT_MSG_SCRIPT="$REPO_ROOT/devtools/commit-message-gen.sh"
 
 # Run script (disable auto clipboard so we control it)
 output=""

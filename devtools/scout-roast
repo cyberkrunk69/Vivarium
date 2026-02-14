@@ -1,0 +1,14 @@
+#!/bin/bash
+# devtools/scout-roast — Scout Roast CLI
+# Generate efficiency reports from audit logs. "Big AI hates this one simple trick."
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=_internal/common/utils.sh
+source "$SCRIPT_DIR/_internal/common/utils.sh"
+load_dotenv "$REPO_ROOT"
+
+cd "$REPO_ROOT"
+PYTHON=$(find_python "$REPO_ROOT")
+exec "$PYTHON" -m vivarium.scout.cli.roast "$@"

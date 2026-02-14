@@ -10,9 +10,10 @@ import argparse
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from vivarium.scout.audit import AuditLog
+from vivarium.scout.doc_generation import validate_content_for_placeholders
 from vivarium.scout.git_analyzer import get_changed_files
 from vivarium.scout.ignore import IgnorePatterns
 
@@ -77,6 +78,19 @@ def _check_hourly_spend(
     return (True, [])
 
 
+def _check_no_placeholders(
+    repo_root: Path,
+    target: Path,
+) -> Tuple[bool, List[str]]:
+    """Check no generated docs contain [FALLBACK]/[GAP]/[PLACEHOLDER]. Returns (ok, errors)."""
+    errors: List[str] = []
+    all_clean, violations = validate_content_for_placeholders(target, recursive=True)
+    if not all_clean:
+        for filepath, markers in violations:
+            errors.append(f"Placeholder {markers} in {filepath}")
+    return (len(errors) == 0, errors)
+
+
 def _check_draft_events_recent(
     audit: AuditLog,
     hours: int = 24,
@@ -97,6 +111,8 @@ def run_ci_guard(
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
     require_draft_events: bool = False,
     draft_events_hours: int = 24,
+    check_placeholders: bool = True,
+    placeholders_target: Optional[Path] = None,
 ) -> Tuple[bool, List[str]]:
     """
     Run all CI checks. Returns (all_passed, list of error messages).
@@ -141,6 +157,13 @@ def run_ci_guard(
         if not ok:
             errors.extend(errs)
 
+    if check_placeholders:
+        target = placeholders_target or root / "vivarium"
+        if target.exists():
+            ok, errs = _check_no_placeholders(root, target)
+            if not ok:
+                errors.extend(errs)
+
     audit.close()
     return (len(errors) == 0, errors)
 
@@ -179,6 +202,19 @@ def main() -> int:
         default=24,
         help="Hours to look back for commit_draft events (default: 24)",
     )
+    parser.add_argument(
+        "--no-placeholders-check",
+        action="store_true",
+        dest="no_placeholders_check",
+        help="Skip check for [FALLBACK]/[GAP]/[PLACEHOLDER] in generated docs",
+    )
+    parser.add_argument(
+        "--placeholders-target",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Path to scan for placeholders (default: vivarium)",
+    )
     args = parser.parse_args()
 
     ok, errors = run_ci_guard(
@@ -188,6 +224,8 @@ def main() -> int:
         min_confidence=args.min_confidence,
         require_draft_events=args.require_draft_events,
         draft_events_hours=args.draft_events_hours,
+        check_placeholders=not getattr(args, "no_placeholders_check", False),
+        placeholders_target=getattr(args, "placeholders_target", None),
     )
 
     if not ok:

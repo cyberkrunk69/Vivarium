@@ -3,7 +3,9 @@
 # Populates commit message from scout drafts (gate + whimsy when SCOUT_WHIMSY=1)
 # Install: ./devtools/scout-autonomy enable-commit
 msg_file="${1:?}"
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+source "$REPO_ROOT/devtools/_internal/common/utils.sh"
+cd "$REPO_ROOT"
 if [[ -d vivarium ]]; then
-  python3 -m vivarium.scout prepare-commit-msg "$msg_file" || true
+  $(find_python "$REPO_ROOT") -m vivarium.scout prepare-commit-msg "$msg_file" || true
 fi

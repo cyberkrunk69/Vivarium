@@ -12,6 +12,6 @@ APP_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 DEVTOOLS_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$APP_PATH")")")" && pwd)"
 REPO_ROOT="$(cd "$(dirname "$DEVTOOLS_ROOT")" && pwd)"
 
-REPO_MAP_SCRIPT="$REPO_ROOT/devtools/scripts/repo-map.sh"
+REPO_MAP_SCRIPT="$REPO_ROOT/devtools/repo-map.sh"
 
 osascript -e 'tell application "Terminal" to activate' -e "tell application \"Terminal\" to do script \"cd $(printf '%q' "$REPO_ROOT") && $(printf '%q' "$REPO_MAP_SCRIPT")\""

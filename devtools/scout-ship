@@ -1,0 +1,22 @@
+#!/bin/bash
+# devtools/scout-ship — Autonomous ship: doc-sync → commit → push → PR draft
+# Requires staged files. Run: git add <files> && ./devtools/scout-ship
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# TICKET-17: Load .env from repo root before any Python/subprocess runs
+if [ -f "$REPO_ROOT/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  . "$REPO_ROOT/.env"
+  set +a
+fi
+# shellcheck source=_internal/common/utils.sh
+source "$SCRIPT_DIR/_internal/common/utils.sh"
+load_dotenv "$REPO_ROOT"
+
+cd "$REPO_ROOT"
+PYTHON=$(find_python "$REPO_ROOT")
+exec "$PYTHON" -m vivarium.scout.cli.root ship "$@"
