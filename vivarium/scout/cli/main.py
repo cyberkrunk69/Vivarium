@@ -108,11 +108,16 @@ def _cmd_on_commit(args: argparse.Namespace) -> int:
 
 def _cmd_prepare_commit_msg(args: argparse.Namespace) -> int:
     """Handle scout prepare-commit-msg (git hook). Populates commit message from drafts."""
+    from vivarium.scout.router import BudgetExhaustedError
+
     message_file = Path(args.message_file).resolve()
     if not message_file.exists():
         return 0
     router = TriggerRouter()
-    router.prepare_commit_msg(message_file)
+    try:
+        router.prepare_commit_msg(message_file)
+    except BudgetExhaustedError:
+        return 2  # TICKET-86: distinct exit code for budget exhaustion
     return 0
 
 

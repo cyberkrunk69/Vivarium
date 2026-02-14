@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ci-status-execute.sh — Execute CI status plan: prompt for confirmation, run Groq API, generate summary
 # Reads latest /tmp/ci_status_plan_*.json from dry-run. Prompts before making API calls.
-# Outputs: devtools/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.md (from plan)
+# Outputs: devtools/outputs/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.md (from plan)
 # READ-ONLY: Never modifies repo state.
 
 set -euo pipefail

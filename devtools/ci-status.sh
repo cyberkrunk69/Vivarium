@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ci-status.sh — Smart CI/CD status with processing log
 # Outputs:
-#   - devtools/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.md (summary)
-#   - devtools/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.log (processing details)
+#   - devtools/outputs/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.md (summary)
+#   - devtools/outputs/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.log (processing details)
 # READ-ONLY: Never modifies repo state.
 
 set -euo pipefail
@@ -29,7 +29,7 @@ if [[ -n "$GROQ_API_KEY" ]]; then
 fi
 
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-OUT_DIR="$DEVTOOLS_ROOT/ci-status"
+OUT_DIR="$DEVTOOLS_ROOT/outputs/ci-status"
 ARCHIVE_DIR="$OUT_DIR/archive"
 SUMMARY_FILE="$OUT_DIR/ci-status_${TIMESTAMP}.md"
 LOG_FILE="$OUT_DIR/ci-status_${TIMESTAMP}.log"

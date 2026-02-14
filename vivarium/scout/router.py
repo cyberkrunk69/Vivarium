@@ -8,8 +8,9 @@ The traffic cop: decides what gets in, when to spend, and when to escalate.
 from __future__ import annotations
 
 import asyncio
-import logging
 import json
+import logging
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,46 @@ BRIEF_COST_PER_FILE = 0.005
 TASK_NAV_ESTIMATED_COST = 0.002  # 8B + retry + possible 70B escalation
 # Draft-only (commit_draft + pr_snippet per file): ~1k tokens × $0.20/M
 DRAFT_COST_PER_FILE = 0.0004
+
+
+class BudgetExhaustedError(RuntimeError):
+    """Raised when hourly budget is exhausted before an LLM operation."""
+
+    pass
+
+
+def check_budget_with_message(
+    config: ScoutConfig,
+    estimated_cost: float = 0.01,
+    audit: Optional[AuditLog] = None,
+) -> bool:
+    """
+    Check if operation can proceed within hourly budget.
+
+    Returns True if OK, False if blocked (and prints actionable error to stderr).
+    """
+    audit = audit or AuditLog()
+    limits = config.get("limits") or {}
+    hourly_limit = min(
+        float(limits.get("hourly_budget", 1.0)),
+        HARD_MAX_HOURLY_BUDGET,
+    )
+    current_spend = audit.hourly_spend()
+    remaining = hourly_limit - current_spend
+
+    if remaining < estimated_cost:
+        print("\n❌ ERROR: Hourly budget exhausted", file=sys.stderr)
+        print(f"   Spent: ${current_spend:.2f} / ${hourly_limit:.2f}", file=sys.stderr)
+        print(f"   This operation needs: ~${estimated_cost:.2f}", file=sys.stderr)
+        print("\n   Options:", file=sys.stderr)
+        print("   1. Wait for next hour (resets at :00)", file=sys.stderr)
+        print(
+            "   2. Increase limit: python -m vivarium.scout config --set limits.hourly_budget 1.0",
+            file=sys.stderr,
+        )
+        print("   3. Use --no-ai or --offline to skip LLM calls", file=sys.stderr)
+        return False
+    return True
 
 
 @dataclass
@@ -227,6 +268,11 @@ class TriggerRouter:
             # not the full cascade (nav/validation). Full cascade estimate over-estimates and
             # can block drafts when per-event limit is tight.
             estimated = len(relevant) * DRAFT_COST_PER_FILE
+            # TICKET-86: Pre-flight hourly budget check with explicit error message
+            if not check_budget_with_message(
+                self.config, estimated_cost=estimated, audit=self.audit
+            ):
+                raise BudgetExhaustedError()
             skip_drafts = False
             if not self.config.should_process(estimated, hourly_spend=self.audit.hourly_spend()):
                 # Floor: if user's max_cost_per_event < minimum viable draft cost, allow drafts
@@ -1033,3 +1079,4 @@ Provide a brief impact analysis (2-5 bullet points): What could break? Who is af
             )
             if file in self._critical_path_files():
                 self._create_pr_draft(module, file, session_id)
+# Test comment for draft gen

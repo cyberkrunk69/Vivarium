@@ -13,17 +13,18 @@ Usage:
 from __future__ import annotations
 
 import argparse
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 from vivarium.scout.audit import AuditLog
+from vivarium.scout.config import EnvLoader
+
+# TICKET-17: Auto-load .env for doc-sync (GROQ_API_KEY)
+EnvLoader.load(Path.cwd() / ".env")
+
 from vivarium.scout.doc_generation import (
     BudgetExceededError,
     export_call_graph,
@@ -31,6 +32,9 @@ from vivarium.scout.doc_generation import (
     find_stale_files,
     process_directory,
     process_single_file_async,
+    validate_content_for_placeholders,
+    validate_no_placeholders,
+    write_documentation_files,
 )
 from vivarium.scout.git_analyzer import (
     get_changed_files,
@@ -39,7 +43,78 @@ from vivarium.scout.git_analyzer import (
     get_git_version,
     get_upstream_ref,
 )
-from vivarium.scout.tools import query_for_deps
+from vivarium.scout.deps import get_dependencies_for_doc, query_for_deps
+
+
+def _generate_hybrid(
+    py_file: Path,
+    output_dir: Optional[Path],
+    quiet: bool,
+    rich: bool = False,
+    no_fallback: bool = False,
+) -> tuple[bool, float]:
+    """
+    TICKET-42: Hybrid doc flow — AST facts + constrained LLM synthesis.
+    TICKET-44: --rich uses filtered facts + two-phase synthesis for fluent prose.
+    """
+    if py_file.suffix != ".py":
+        return False
+    try:
+        from vivarium.scout.doc_sync.ast_facts import ASTFactExtractor
+        from vivarium.scout.doc_sync.synthesizer import (
+            ConstrainedDocSynthesizer,
+            ReasoningDocSynthesizer,
+            RichDocSynthesizer,
+        )
+
+        extractor = ASTFactExtractor()
+        synthesizer = (
+            ReasoningDocSynthesizer()
+            if rich
+            else ConstrainedDocSynthesizer()
+        )
+        facts = (
+            extractor.extract_documentable_facts(py_file)
+            if rich
+            else extractor.extract(py_file)
+        )
+        tldr, cost_tldr = asyncio.run(synthesizer.synthesize_tldr_async(facts))
+        deep, cost_deep = asyncio.run(synthesizer.synthesize_deep_async(facts))
+        cost = cost_tldr + cost_deep
+
+        if no_fallback:
+            for label, content in [("tldr", tldr), ("deep", deep)]:
+                if content:
+                    is_valid, found = validate_no_placeholders(content, str(py_file))
+                    if not is_valid:
+                        raise ValueError(
+                            f"Placeholder(s) {found} found in {py_file} ({label}); "
+                            "refusing to write (--no-fallback). Remove flag to allow placeholders."
+                        )
+
+        tldr_path, deep_path, _ = write_documentation_files(
+            py_file,
+            tldr,
+            deep,
+            eliv_content="",
+            output_dir=output_dir,
+            generate_eliv=False,
+        )
+
+        fact_cache_path = tldr_path.parent / (
+            tldr_path.name.replace(".tldr.md", ".facts.json")
+        )
+        fact_cache_path.write_text(facts.to_json(), encoding="utf-8")
+
+        if not quiet:
+            print(
+                f"✔ {py_file} (hybrid) | FACT_CHECKSUM: {facts.checksum()[:16]}... | ${cost:.4f}",
+                file=sys.stdout,
+            )
+        return True, cost
+    except Exception as e:
+        print(f"Error (hybrid): {py_file}: {e}", file=sys.stderr)
+        return False, 0.0
 
 
 def _handle_generate(args: argparse.Namespace) -> int:
@@ -77,25 +152,36 @@ def _handle_generate(args: argparse.Namespace) -> int:
 
     try:
         force = getattr(args, "force", False)
+        use_hybrid = getattr(args, "hybrid", False)
+        use_rich = getattr(args, "rich", False)
         if target.is_file():
             versioned_dir = None
-            if getattr(args, "versioned", False):
-                repo_root = Path.cwd().resolve()
-                ver = get_git_version(repo_root)
-                versioned_dir = repo_root / "docs" / "livingDoc" / ver
-            asyncio.run(
-                process_single_file_async(
-                    target,
-                    output_dir=output_dir,
-                    dependencies_func=query_for_deps,
-                    language_override=getattr(args, "language", None),
-                    generate_eliv=generate_eliv,
-                    quiet=quiet,
-                    force=force,
-                    fallback_template=getattr(args, "fallback_template", False),
-                    versioned_mirror_dir=versioned_dir,
+            if use_hybrid and target.suffix == ".py":
+                ok, _ = _generate_hybrid(
+                    target, output_dir, quiet, rich=use_rich,
+                    no_fallback=getattr(args, "no_fallback", False),
                 )
-            )
+                if not ok:
+                    return 1
+            else:
+                if getattr(args, "versioned", False):
+                    repo_root = Path.cwd().resolve()
+                    ver = get_git_version(repo_root)
+                    versioned_dir = repo_root / "docs" / "livingDoc" / ver
+                asyncio.run(
+                    process_single_file_async(
+                        target,
+                        output_dir=output_dir,
+                        dependencies_func=get_dependencies_for_doc,
+                        language_override=getattr(args, "language", None),
+                        generate_eliv=generate_eliv,
+                        quiet=quiet,
+                        force=force,
+                        fallback_template=getattr(args, "fallback_template", False),
+                        no_fallback=getattr(args, "no_fallback", False),
+                        versioned_mirror_dir=versioned_dir,
+                    )
+                )
             if versioned_dir is not None:
                 version_file = Path.cwd().resolve() / "docs" / "livingDoc" / "VERSION"
                 version_file.parent.mkdir(parents=True, exist_ok=True)
@@ -107,6 +193,51 @@ def _handle_generate(args: argparse.Namespace) -> int:
                 )
                 if not quiet:
                     print(f"Wrote {version_file}", file=sys.stderr)
+            # TICKET-28/29: Outcome hype for single file
+            if os.environ.get("SCOUT_WHIMSY", "0") == "1" and not quiet:
+                try:
+                    from vivarium.scout.ui.hype import generate_outcome_hype
+
+                    hype = asyncio.run(
+                        generate_outcome_hype(
+                            action="doc_sync",
+                            files_changed=1,
+                            tokens_written=0,
+                            primary_file=str(target.name),
+                        )
+                    )
+                    print(hype, file=sys.stderr)
+                except Exception:
+                    pass
+        elif use_hybrid:
+            # Hybrid mode for directory: process each .py file (budget enforced)
+            py_files = list(target.rglob("*.py")) if recursive else list(target.glob("*.py"))
+            py_files = [f for f in py_files if f.is_file() and "__pycache__" not in str(f)]
+            budget = getattr(args, "budget", None)
+            total_cost = 0.0
+            n_files = len(py_files)
+            for idx, py_file in enumerate(py_files, 1):
+                if budget is not None and total_cost >= budget:
+                    if not quiet:
+                        print(
+                            f"Budget ${budget:.2f} reached (${total_cost:.4f} spent). Stopping.",
+                            file=sys.stderr,
+                        )
+                    raise BudgetExceededError(total_cost, budget)
+                if not quiet and n_files > 1:
+                    print(f"[{idx}/{n_files}] {py_file}...", file=sys.stderr, flush=True)
+                ok, cost = _generate_hybrid(
+                    py_file, output_dir, quiet, rich=use_rich,
+                    no_fallback=getattr(args, "no_fallback", False),
+                )
+                total_cost += cost
+                if budget is not None and total_cost >= budget:
+                    if not quiet:
+                        print(
+                            f"Budget ${budget:.2f} exceeded (${total_cost:.4f}). Stopping.",
+                            file=sys.stderr,
+                        )
+                    raise BudgetExceededError(total_cost, budget)
         else:
             workers = getattr(args, "workers", None)
             budget = getattr(args, "budget", None)
@@ -137,7 +268,7 @@ def _handle_generate(args: argparse.Namespace) -> int:
                 target,
                 recursive=recursive,
                 output_dir=output_dir,
-                dependencies_func=query_for_deps,
+                dependencies_func=get_dependencies_for_doc,
                 language_override=getattr(args, "language", None),
                 workers=workers,
                 generate_eliv=generate_eliv,
@@ -146,6 +277,7 @@ def _handle_generate(args: argparse.Namespace) -> int:
                 force=force,
                 changed_files=changed_files,
                 fallback_template=getattr(args, "fallback_template", False),
+                no_fallback=getattr(args, "no_fallback", False),
                 versioned_mirror_dir=versioned_dir,
             )
             if versioned_dir is not None:
@@ -170,6 +302,24 @@ def _handle_generate(args: argparse.Namespace) -> int:
                     export_call_graph(vivarium_path, output_path=out, repo_root=repo_root)
                     if not quiet:
                         print(f"Wrote {out}", file=sys.stderr)
+
+            # TICKET-28/29: Outcome hype when SCOUT_WHIMSY=1
+            if os.environ.get("SCOUT_WHIMSY", "0") == "1" and not quiet:
+                try:
+                    from vivarium.scout.ui.hype import generate_outcome_hype
+
+                    fc = len(changed_files) if changed_files else 0
+                    hype = asyncio.run(
+                        generate_outcome_hype(
+                            action="doc_sync",
+                            files_changed=fc,
+                            tokens_written=0,
+                            primary_file=str(target),
+                        )
+                    )
+                    print(hype, file=sys.stderr)
+                except Exception:
+                    pass
     except (FileNotFoundError, NotADirectoryError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         audit.log(
@@ -236,7 +386,10 @@ def _print_dry_run(
 
 
 def _handle_repair(args: argparse.Namespace) -> int:
-    """Repair stale docs: find and reprocess files where meta hash mismatch."""
+    """
+    Repair stale docs: find and reprocess files where meta hash mismatch.
+    Returns exit code: 0 = success, 1 = failure.
+    """
     target = args.target.resolve()
     if not target.exists():
         print(f"Error: Target does not exist: {target}", file=sys.stderr)
@@ -247,6 +400,18 @@ def _handle_repair(args: argparse.Namespace) -> int:
         print("No stale docs found.", file=sys.stdout)
         return 0
 
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        cwd = Path.cwd()
+        for f in stale:
+            try:
+                rel = str(f.relative_to(cwd))
+            except ValueError:
+                rel = str(f)
+            print(f"Would repair stale doc: {rel}", file=sys.stdout)
+        print(f"Dry run: would repair {len(stale)} doc(s)", file=sys.stdout)
+        return 0
+
     cwd = Path.cwd()
     for f in stale:
         try:
@@ -255,18 +420,25 @@ def _handle_repair(args: argparse.Namespace) -> int:
             rel = str(f)
         print(f"Repaired stale doc: {rel}", file=sys.stdout)
 
-    process_directory(
-        target,
-        recursive=args.recursive,
-        dependencies_func=query_for_deps,
-        workers=4,
-        generate_eliv=False,
-        quiet=args.quiet,
-        budget=getattr(args, "budget", None),
-        force=True,
-        changed_files=stale,
-    )
-    return 1
+    try:
+        process_directory(
+            target,
+            recursive=args.recursive,
+            dependencies_func=get_dependencies_for_doc,
+            workers=4,
+            generate_eliv=False,
+            quiet=args.quiet,
+            budget=getattr(args, "budget", None),
+            force=True,
+            changed_files=stale,
+            no_fallback=getattr(args, "no_fallback", False),
+        )
+    except Exception as e:
+        print(f"ERROR: Repair failed: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Successfully repaired {len(stale)} doc(s)", file=sys.stdout)
+    return 0
 
 
 def _handle_export(args: argparse.Namespace) -> int:
@@ -281,6 +453,28 @@ def _handle_export(args: argparse.Namespace) -> int:
     out = getattr(args, "output", None)
     path = export_knowledge_graph(target, output_path=out)
     print(f"Exported to {path}", file=sys.stdout)
+    return 0
+
+
+def _handle_validate_content(args: argparse.Namespace) -> int:
+    """Validate generated docs: exit 1 if any contain [FALLBACK]/[GAP]/[PLACEHOLDER] (for CI)."""
+    target = args.target.resolve()
+    if not target.exists():
+        print(f"Error: Target does not exist: {target}", file=sys.stderr)
+        return 1
+
+    all_clean, violations = validate_content_for_placeholders(
+        target, recursive=getattr(args, "recursive", True)
+    )
+    if not all_clean:
+        for filepath, markers in violations:
+            print(f"Placeholder violation: {filepath} contains {markers}", file=sys.stderr)
+        print(
+            f"Found {len(violations)} file(s) with [FALLBACK]/[GAP]/[PLACEHOLDER]. Fix before CI.",
+            file=sys.stderr,
+        )
+        return 1
+    print("All generated docs clean (no placeholders).", file=sys.stdout)
     return 0
 
 
@@ -424,10 +618,28 @@ def main() -> int:
         help="When LLM fails or budget exceeded, generate docs via templates ([FALLBACK] header, cost 0).",
     )
     gen_parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        dest="no_fallback",
+        help="Fail with error if generated content contains [FALLBACK], [GAP], or [PLACEHOLDER]. For CI.",
+    )
+    gen_parser.add_argument(
         "--versioned",
         action="store_true",
         dest="versioned",
         help="Mirror docs to docs/livingDoc/{version}/... and write docs/livingDoc/VERSION (version from git describe).",
+    )
+    gen_parser.add_argument(
+        "--hybrid",
+        action="store_true",
+        dest="hybrid",
+        help="TICKET-42: Use deterministic AST fact extraction + constrained LLM synthesis. Embeds FACT_CHECKSUM for gate validation.",
+    )
+    gen_parser.add_argument(
+        "--rich",
+        action="store_true",
+        dest="rich",
+        help="TICKET-44: With --hybrid, use filtered facts + two-phase synthesis for fluent prose (docstrings, signatures, purpose hints).",
     )
 
     # repair subparser
@@ -465,6 +677,19 @@ def main() -> int:
         "-q",
         action="store_true",
         help="Quiet mode",
+    )
+    repair_parser.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        dest="dry_run",
+        help="Show what would be repaired without writing",
+    )
+    repair_parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        dest="no_fallback",
+        help="Fail if generated content contains [FALLBACK], [GAP], or [PLACEHOLDER].",
     )
 
     # export subparser
@@ -515,6 +740,27 @@ def main() -> int:
         help="Scan recursively (default)",
     )
 
+    # validate-content subparser (TICKET-89: placeholder invariant)
+    validate_content_parser = subparsers.add_parser(
+        "validate-content",
+        help="Scan .tldr.md/.deep.md/.eliv.md for [FALLBACK]/[GAP]/[PLACEHOLDER]; exit 1 if any (for CI)",
+    )
+    validate_content_parser.add_argument(
+        "--target",
+        "-t",
+        type=Path,
+        default=Path("vivarium"),
+        metavar="PATH",
+        help="Target path to scan (default: vivarium)",
+    )
+    validate_content_parser.add_argument(
+        "--recursive",
+        "-r",
+        action="store_true",
+        default=True,
+        help="Scan recursively (default)",
+    )
+
     # update subparser (future)
     subparsers.add_parser("update", help="Update existing docs (future)")
 
@@ -531,6 +777,8 @@ def main() -> int:
         return _handle_export(args)
     if args.command == "validate":
         return _handle_validate(args)
+    if args.command == "validate-content":
+        return _handle_validate_content(args)
     if args.command == "update":
         return _handle_update(args)
     if args.command == "status":

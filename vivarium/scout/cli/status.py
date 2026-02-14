@@ -7,11 +7,13 @@ Shows: last doc-sync time, missing drafts, hourly spend, accuracy, git hook stat
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
 from vivarium.scout.audit import AuditLog
+from vivarium.scout.deps import DependencyGraph
 from vivarium.scout.git_analyzer import get_changed_files
 from vivarium.scout.ignore import IgnorePatterns
 
@@ -85,6 +87,19 @@ def run_status(repo_root: Path) -> str:
         lines.append("  (no staged .py files)")
     lines.append("")
 
+    # Dependency graph health
+    graph = DependencyGraph(root)
+    stats = graph.get_stats()
+    if graph.is_graph_stale():
+        lines.append("⚠️  Dependency graph stale — run scout-index")
+    else:
+        lines.append(
+            f"Dependency Graph: {stats['total']:,} symbols | "
+            f"{stats['stale']} stale | {stats['orphaned']} orphaned | "
+            f"{stats['cache_version']} cache"
+        )
+    lines.append("")
+
     # Missing drafts
     lines.append("Missing commit drafts (docs/drafts/*.commit.txt):")
     missing = _missing_drafts(root, staged_py)
@@ -103,6 +118,27 @@ def run_status(repo_root: Path) -> str:
     audit = AuditLog()
     spend = audit.hourly_spend(hours=1)
     lines.append(f"Hourly LLM spend: ${spend:.4f}")
+    lines.append("")
+
+    # Gate health (TICKET-10)
+    gate = audit.gate_metrics(last_n=10)
+    if gate["total"] > 0:
+        lines.append(
+            f"Gate Health: {gate['pass_rate_pct']}% pass rate | "
+            f"{gate['avg_confidence']} avg confidence | "
+            f"{gate['escalate_rate_pct']}% escalate to raw"
+        )
+        last = gate["last_queries"]
+        pass_last = sum(1 for q in last if q["outcome"] == "pass")
+        esc_last = sum(1 for q in last if q["outcome"] == "escalate")
+        reasons = [q["reason"] for q in last if q["outcome"] == "escalate" and q["reason"]]
+        reason_str = ", ".join(f"{r}: {c}" for r, c in sorted(Counter(reasons).items()))
+        lines.append(
+            f"Last {len(last)} queries: {pass_last} pass, {esc_last} escalate"
+            + (f" ({reason_str})" if reason_str else "")
+        )
+    else:
+        lines.append("Gate Health: (no gate_compress events yet)")
     lines.append("")
 
     # Accuracy

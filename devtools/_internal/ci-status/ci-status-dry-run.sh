@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ci-status-dry-run.sh — CI status dry run: fetch runs, preprocess logs, estimate costs
 # Does NOT make any Groq API calls. Saves plan to /tmp/ci_status_plan_YYYYMMDD_HHMMSS.json
-# Outputs: devtools/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.log (up to estimation point)
+# Outputs: devtools/outputs/ci-status/ci-status_YYYY-MM-DD_HH-MM-SS.log (up to estimation point)
 # READ-ONLY: Never modifies repo state.
 
 set -euo pipefail
@@ -28,7 +28,7 @@ if [[ -n "$GROQ_API_KEY" ]]; then
 fi
 
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-OUT_DIR="$DEVTOOLS_ROOT/ci-status"
+OUT_DIR="$DEVTOOLS_ROOT/outputs/ci-status"
 ARCHIVE_DIR="$OUT_DIR/archive"
 LOG_FILE="$OUT_DIR/ci-status_${TIMESTAMP}.log"
 SUMMARY_FILE="$OUT_DIR/ci-status_${TIMESTAMP}.md"

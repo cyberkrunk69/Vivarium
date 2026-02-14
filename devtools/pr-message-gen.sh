@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # pr-message-gen.sh — Generate draft PR description from branch status, CI status, repo map
-# Output: devtools/pr-message-gen/PR_DESCRIPTION_YYYYMMDD_HHMMSS.md (and optionally clipboard)
+# Output: devtools/outputs/pr-message-gen/PR_DESCRIPTION_YYYYMMDD_HHMMSS.md (and optionally clipboard)
 # READ-ONLY: Never modifies repo state.
 
 set -euo pipefail
@@ -18,7 +18,7 @@ ensure_path
 load_dotenv "$REPO_ROOT"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUT_DIR="$DEVTOOLS_ROOT/pr-message-gen"
+OUT_DIR="$DEVTOOLS_ROOT/outputs/pr-message-gen"
 OUT_FILE="$OUT_DIR/PR_DESCRIPTION_${TIMESTAMP}.md"
 mkdir -p "$OUT_DIR"
 
@@ -26,7 +26,7 @@ mkdir -p "$OUT_DIR"
 echo "Fetching branch status..."
 BRANCH_STATUS_FILE=""
 if "$DEVTOOLS_ROOT/branch-status.sh" 2>/dev/null; then
-  LATEST=$(ls -t "$DEVTOOLS_ROOT/branch-status"/branch-status_*.md 2>/dev/null | head -1)
+  LATEST=$(ls -t "$DEVTOOLS_ROOT/outputs/branch-status"/branch-status_*.md 2>/dev/null | head -1)
   [[ -n "$LATEST" ]] && BRANCH_STATUS_FILE="$LATEST"
 fi
 
@@ -40,7 +40,7 @@ CI_STATUS_FILE=""
 echo "Fetching CI status..."
 if command -v gh &>/dev/null && gh auth status &>/dev/null; then
   if echo "n" | "$DEVTOOLS_ROOT/ci-status.sh" 2>/dev/null; then
-    LATEST=$(ls -t "$DEVTOOLS_ROOT/ci-status"/ci-status_*.md 2>/dev/null | head -1)
+    LATEST=$(ls -t "$DEVTOOLS_ROOT/outputs/ci-status"/ci-status_*.md 2>/dev/null | head -1)
     [[ -n "$LATEST" ]] && CI_STATUS_FILE="$LATEST"
   fi
 fi
@@ -54,7 +54,7 @@ REPO_MAP_FILE=""
 echo "Fetching repo map..."
 if [[ -x "$DEVTOOLS_ROOT/repo-map.sh" ]]; then
   if "$DEVTOOLS_ROOT/repo-map.sh" 2>/dev/null; then
-    LATEST=$(ls -t "$DEVTOOLS_ROOT/repo-map"/repo-map_*.md 2>/dev/null | head -1)
+    LATEST=$(ls -t "$DEVTOOLS_ROOT/outputs/repo-map"/repo-map_*.md 2>/dev/null | head -1)
     [[ -n "$LATEST" ]] && REPO_MAP_FILE="$LATEST"
   fi
 fi

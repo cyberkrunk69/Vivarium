@@ -233,8 +233,12 @@ def test_context_manager(audit_path):
     log.close()
 
 
-def test_default_path():
-    """Default path resolves to ~/.scout/audit.jsonl."""
+def test_default_path(tmp_path, monkeypatch):
+    """Default path resolves to ~/.scout/audit.jsonl (or patched path for CI)."""
+    monkeypatch.setattr(
+        "vivarium.scout.audit.DEFAULT_AUDIT_PATH",
+        tmp_path / "audit.jsonl",
+    )
     log = AuditLog()
-    assert log._path == Path("~/.scout/audit.jsonl").expanduser().resolve()
+    assert log._path == (tmp_path / "audit.jsonl").resolve()
     log.close()

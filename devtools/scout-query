@@ -1,0 +1,18 @@
+#!/bin/bash
+# devtools/scout-query — Natural language repo search via living docs.
+# Outputs to clipboard and docs/temp/<timestamp>.md (gitignored).
+set -e
+# Load .env if present
+if [ -f "$PWD/.env" ]; then
+  export $(grep -v '^#' "$PWD/.env" | xargs)
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=_internal/common/utils.sh
+source "$SCRIPT_DIR/_internal/common/utils.sh"
+load_dotenv "$REPO_ROOT"
+
+cd "$REPO_ROOT"
+PYTHON=$(find_python "$REPO_ROOT")
+exec "$PYTHON" -m vivarium.scout.cli.query "$@"
