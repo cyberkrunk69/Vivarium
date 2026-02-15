@@ -15,7 +15,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Iterable
 
 POLICY_OWNER = os.environ.get("POLICY_OWNER", "cyberkrunk69").lower()
 PROTECTED_BRANCHES = {"master", "main"}

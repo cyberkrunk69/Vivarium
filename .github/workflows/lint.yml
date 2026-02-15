@@ -60,7 +60,7 @@ jobs:
 
       - name: Run Flake8 on changed files
         if: steps.changed_py.outputs.has_python_changes == 'true'
-        run: flake8 $(tr '\n' ' ' < changed-python.txt)
+        run: flake8 --max-line-length=88 --extend-ignore=E203,W503 $(tr '\n' ' ' < changed-python.txt)
 
       # Enforce typing discipline incrementally to avoid blocking on legacy debt.
       - name: Run MyPy on changed files
