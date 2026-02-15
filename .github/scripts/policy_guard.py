@@ -29,6 +29,7 @@ REQUIRED_BRANCH_RULE_TYPES = {
     "required_linear_history",
     "update",
 }
+FORBIDDEN_LINT_IGNORE_CODES = {"E501", "F541", "F401", "E402"}
 REQUIRED_PR_TEMPLATE_HEADINGS = [
     "## Summary",
     "## Testing",
@@ -150,7 +151,15 @@ def _fetch_file_at_ref(repo: str, file_path: str, ref: str) -> str:
 
 
 def _list_changed_files(repo: str, pr_number: int) -> list[str]:
-    files: list[str] = []
+    return [
+        item.get("filename", "")
+        for item in _list_changed_file_entries(repo, pr_number)
+        if isinstance(item, dict) and item.get("filename")
+    ]
+
+
+def _list_changed_file_entries(repo: str, pr_number: int) -> list[dict]:
+    entries: list[dict] = []
     page = 1
     while True:
         chunk = _api_get(
@@ -160,11 +169,9 @@ def _list_changed_files(repo: str, pr_number: int) -> list[str]:
             raise RuntimeError(f"Unexpected pulls/files payload for PR #{pr_number}")
         if not chunk:
             break
-        files.extend(
-            item.get("filename", "") for item in chunk if isinstance(item, dict)
-        )
+        entries.extend(item for item in chunk if isinstance(item, dict))
         page += 1
-    return [f for f in files if f]
+    return entries
 
 
 def _parse_inline_branches(text: str, event_key: str) -> list[str]:
@@ -230,6 +237,43 @@ def _require_workflow_snippets(
             f"{workflow_path} is missing required command invariants: "
             f"{', '.join(missing)}."
         )
+
+
+def _check_lint_ignore_policy(result: GuardResult, lint_workflow_text: str) -> None:
+    for code in FORBIDDEN_LINT_IGNORE_CODES:
+        if re.search(
+            rf"(--extend-ignore|--ignore)[^\n#]*\b{re.escape(code)}\b",
+            lint_workflow_text,
+        ):
+            result.fail(
+                "lint.yml must not ignore critical lint codes "
+                f"(forbidden: {', '.join(sorted(FORBIDDEN_LINT_IGNORE_CODES))})."
+            )
+            return
+
+
+def _detect_added_suppressions(file_entries: list[dict]) -> list[str]:
+    offenders: set[str] = set()
+    suppression_patterns = (
+        re.compile(r"#\s*noqa\b", re.IGNORECASE),
+        re.compile(r"#\s*type:\s*ignore\b", re.IGNORECASE),
+        re.compile(r"pylint:\s*disable", re.IGNORECASE),
+    )
+    for item in file_entries:
+        path = str(item.get("filename") or "")
+        if not path.endswith(".py"):
+            continue
+        patch = item.get("patch")
+        if not isinstance(patch, str):
+            continue
+        for raw_line in patch.splitlines():
+            if not raw_line.startswith("+") or raw_line.startswith("+++"):
+                continue
+            line = raw_line[1:]
+            if any(pattern.search(line) for pattern in suppression_patterns):
+                offenders.add(path)
+                break
+    return sorted(offenders)
 
 
 def _check_default_branch_rules(result: GuardResult, repo: str) -> None:
@@ -323,6 +367,7 @@ def _check_policy_files(
         result.fail("lint.yml push trigger must include both master and main.")
     if not {"master", "main"}.issubset(lint_pr):
         result.fail("lint.yml pull_request trigger must include both master and main.")
+    _check_lint_ignore_policy(result, lint)
 
     ci = files[".github/workflows/ci.yml"]
     runtime_floor = _extract_cov_floor(ci)
@@ -380,6 +425,9 @@ def _check_actor_controls(
 
     if event_name in {"pull_request", "pull_request_target"}:
         pr = payload.get("pull_request", {})
+        file_entries = _list_changed_file_entries(
+            _require_env("GITHUB_REPOSITORY"), pr["number"]
+        )
         changed_files = _list_changed_files(
             _require_env("GITHUB_REPOSITORY"), pr["number"]
         )
@@ -404,6 +452,14 @@ def _check_actor_controls(
             result.note(
                 "Owner is modifying sensitive test/config paths: "
                 f"{', '.join(sensitive[:10])}"
+            )
+
+        suppressions = _detect_added_suppressions(file_entries)
+        if suppressions:
+            result.fail(
+                "PR introduces lint/type suppressions "
+                "(# noqa, # type: ignore, pylint disable) in: "
+                f"{', '.join(suppressions[:10])}"
             )
 
 
