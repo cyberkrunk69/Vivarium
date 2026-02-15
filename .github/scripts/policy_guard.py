@@ -462,6 +462,7 @@ def _check_actor_controls(
 
     if event_name in {"pull_request", "pull_request_target"}:
         pr = payload.get("pull_request", {})
+        pr_author = str((pr.get("user") or {}).get("login") or "").lower()
         file_entries = _list_changed_file_entries(
             _require_env("GITHUB_REPOSITORY"), pr["number"]
         )
@@ -470,24 +471,26 @@ def _check_actor_controls(
         )
         restricted = [p for p in changed_files if _matches_restricted_path(p)]
         sensitive = [p for p in changed_files if _matches_sensitive_non_owner_path(p)]
-        if restricted and actor not in owner_allowlist:
+        if restricted and pr_author not in owner_allowlist:
             result.fail(
-                "Only the owner may modify policy-critical files in PRs. "
+                "Only owner-authored PRs may modify policy-critical files. "
                 f"Restricted changes detected: {', '.join(restricted[:10])}"
             )
         elif restricted:
             result.note(
-                f"Owner is modifying restricted paths: {', '.join(restricted[:10])}"
+                "Owner-authored PR modifying restricted paths: "
+                f"{', '.join(restricted[:10])}"
             )
 
-        if sensitive and actor not in owner_allowlist:
+        if sensitive and pr_author not in owner_allowlist:
             result.fail(
-                "Non-owner PRs cannot modify tests or quality-config surfaces. "
+                "Only owner-authored PRs may modify tests or "
+                "quality-config surfaces. "
                 f"Sensitive changes detected: {', '.join(sensitive[:10])}"
             )
         elif sensitive:
             result.note(
-                "Owner is modifying sensitive test/config paths: "
+                "Owner-authored PR modifying sensitive test/config paths: "
                 f"{', '.join(sensitive[:10])}"
             )
 
