@@ -1,38 +1,45 @@
-# Issue Triage and Priority Plan (2026-02-15)
+# Issue Triage and Priority Plan (2026-02-14)
 
-This file is the source-of-truth triage order for open hardening work while API write access is unavailable from integration tokens.
+This file is the source-of-truth triage order for open hardening work.
 
-## Priority Order
+## Status (post-triage 2026-02-14)
 
-### P0 (blockers / governance)
-
-1. **#93** Scout hardening execution checklist (tracker)
-2. **#89** Harden doc-generation invariant (`[GAP]` must never ship in docs)
-3. **#90** Improve module-scoped query targeting and truth validation
-
-### P1 (high-value reliability)
-
-4. **#88** Reconcile `devtools/README.md` command surface with real launchers
-5. **#86** Improve hourly budget exhaustion UX in ship/commit flows
-
-### P1 (verify-and-close candidates)
-
-These appear complete based on current repo behavior and should be verified, then closed:
+### Closed (verified fixed in PR #97)
 
 - **#85** Hook installer/template drift
 - **#87** CI smoke checks for wrappers/hooks
-- **#91** `scout-doc-sync repair` success exit code semantics
-- **#92** CLI entrypoint drift (`cli.py` vs `cli/main.py`)
+- **#91** scout-doc-sync repair exit code
+- **#92** CLI entrypoint drift
 
-## Current Gaps Not Yet Represented as Issues
+### P0 (blockers)
 
-1. Ruleset hardening gap:
-   - `require_code_owner_review` is still disabled in active ruleset.
-   - Push/update restrictions are not yet confirmed owner-only.
-2. Lint debt strategy:
-   - Global repo still has large formatting debt.
-   - CI now enforces changed-file lint/type checks as an incremental ratchet.
+- **#93** Scout hardening execution checklist (tracker)
+- **#89** Harden doc-generation invariant — **blocked:** validate-content not in CI
+- **#90** Improve module-scoped query targeting (needs verification)
+
+### P1 (high-value)
+
+- **#88** Reconcile devtools README (needs spot-check)
+- **#86** Budget exhaustion UX (check_budget_with_message exists; needs verification)
+
+### New gap issues (to create)
+
+1. Ruleset hygiene: single canonical ruleset
+2. CI: add validate-content check
+3. Scout doc fidelity regression suite
+4. Lint debt strategy
 
 ## Automation
 
-Use `./devtools/triage-issues.sh` to apply labels and optional close operations once running from a token with issue write permissions.
+```bash
+# Apply labels (no closes)
+./devtools/triage-issues.sh
+
+# Apply labels + close verified-fixed issues
+./devtools/triage-issues.sh REPO --close-resolved
+
+# Create new gap issues
+./devtools/triage-issues.sh REPO --close-resolved --create-gaps
+```
+
+Full report: `docs/ISSUE_TRIAGE_REPORT_20260214.md`

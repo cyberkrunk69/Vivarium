@@ -3,10 +3,21 @@ set -euo pipefail
 
 # Organize/prioritize existing GitHub issues for Scout hardening.
 # Usage:
-#   ./devtools/triage-issues.sh [owner/repo] [--close-resolved]
+#   ./devtools/triage-issues.sh [owner/repo] [--close-resolved] [--create-gaps] [--update-tracker]
 
-REPO="${1:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-CLOSE_RESOLVED="${2:-}"
+# First non-flag arg is repo
+REPO=""
+for a in "$@"; do
+  if [[ "$a" != --* ]]; then
+    REPO="$a"
+    break
+  fi
+done
+REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+CLOSE_RESOLVED=""
+for a in "$@"; do [[ "$a" == "--close-resolved" ]] && CLOSE_RESOLVED="$a" && break; done
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh CLI is required." >&2
@@ -47,10 +58,38 @@ gh issue edit 91 --add-label "priority:p1,area:scout,area:ci-quality" --repo "$R
 gh issue edit 92 --add-label "priority:p1,area:scout,area:ci-quality" --repo "$REPO"
 
 if [[ "$CLOSE_RESOLVED" == "--close-resolved" ]]; then
-  gh issue close 85 --comment "Closing as completed by hook hardening + smoke validation in PR #95/#97." --repo "$REPO"
-  gh issue close 87 --comment "Closing as completed: CI now runs Scout smoke checks via .github/workflows/ci.yml." --repo "$REPO"
-  gh issue close 91 --comment "Closing as completed: doc_sync repair returns 0 on fresh docs (smoke test validates)." --repo "$REPO"
-  gh issue close 92 --comment "Closing as completed: legacy vivarium/scout/cli.py entrypoint removed; canonical cli/main.py remains." --repo "$REPO"
+  gh issue close 85 --comment "Closing as completed by PR #97. Hooks source utils.sh; find_python works; smoke test Test 4 validates. devtools/scout-autonomy enable-commit installs prepare-commit-msg. Evidence: devtools/scout-autonomy, devtools/_internal/common/utils.sh, devtools/scout-smoke-test.sh" --repo "$REPO"
+  gh issue close 87 --comment "Closing as completed by PR #97. CI runs Scout Smoke Tests via .github/workflows/ci.yml (line 34-35). Smoke test covers wrappers, find_python, hooks, doc_sync repair. Evidence: ci.yml, devtools/scout-smoke-test.sh" --repo "$REPO"
+  gh issue close 91 --comment "Closing as completed by PR #97. doc_sync repair returns 0 on success (no stale + repaired). Evidence: vivarium/scout/cli/doc_sync.py _handle_repair (lines 384-437), devtools/scout-smoke-test.sh Test 6" --repo "$REPO"
+  gh issue close 92 --comment "Closing as completed by PR #97. Legacy vivarium/scout/cli.py removed; canonical cli/ package. Wrappers use vivarium.scout.cli.* submodules. Evidence: no cli.py in vivarium/scout/" --repo "$REPO"
 fi
+
+# Optional: update tracker #93 body (run with --update-tracker)
+for arg in "$@"; do
+  if [[ "$arg" == "--update-tracker" ]]; then
+    gh issue edit 93 --body-file "$REPO_ROOT/.github/ISSUE_93_BODY_UPDATE.md" --repo "$REPO"
+    echo "Updated #93 body."
+    break
+  fi
+done
+
+# Optional: create new issues for real gaps (run with --create-gaps)
+for arg in "$@"; do
+  if [[ "$arg" != "--create-gaps" ]]; then continue; fi
+  echo "Creating new gap issues..."
+  gh issue create --title "Ruleset hygiene: single canonical ruleset, remove stale/disabled confusion" \
+    --body "Define single canonical ruleset; remove or document disabled/stale rules; align branch protection with policy_guard.py expectations. See docs/ISSUE_TRIAGE_REPORT_20260214.md" \
+    --label "priority:p1,area:security-governance" --repo "$REPO"
+  gh issue create --title "CI: add validate-content check for [GAP]/[FALLBACK]/[PLACEHOLDER] invariant" \
+    --body "scout-doc-sync validate-content exists but is not run in CI. Add step to ci.yml to fail when generated docs contain forbidden markers. Complements #89." \
+    --label "priority:p0,area:ci-quality,area:scout" --repo "$REPO"
+  gh issue create --title "Scout doc fidelity: add regression tests for enum/method/async attribution" \
+    --body "Add tests (or expand test_ast_facts.py) to guard enum attribution, method_signatures extraction, async function handling. Prevents regression of AST fact extraction fidelity." \
+    --label "priority:p2,area:scout,area:ci-quality" --repo "$REPO"
+  gh issue create --title "Lint debt strategy: incremental ratchet vs full reformat plan" \
+    --body "CI enforces lint on changed files. Global repo has formatting debt. Document strategy: incremental ratchet (current) vs one-time full reformat. Decide and document." \
+    --label "priority:p2,area:ci-quality" --repo "$REPO"
+  break
+done
 
 echo "Issue triage plan applied."
