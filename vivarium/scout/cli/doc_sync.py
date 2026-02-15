@@ -73,11 +73,7 @@ def _generate_hybrid(
             if rich
             else ConstrainedDocSynthesizer()
         )
-        facts = (
-            extractor.extract_documentable_facts(py_file)
-            if rich
-            else extractor.extract(py_file)
-        )
+        facts = extractor.extract_documentable_facts(py_file)
         tldr, cost_tldr = asyncio.run(synthesizer.synthesize_tldr_async(facts))
         deep, cost_deep = asyncio.run(synthesizer.synthesize_deep_async(facts))
         cost = cost_tldr + cost_deep
