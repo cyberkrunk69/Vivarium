@@ -43,6 +43,16 @@ RESTRICTED_PATH_PREFIXES = (
     ".github/pull_request_template.md",
     "devtools/apply-branch-protection.sh",
 )
+NON_OWNER_SENSITIVE_PATH_PREFIXES = (
+    "tests/",
+    "pytest.ini",
+    "requirements-dev.txt",
+    "requirements.txt",
+    "requirements-groq.txt",
+    "pyproject.toml",
+    "setup.cfg",
+    ".flake8",
+)
 WORKFLOW_PATHS = (
     ".github/workflows/ci.yml",
     ".github/workflows/integration.yml",
@@ -50,6 +60,20 @@ WORKFLOW_PATHS = (
     ".github/workflows/control-panel.yml",
     ".github/workflows/policy-guard.yml",
 )
+REQUIRED_WORKFLOW_SNIPPETS = {
+    ".github/workflows/ci.yml": (
+        'pytest -q -m "not integration and not e2e"',
+        "--cov=vivarium.runtime",
+        "Scout Smoke Tests",
+    ),
+    ".github/workflows/integration.yml": ('pytest -q -m "integration or e2e"',),
+    ".github/workflows/lint.yml": (
+        "Determine changed Python files",
+        "Run Black (check mode) on changed files",
+        "Run Flake8 on changed files",
+        "Run MyPy on changed files",
+    ),
+}
 
 
 @dataclass
@@ -179,6 +203,13 @@ def _matches_restricted_path(path: str) -> bool:
     )
 
 
+def _matches_sensitive_non_owner_path(path: str) -> bool:
+    return any(
+        path == prefix or path.startswith(prefix)
+        for prefix in NON_OWNER_SENSITIVE_PATH_PREFIXES
+    )
+
+
 def _contains_top_level_contents_read(workflow_text: str) -> bool:
     return bool(
         re.search(
@@ -187,6 +218,18 @@ def _contains_top_level_contents_read(workflow_text: str) -> bool:
         )
         and re.search(r"(?m)^[ \t]+contents:\s*read\s*$", workflow_text)
     )
+
+
+def _require_workflow_snippets(
+    result: GuardResult, workflow_path: str, workflow_text: str
+) -> None:
+    expected = REQUIRED_WORKFLOW_SNIPPETS.get(workflow_path, ())
+    missing = [snippet for snippet in expected if snippet not in workflow_text]
+    if missing:
+        result.fail(
+            f"{workflow_path} is missing required command invariants: "
+            f"{', '.join(missing)}."
+        )
 
 
 def _check_default_branch_rules(result: GuardResult, repo: str) -> None:
@@ -315,6 +358,7 @@ def _check_policy_files(
             )
         if re.search(r"(?mi)^\s*continue-on-error:\s*true\s*$", text):
             result.fail(f"{workflow_path} must not use continue-on-error: true.")
+        _require_workflow_snippets(result, workflow_path, text)
 
 
 def _check_actor_controls(
@@ -340,6 +384,7 @@ def _check_actor_controls(
             _require_env("GITHUB_REPOSITORY"), pr["number"]
         )
         restricted = [p for p in changed_files if _matches_restricted_path(p)]
+        sensitive = [p for p in changed_files if _matches_sensitive_non_owner_path(p)]
         if restricted and actor not in owner_allowlist:
             result.fail(
                 "Only the owner may modify policy-critical files in PRs. "
@@ -348,6 +393,17 @@ def _check_actor_controls(
         elif restricted:
             result.note(
                 f"Owner is modifying restricted paths: {', '.join(restricted[:10])}"
+            )
+
+        if sensitive and actor not in owner_allowlist:
+            result.fail(
+                "Non-owner PRs cannot modify tests or quality-config surfaces. "
+                f"Sensitive changes detected: {', '.join(sensitive[:10])}"
+            )
+        elif sensitive:
+            result.note(
+                "Owner is modifying sensitive test/config paths: "
+                f"{', '.join(sensitive[:10])}"
             )
 
 
