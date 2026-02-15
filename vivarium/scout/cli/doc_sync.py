@@ -68,16 +68,8 @@ def _generate_hybrid(
         )
 
         extractor = ASTFactExtractor()
-        synthesizer = (
-            ReasoningDocSynthesizer()
-            if rich
-            else ConstrainedDocSynthesizer()
-        )
-        facts = (
-            extractor.extract_documentable_facts(py_file)
-            if rich
-            else extractor.extract(py_file)
-        )
+        synthesizer = ReasoningDocSynthesizer() if rich else ConstrainedDocSynthesizer()
+        facts = extractor.extract_documentable_facts(py_file)
         tldr, cost_tldr = asyncio.run(synthesizer.synthesize_tldr_async(facts))
         deep, cost_deep = asyncio.run(synthesizer.synthesize_deep_async(facts))
         cost = cost_tldr + cost_deep
@@ -158,7 +150,10 @@ def _handle_generate(args: argparse.Namespace) -> int:
             versioned_dir = None
             if use_hybrid and target.suffix == ".py":
                 ok, _ = _generate_hybrid(
-                    target, output_dir, quiet, rich=use_rich,
+                    target,
+                    output_dir,
+                    quiet,
+                    rich=use_rich,
                     no_fallback=getattr(args, "no_fallback", False),
                 )
                 if not ok:
@@ -211,8 +206,12 @@ def _handle_generate(args: argparse.Namespace) -> int:
                     pass
         elif use_hybrid:
             # Hybrid mode for directory: process each .py file (budget enforced)
-            py_files = list(target.rglob("*.py")) if recursive else list(target.glob("*.py"))
-            py_files = [f for f in py_files if f.is_file() and "__pycache__" not in str(f)]
+            py_files = (
+                list(target.rglob("*.py")) if recursive else list(target.glob("*.py"))
+            )
+            py_files = [
+                f for f in py_files if f.is_file() and "__pycache__" not in str(f)
+            ]
             budget = getattr(args, "budget", None)
             total_cost = 0.0
             n_files = len(py_files)
@@ -225,9 +224,14 @@ def _handle_generate(args: argparse.Namespace) -> int:
                         )
                     raise BudgetExceededError(total_cost, budget)
                 if not quiet and n_files > 1:
-                    print(f"[{idx}/{n_files}] {py_file}...", file=sys.stderr, flush=True)
+                    print(
+                        f"[{idx}/{n_files}] {py_file}...", file=sys.stderr, flush=True
+                    )
                 ok, cost = _generate_hybrid(
-                    py_file, output_dir, quiet, rich=use_rich,
+                    py_file,
+                    output_dir,
+                    quiet,
+                    rich=use_rich,
                     no_fallback=getattr(args, "no_fallback", False),
                 )
                 total_cost += cost
@@ -246,9 +250,13 @@ def _handle_generate(args: argparse.Namespace) -> int:
                 repo_root = Path.cwd().resolve()
                 staged = getattr(args, "staged", False)
                 if staged:
-                    changed_files = get_changed_files(staged_only=True, repo_root=repo_root)
+                    changed_files = get_changed_files(
+                        staged_only=True, repo_root=repo_root
+                    )
                 else:
-                    base = get_upstream_ref(repo_root) or get_default_base_ref(repo_root)
+                    base = get_upstream_ref(repo_root) or get_default_base_ref(
+                        repo_root
+                    )
                     changed_files = (
                         get_changed_files(
                             staged_only=False,
@@ -258,7 +266,11 @@ def _handle_generate(args: argparse.Namespace) -> int:
                         if base
                         else get_changed_files(staged_only=True, repo_root=repo_root)
                     )
-                changed_files = [f for f in changed_files if f.suffix in (".py", ".js", ".mjs", ".cjs")]
+                changed_files = [
+                    f
+                    for f in changed_files
+                    if f.suffix in (".py", ".js", ".mjs", ".cjs")
+                ]
             versioned_dir = None
             if getattr(args, "versioned", False):
                 repo_root = Path.cwd().resolve()
@@ -296,10 +308,14 @@ def _handle_generate(args: argparse.Namespace) -> int:
                 vivarium_path = repo_root / "vivarium"
                 t = target.resolve()
                 if vivarium_path.exists() and (
-                    t == vivarium_path or t == repo_root or str(vivarium_path).startswith(str(t))
+                    t == vivarium_path
+                    or t == repo_root
+                    or str(vivarium_path).startswith(str(t))
                 ):
                     out = vivarium_path / ".docs" / "call_graph.json"
-                    export_call_graph(vivarium_path, output_path=out, repo_root=repo_root)
+                    export_call_graph(
+                        vivarium_path, output_path=out, repo_root=repo_root
+                    )
                     if not quiet:
                         print(f"Wrote {out}", file=sys.stderr)
 
@@ -359,7 +375,9 @@ def _print_dry_run(
         if output_dir is not None:
             print(f"  Output: {output_dir / target.stem}.tldr.md")
             print(f"  Output: {output_dir / target.stem}.deep.md")
-            print(f"  Output: {(output_dir / target.name).with_suffix(target.suffix + '.eliv.md')}")
+            print(
+                f"  Output: {(output_dir / target.name).with_suffix(target.suffix + '.eliv.md')}"
+            )
         else:
             local_docs = target.parent / ".docs"
             print(f"  Local:  {local_docs / target.name}.tldr.md")
@@ -374,15 +392,23 @@ def _print_dry_run(
             except ValueError:
                 pass
     else:
-        patterns = ["**/*.py", "**/*.js", "**/*.mjs", "**/*.cjs"] if recursive else ["*.py", "*.js", "*.mjs", "*.cjs"]
+        patterns = (
+            ["**/*.py", "**/*.js", "**/*.mjs", "**/*.cjs"]
+            if recursive
+            else ["*.py", "*.js", "*.mjs", "*.cjs"]
+        )
         count = sum(1 for p in patterns for f in target.glob(p) if f.is_file())
         print(f"  Type: directory (recursive={recursive})")
         print(f"  Supported files: {count}")
         if output_dir is not None:
-            print(f"  Output dir: {output_dir} (writes <stem>.tldr.md, <stem>.deep.md, <name>.eliv.md per file)")
+            print(
+                f"  Output dir: {output_dir} (writes <stem>.tldr.md, <stem>.deep.md, <name>.eliv.md per file)"
+            )
         else:
             print(f"  Local: <source_dir>/.docs/<name>.tldr.md, .deep.md, and .eliv.md")
-            print(f"  Central: docs/livingDoc/<path>/<name>.tldr.md, .deep.md, and .eliv.md")
+            print(
+                f"  Central: docs/livingDoc/<path>/<name>.tldr.md, .deep.md, and .eliv.md"
+            )
 
 
 def _handle_repair(args: argparse.Namespace) -> int:
@@ -468,7 +494,9 @@ def _handle_validate_content(args: argparse.Namespace) -> int:
     )
     if not all_clean:
         for filepath, markers in violations:
-            print(f"Placeholder violation: {filepath} contains {markers}", file=sys.stderr)
+            print(
+                f"Placeholder violation: {filepath} contains {markers}", file=sys.stderr
+            )
         print(
             f"Found {len(violations)} file(s) with [FALLBACK]/[GAP]/[PLACEHOLDER]. Fix before CI.",
             file=sys.stderr,
@@ -494,7 +522,10 @@ def _handle_validate(args: argparse.Namespace) -> int:
             except ValueError:
                 rel = str(f)
             print(f"Stale doc: {rel}", file=sys.stderr)
-        print(f"Found {len(stale)} stale doc(s). Run: scout-doc-sync repair --stale", file=sys.stderr)
+        print(
+            f"Found {len(stale)} stale doc(s). Run: scout-doc-sync repair --stale",
+            file=sys.stderr,
+        )
         return 1
     print("All docs up to date.", file=sys.stdout)
     return 0
