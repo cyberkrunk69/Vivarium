@@ -20,6 +20,15 @@ POLICY_OWNER = os.environ.get("POLICY_OWNER", "cyberkrunk69").lower()
 PROTECTED_BRANCHES = {"master", "main"}
 MIN_RUNTIME_COVERAGE = 45
 MIN_CONTROL_PANEL_COVERAGE = 50
+REQUIRED_STATUS_CONTEXTS = {"policy", "tests", "integration", "lint"}
+REQUIRED_BRANCH_RULE_TYPES = {
+    "deletion",
+    "non_fast_forward",
+    "pull_request",
+    "required_status_checks",
+    "required_linear_history",
+    "update",
+}
 REQUIRED_PR_TEMPLATE_HEADINGS = [
     "## Summary",
     "## Testing",
@@ -180,6 +189,61 @@ def _contains_top_level_contents_read(workflow_text: str) -> bool:
     )
 
 
+def _check_default_branch_rules(result: GuardResult, repo: str) -> None:
+    repo_meta = _api_get(f"/repos/{repo}")
+    if not isinstance(repo_meta, dict):
+        result.fail("Failed to load repository metadata for ruleset validation.")
+        return
+
+    default_branch = str(repo_meta.get("default_branch") or "master")
+    encoded_branch = urllib.parse.quote(default_branch, safe="")
+    rules = _api_get(f"/repos/{repo}/rules/branches/{encoded_branch}")
+    if not isinstance(rules, list):
+        result.fail("Unexpected rules payload for default branch validation.")
+        return
+
+    by_type: dict[str, list[dict]] = {}
+    for item in rules:
+        if isinstance(item, dict):
+            by_type.setdefault(str(item.get("type") or ""), []).append(item)
+
+    missing_rule_types = sorted(REQUIRED_BRANCH_RULE_TYPES - set(by_type.keys()))
+    if missing_rule_types:
+        result.fail(
+            f"Default branch '{default_branch}' missing required rules: "
+            f"{', '.join(missing_rule_types)}."
+        )
+        return
+
+    pull_rule = by_type["pull_request"][0]
+    pull_params = pull_rule.get("parameters", {})
+    if not pull_params.get("require_code_owner_review", False):
+        result.fail("Default branch must require code owner reviews.")
+    if int(pull_params.get("required_approving_review_count", 0)) < 1:
+        result.fail("Default branch must require at least one approving review.")
+    if not pull_params.get("required_review_thread_resolution", False):
+        result.fail("Default branch must require conversation resolution.")
+    if not pull_params.get("require_last_push_approval", False):
+        result.fail("Default branch must require approval for the latest push.")
+
+    status_rule = by_type["required_status_checks"][0]
+    status_params = status_rule.get("parameters", {})
+    if not status_params.get("strict_required_status_checks_policy", False):
+        result.fail("Default branch status checks must require up-to-date branches.")
+    configured_contexts: set[str] = set()
+    for check in status_params.get("required_status_checks", []):
+        if isinstance(check, dict):
+            context = check.get("context")
+            if context:
+                configured_contexts.add(str(context))
+    missing_contexts = sorted(REQUIRED_STATUS_CONTEXTS - configured_contexts)
+    if missing_contexts:
+        result.fail(
+            "Default branch required status checks missing: "
+            f"{', '.join(missing_contexts)}."
+        )
+
+
 def _check_policy_files(
     result: GuardResult, repo: str, ref: str, event_name: str, payload: dict
 ) -> None:
@@ -303,6 +367,7 @@ def main() -> int:
     result.note(f"Evaluating ref: {ref}")
 
     try:
+        _check_default_branch_rules(result, repo)
         _check_policy_files(result, repo, ref, event_name, payload)
         _check_actor_controls(result, event_name, payload, repo_owner)
     except Exception as exc:  # Defensive: fail closed on unexpected guard exceptions.
