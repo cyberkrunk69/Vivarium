@@ -1,2 +1,9 @@
-# All changes require gatekeeper approval.
+# Gatekeeper model: owner retains final control over all merges.
 * @cyberkrunk69
+
+# Policy-critical surfaces (explicitly listed for clarity).
+.github/CODEOWNERS @cyberkrunk69
+.github/pull_request_template.md @cyberkrunk69
+.github/scripts/* @cyberkrunk69
+.github/workflows/* @cyberkrunk69
+devtools/apply-branch-protection.sh @cyberkrunk69

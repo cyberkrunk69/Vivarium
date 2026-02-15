@@ -2,7 +2,7 @@ name: Control Panel Tests
 
 on:
   push:
-    branches: [main, master, slay9kDragon]
+    branches: [main, master]
     paths:
       - 'vivarium/runtime/control_panel/**'
       - 'tests/control_panel/**'
@@ -14,9 +14,13 @@ on:
       - 'tests/control_panel/**'
       - 'requirements*.txt'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
