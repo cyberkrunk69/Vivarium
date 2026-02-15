@@ -263,7 +263,8 @@ def _check_test_command_integrity(
         result.fail("CI core test command must remain exact and ungated.")
 
     if re.search(
-        r'pytest -q -m "not integration and not e2e"[^\n]*(?:-k|--lf|--ff|--maxfail|--collect-only|--co)\b',
+        r'pytest -q -m "not integration and not e2e"[^\n]*'
+        r"(?:-k|--lf|--ff|--maxfail|--collect-only|--co)\b",
         ci_text,
     ):
         result.fail("CI core test command contains forbidden narrowing flags.")
@@ -275,7 +276,8 @@ def _check_test_command_integrity(
         result.fail("Integration test command must remain exact and ungated.")
 
     if re.search(
-        r'pytest -q -m "integration or e2e"[^\n]*(?:-k|--lf|--ff|--maxfail|--collect-only|--co)\b',
+        r'pytest -q -m "integration or e2e"[^\n]*'
+        r"(?:-k|--lf|--ff|--maxfail|--collect-only|--co)\b",
         integration_text,
     ):
         result.fail("Integration test command contains forbidden narrowing flags.")
